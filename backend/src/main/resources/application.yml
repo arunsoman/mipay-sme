@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: mipay-sme
+  threads:
+    virtual:
+      enabled: true   # Java 21: every request + simulated bank callback runs on a virtual thread
+  datasource:
+    url: jdbc:h2:file:./data/mipay;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: false              # H2 demo profile: Hibernate ddl-auto manages the schema.
+                                # The `postgres` profile enables Flyway with V1__init.sql.
+    locations: classpath:db/migration
+server:
+  port: 8080
+
+app:
+  jwt-secret: "sandbox-jwt-secret-change-me-in-production-0123456789"
+  environment: sandbox          # sandbox | uat | production - every bank/lender event is SIMULATED (UAT SB p.16)
+  dev-otp: "123456"             # fixed OTP in sandbox, shown as a SIMULATED hint
+  advance:
+    max-principal: 25000        # lesser-of rule 1: N$25,000 (BC p.10)
+    monthly-share: 0.20         # lesser-of rule 2: 20% of verified avg monthly net receipts
+    default-rate: 0.10          # repay 10% of eligible daily receipts (BC p.11)
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

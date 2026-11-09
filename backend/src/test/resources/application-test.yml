@@ -1,0 +1,21 @@
+# Test profile for the UAT compliance pack.
+# In-memory H2 (PostgreSQL compatibility mode) so every run is reproducible;
+# seeds run as in the sandbox profile (UAT SB p.16 simulated labelling is on).
+spring:
+  datasource:
+    url: jdbc:h2:mem:mipay-uat;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      jakarta:
+        persistence:
+          lock:
+            timeout: 10000
+
+app:
+  environment: sandbox        # every simulated bank/lender event is labelled (UAT SB p.16)
+  dev-otp: "123456"

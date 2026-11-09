@@ -1,0 +1,223 @@
+{
+ "A.1": {
+  "title": "Bank or licensed issuer connector",
+  "video": "videos/a-1-bank-or-licensed-issuer-connector.mp4",
+  "duration": 38.6,
+  "screens": [
+   "screens/a-1-bank-or-licensed-issuer-connector/01_E01.png",
+   "screens/a-1-bank-or-licensed-issuer-connector/02_E02.png",
+   "screens/a-1-bank-or-licensed-issuer-connector/03_E03.png",
+   "screens/a-1-bank-or-licensed-issuer-connector/04_E06.png",
+   "screens/a-1-bank-or-licensed-issuer-connector/05_E07.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 45
+ },
+ "A.2": {
+  "title": "Lender adapter",
+  "video": "videos/a-2-lender-adapter.mp4",
+  "duration": 15.3,
+  "screens": [
+   "screens/a-2-lender-adapter/01_E15.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 20
+ },
+ "A.3": {
+  "title": "Payment rails and other connectors",
+  "video": "videos/a-3-payment-rails-and-other-connectors.mp4",
+  "duration": 42.3,
+  "screens": [
+   "screens/a-3-payment-rails-and-other-connectors/01_E21.png",
+   "screens/a-3-payment-rails-and-other-connectors/02_E22.png",
+   "screens/a-3-payment-rails-and-other-connectors/03_E25.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 45
+ },
+ "A.4": {
+  "title": "Fee, tariff and pricing configuration",
+  "video": "videos/a-4-fee-tariff-and-pricing-configuration.mp4",
+  "duration": 36.1,
+  "screens": [
+   "screens/a-4-fee-tariff-and-pricing-configuration/01_C01.png",
+   "screens/a-4-fee-tariff-and-pricing-configuration/02_C02.png",
+   "screens/a-4-fee-tariff-and-pricing-configuration/03_C03.png",
+   "screens/a-4-fee-tariff-and-pricing-configuration/04_C05.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 41
+ },
+ "A.5": {
+  "title": "Limits, holds and controls",
+  "video": "videos/a-5-limits-holds-and-controls.mp4",
+  "duration": 27.7,
+  "screens": [
+   "screens/a-5-limits-holds-and-controls/01_C10.png",
+   "screens/a-5-limits-holds-and-controls/02_C13.png",
+   "screens/a-5-limits-holds-and-controls/03_C14.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 31
+ },
+ "A.6": {
+  "title": "Reconciliation and data rules",
+  "video": "videos/a-6-reconciliation-and-data-rules.mp4",
+  "duration": 25.9,
+  "screens": [
+   "screens/a-6-reconciliation-and-data-rules/01_C22.png",
+   "screens/a-6-reconciliation-and-data-rules/02_C23.png",
+   "screens/a-6-reconciliation-and-data-rules/03_C24.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 41
+ },
+ "A.7": {
+  "title": "Approval workflow configuration",
+  "video": "videos/a-7-approval-workflow-configuration.mp4",
+  "duration": 28.0,
+  "screens": [
+   "screens/a-7-approval-workflow-configuration/01_C30.png",
+   "screens/a-7-approval-workflow-configuration/02_C31.png",
+   "screens/a-7-approval-workflow-configuration/03_C32.png",
+   "screens/a-7-approval-workflow-configuration/04_C33.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 37
+ },
+ "A.8": {
+  "title": "Notification and content templates",
+  "video": "videos/a-8-notification-and-content-templates.mp4",
+  "duration": 16.9,
+  "screens": [
+   "screens/a-8-notification-and-content-templates/01_C40.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 22
+ },
+ "A.9": {
+  "title": "Simulation and environment controls",
+  "video": "videos/a-9-simulation-and-environment-controls.mp4",
+  "duration": 38.6,
+  "screens": [
+   "screens/a-9-simulation-and-environment-controls/01_E30.png",
+   "screens/a-9-simulation-and-environment-controls/02_E31.png",
+   "screens/a-9-simulation-and-environment-controls/03_E32.png",
+   "screens/a-9-simulation-and-environment-controls/04_E33.png",
+   "screens/a-9-simulation-and-environment-controls/05_E34.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 50
+ },
+ "A.10": {
+  "title": "Access, tenancy and roles",
+  "video": "videos/a-10-access-tenancy-and-roles.mp4",
+  "duration": 41.4,
+  "screens": [
+   "screens/a-10-access-tenancy-and-roles/01_E42.png",
+   "screens/a-10-access-tenancy-and-roles/02_E43.png",
+   "screens/a-10-access-tenancy-and-roles/03_E44.png",
+   "screens/a-10-access-tenancy-and-roles/04_E45.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 52
+ },
+ "B.1": {
+  "title": "Merchant tools",
+  "video": "videos/b-1-merchant-tools.mp4",
+  "duration": 83.9,
+  "screens": [
+   "screens/b-1-merchant-tools/01_M30.png",
+   "screens/b-1-merchant-tools/02_M31.png",
+   "screens/b-1-merchant-tools/03_M32.png",
+   "screens/b-1-merchant-tools/04_M33.png",
+   "screens/b-1-merchant-tools/05_M34.png",
+   "screens/b-1-merchant-tools/06_M36.png",
+   "screens/b-1-merchant-tools/07_M37.png",
+   "screens/b-1-merchant-tools/08_M38.png",
+   "screens/b-1-merchant-tools/09_M39.png",
+   "screens/b-1-merchant-tools/10_M42.png",
+   "screens/b-1-merchant-tools/11_M43.png",
+   "screens/b-1-merchant-tools/12_M44.png",
+   "screens/b-1-merchant-tools/13_M45.png",
+   "screens/b-1-merchant-tools/14_M47.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 89
+ },
+ "B.2": {
+  "title": "TPTS operations console",
+  "video": "videos/b-2-tpts-operations-console.mp4",
+  "duration": 77.9,
+  "screens": [
+   "screens/b-2-tpts-operations-console/01_T10.png",
+   "screens/b-2-tpts-operations-console/02_T11.png",
+   "screens/b-2-tpts-operations-console/03_T12.png",
+   "screens/b-2-tpts-operations-console/04_T13.png",
+   "screens/b-2-tpts-operations-console/05_T14.png",
+   "screens/b-2-tpts-operations-console/06_T15.png",
+   "screens/b-2-tpts-operations-console/07_T16.png",
+   "screens/b-2-tpts-operations-console/08_T17.png",
+   "screens/b-2-tpts-operations-console/09_T18.png",
+   "screens/b-2-tpts-operations-console/10_T19.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 81
+ },
+ "B.3": {
+  "title": "Lender portal",
+  "video": "videos/b-3-lender-portal.mp4",
+  "duration": 37.2,
+  "screens": [
+   "screens/b-3-lender-portal/01_L10.png",
+   "screens/b-3-lender-portal/02_L11.png",
+   "screens/b-3-lender-portal/03_L12.png",
+   "screens/b-3-lender-portal/04_L13.png",
+   "screens/b-3-lender-portal/05_L14.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 38
+ },
+ "B.4": {
+  "title": "Mindlabs admin console",
+  "video": "videos/b-4-mindlabs-admin-console.mp4",
+  "duration": 51.7,
+  "screens": [
+   "screens/b-4-mindlabs-admin-console/01_X10.png",
+   "screens/b-4-mindlabs-admin-console/02_X11.png",
+   "screens/b-4-mindlabs-admin-console/03_X12.png",
+   "screens/b-4-mindlabs-admin-console/04_X13.png",
+   "screens/b-4-mindlabs-admin-console/05_X14.png",
+   "screens/b-4-mindlabs-admin-console/06_X15.png",
+   "screens/b-4-mindlabs-admin-console/07_X16.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 54
+ },
+ "B.5": {
+  "title": "Customer-facing touchpoints",
+  "video": "videos/b-5-customer-facing-touchpoints.mp4",
+  "duration": 12.1,
+  "screens": [
+   "screens/b-5-customer-facing-touchpoints/01_CU01.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 14
+ },
+ "B.6": {
+  "title": "Compliance and data protection",
+  "video": "videos/b-6-compliance-and-data-protection.mp4",
+  "duration": 67.9,
+  "screens": [
+   "screens/b-6-compliance-and-data-protection/01_K01.png",
+   "screens/b-6-compliance-and-data-protection/02_K02.png",
+   "screens/b-6-compliance-and-data-protection/03_K03.png",
+   "screens/b-6-compliance-and-data-protection/04_K04.png",
+   "screens/b-6-compliance-and-data-protection/05_K05.png",
+   "screens/b-6-compliance-and-data-protection/06_K06.png",
+   "screens/b-6-compliance-and-data-protection/07_K07.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 70
+ }
+}

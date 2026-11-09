@@ -1,0 +1,229 @@
+{
+ "2.1": {
+  "title": "Merchant and supplier approval",
+  "video": "videos/2-1-merchant-and-supplier-approval.mp4",
+  "duration": 48.2,
+  "screens": [
+   "screens/2-1-merchant-and-supplier-approval/01_approval_queues.png",
+   "screens/2-1-merchant-and-supplier-approval/02_merchant_pending.png",
+   "screens/2-1-merchant-and-supplier-approval/03_merchant_approved.png",
+   "screens/2-1-merchant-and-supplier-approval/04_supplier_accounts.png",
+   "screens/2-1-merchant-and-supplier-approval/05_change_pending.png",
+   "screens/2-1-merchant-and-supplier-approval/06_bank_change_selected.png",
+   "screens/2-1-merchant-and-supplier-approval/07_bank_change_cannot_approve.png"
+  ],
+  "notes": [
+   "setup (not recorded): registered fictional merchant 0819173187 via POST /api/onboarding/merchant -> HTTP 200",
+   "TPTS Ops: the pending bank-account change cannot be approved: the page shows 'Selected request is already PENDING_APPROVAL' and no Approve/Reject buttons"
+  ],
+  "seconds_to_record": 48
+ },
+ "2.2": {
+  "title": "Acceptance and availability",
+  "video": "videos/2-2-acceptance-and-availability.mp4",
+  "duration": 49.9,
+  "screens": [
+   "screens/2-2-acceptance-and-availability/01_balance_before.png",
+   "screens/2-2-acceptance-and-availability/02_qr_created.png",
+   "screens/2-2-acceptance-and-availability/03_qr_confirmed.png",
+   "screens/2-2-acceptance-and-availability/04_balance_after_qr.png",
+   "screens/2-2-acceptance-and-availability/05_card_pending.png",
+   "screens/2-2-acceptance-and-availability/06_balance_card_pending.png",
+   "screens/2-2-acceptance-and-availability/07_qr_pending_gap.png",
+   "screens/2-2-acceptance-and-availability/08_customer_paid.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 58
+ },
+ "2.3": {
+  "title": "Pay from balance",
+  "video": "videos/2-3-pay-from-balance.mp4",
+  "duration": 46.3,
+  "screens": [
+   "screens/2-3-pay-from-balance/01_catalogue.png",
+   "screens/2-3-pay-from-balance/02_order_placed.png",
+   "screens/2-3-pay-from-balance/03_invoice_issued.png",
+   "screens/2-3-pay-from-balance/04_balance_before.png",
+   "screens/2-3-pay-from-balance/05_invoice_selected.png",
+   "screens/2-3-pay-from-balance/06_paid.png",
+   "screens/2-3-pay-from-balance/07_balance_after.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 48
+ },
+ "2.4": {
+  "title": "Insufficient balance",
+  "video": "videos/2-4-insufficient-balance.mp4",
+  "duration": 46.1,
+  "screens": [
+   "screens/2-4-insufficient-balance/01_catalogue.png",
+   "screens/2-4-insufficient-balance/02_order_placed.png",
+   "screens/2-4-insufficient-balance/03_invoice_issued.png",
+   "screens/2-4-insufficient-balance/04_balance_zero.png",
+   "screens/2-4-insufficient-balance/05_refused.png",
+   "screens/2-4-insufficient-balance/06_balance_unchanged.png"
+  ],
+  "notes": [
+   "setup (not recorded): fictional merchant 0819173112 registered and approved via API (register HTTP 200)"
+  ],
+  "seconds_to_record": 48
+ },
+ "2.5": {
+  "title": "Concurrent orders",
+  "video": "videos/2-5-concurrent-orders.mp4",
+  "duration": 13.6,
+  "screens": [
+   "screens/2-5-concurrent-orders/01_tiles.png",
+   "screens/2-5-concurrent-orders/02_concurrency_note.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 16
+ },
+ "2.6": {
+  "title": "Timeout and duplicate",
+  "video": "videos/2-6-timeout-and-duplicate.mp4",
+  "duration": 31.8,
+  "screens": [
+   "screens/2-6-timeout-and-duplicate/01_timeout_pending.png",
+   "screens/2-6-timeout-and-duplicate/02_confirmed.png",
+   "screens/2-6-timeout-and-duplicate/03_duplicate_ignored.png",
+   "screens/2-6-timeout-and-duplicate/04_single_credit.png",
+   "screens/2-6-timeout-and-duplicate/05_event_trail.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 35
+ },
+ "2.7": {
+  "title": "Advance eligibility",
+  "video": "videos/2-7-advance-eligibility.mp4",
+  "duration": 23.6,
+  "screens": [
+   "screens/2-7-advance-eligibility/01_eligibility_rules.png",
+   "screens/2-7-advance-eligibility/02_rules_config.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 25
+ },
+ "2.8": {
+  "title": "Advance funding",
+  "video": "videos/2-8-advance-funding.mp4",
+  "duration": 32.6,
+  "screens": [
+   "screens/2-8-advance-funding/01_balance_before.png",
+   "screens/2-8-advance-funding/02_accepted_not_funded.png",
+   "screens/2-8-advance-funding/03_advance_flow.png",
+   "screens/2-8-advance-funding/04_failed.png"
+  ],
+  "notes": [
+   "Mindlabs Admin: \u2018Run advance flow\u2019 failed in the live app (FAILED scene advance_flow Unknown scene advance_flow)"
+  ],
+  "seconds_to_record": 35
+ },
+ "2.9": {
+  "title": "Repayment mandate",
+  "video": "videos/2-9-repayment-mandate.mp4",
+  "duration": 25.2,
+  "screens": [
+   "screens/2-9-repayment-mandate/01_sweep_1.png",
+   "screens/2-9-repayment-mandate/02_sweep_2.png",
+   "screens/2-9-repayment-mandate/03_repayments.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 25
+ },
+ "2.10": {
+  "title": "Consent and Khata",
+  "video": "videos/2-10-consent-and-khata.mp4",
+  "duration": 21.1,
+  "screens": [
+   "screens/2-10-consent-and-khata/01_consent.png",
+   "screens/2-10-consent-and-khata/02_lender_records.png",
+   "screens/2-10-consent-and-khata/03_records_open.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 22
+ },
+ "2.11": {
+  "title": "Reconciliation",
+  "video": "videos/2-11-reconciliation.mp4",
+  "duration": 65.0,
+  "screens": [
+   "screens/2-11-reconciliation/01_recon_clean.png",
+   "screens/2-11-reconciliation/02_break_injected.png",
+   "screens/2-11-reconciliation/03_break_flagged.png",
+   "screens/2-11-reconciliation/04_withdrawal_blocked.png",
+   "screens/2-11-reconciliation/05_cleared.png",
+   "screens/2-11-reconciliation/06_recon_clean_again.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 74
+ },
+ "2.12": {
+  "title": "Fees and billing",
+  "video": "videos/2-12-fees-and-billing.mp4",
+  "duration": 27.2,
+  "screens": [
+   "screens/2-12-fees-and-billing/01_fee_report.png",
+   "screens/2-12-fees-and-billing/02_tariffs.png",
+   "screens/2-12-fees-and-billing/03_card_fee.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 29
+ },
+ "2.13": {
+  "title": "Security and recovery",
+  "video": "videos/2-13-security-and-recovery.mp4",
+  "duration": 34.8,
+  "screens": [
+   "screens/2-13-security-and-recovery/01_role_gate.png",
+   "screens/2-13-security-and-recovery/02_audit.png",
+   "screens/2-13-security-and-recovery/03_audit_all.png",
+   "screens/2-13-security-and-recovery/04_backup.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 36
+ },
+ "2.15": {
+  "title": "Exit-criteria checks",
+  "video": "videos/2-15-exit-criteria-checks.mp4",
+  "duration": 26.6,
+  "screens": [
+   "screens/2-15-exit-criteria-checks/01_health.png",
+   "screens/2-15-exit-criteria-checks/02_incident_logged.png",
+   "screens/2-15-exit-criteria-checks/03_incident_ack.png",
+   "screens/2-15-exit-criteria-checks/04_incident_resolved.png"
+  ],
+  "notes": [],
+  "seconds_to_record": 27
+ },
+ "2.14": {
+  "title": "Demo script",
+  "video": "videos/2-14-demo-script.mp4",
+  "duration": 175.2,
+  "screens": [
+   "screens/2-14-demo-script/01_s1_pending.png",
+   "screens/2-14-demo-script/02_s1_approved.png",
+   "screens/2-14-demo-script/03_s1_supplier.png",
+   "screens/2-14-demo-script/04_s2_confirmed.png",
+   "screens/2-14-demo-script/05_s2_balance.png",
+   "screens/2-14-demo-script/06_s3_order.png",
+   "screens/2-14-demo-script/07_s3_invoice.png",
+   "screens/2-14-demo-script/08_s3_paid.png",
+   "screens/2-14-demo-script/09_s3_timeout.png",
+   "screens/2-14-demo-script/10_s3_duplicate.png",
+   "screens/2-14-demo-script/11_s4_history.png",
+   "screens/2-14-demo-script/12_s4_eligibility.png",
+   "screens/2-14-demo-script/13_s4_consent.png",
+   "screens/2-14-demo-script/14_s4_lender.png",
+   "screens/2-14-demo-script/15_s5_advance_flow.png",
+   "screens/2-14-demo-script/16_failed.png",
+   "screens/2-14-demo-script/17_s5_sweep.png",
+   "screens/2-14-demo-script/18_s5_repayments.png"
+  ],
+  "notes": [
+   "setup (not recorded): registered fictional merchant 0819198025 (\u2018UAT Demo Cafe\u2019, stands in for Selma's caf\u00e9) via POST /api/onboarding/merchant -> HTTP 200",
+   "Mindlabs Admin: \u2018Run advance flow\u2019 failed in the live app (FAILED scene advance_flow Unknown scene advance_flow)"
+  ],
+  "seconds_to_record": 200
+ }
+}

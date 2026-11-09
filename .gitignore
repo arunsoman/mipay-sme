@@ -1,0 +1,15 @@
+node_modules/
+dist/
+target/
+backend/data/
+*.log
+.DS_Store
+build/
+.gradle/
+.angular/
+.env
+.playwright-cli/
+tools/uat-evidence/venv/
+tools/uat-evidence/rec/out/
+tools/uat-evidence/rec/add_out/
+__pycache__/

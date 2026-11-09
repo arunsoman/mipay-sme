@@ -1,0 +1,69 @@
+// =====================================================================
+// MiPay SME - design tokens (single source of truth for every visual
+// decision; feature code never hardcodes colors/spacing/radius).
+// Currency: NAD. All bank/lender events in this product are SIMULATED
+// (amber), per UAT SB p.16.
+// =====================================================================
+:root {
+  // brand
+  --mp-navy: #0b2447;
+  --mp-navy-2: #19376d;
+  --mp-teal: #146c94;
+  --mp-amber: #f59e0b;      // SIMULATED / synthetic label color
+  --mp-bg: #f4f6fa;
+  --mp-surface: #ffffff;
+  --mp-border: #e2e8f0;
+
+  // text
+  --mp-text: #1e293b;
+  --mp-text-dim: #64748b;
+  --mp-text-invert: #f8fafc;
+
+  // status palette (keys used by status-badge via status-maps.ts)
+  --st-confirmed: #16a34a;
+  --st-paid: #16a34a;
+  --st-active: #16a34a;
+  --st-approved: #16a34a;
+  --st-failed: #dc2626;
+  --st-rejected: #dc2626;
+  --st-revoked: #dc2626;
+  --st-suspended: #dc2626;
+  --st-open: #2563eb;
+  --st-pending: #2563eb;
+  --st-pending_approval: #2563eb;
+  --st-issued: #2563eb;
+  --st-in_progress: #2563eb;
+  --st-held: #d97706;
+  --st-repaying: #d97706;
+  --st-processing: #d97706;
+  --st-arrerars: #d97706;
+  --st-breaks_found: #b45309;
+  --st-timed_out: #b45309;
+  --st-verified: #0e7490;
+  --st-matched: #16a34a;
+  --st-closed: #64748b;
+  --st-resolved: #64748b;
+  --st-default-ed: #64748b;
+
+  // spacing scale
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-8: 48px;
+
+  // radii + shadow
+  --radius-1: 6px; --radius-2: 10px; --radius-3: 14px;
+  --shadow-1: 0 1px 3px rgb(15 23 42 / 0.08);
+  --shadow-2: 0 4px 16px rgb(15 23 42 / 0.10);
+
+  // typography
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 14px; --fs-lg: 18px; --fs-xl: 24px;
+
+  // layout
+  --sidebar-w: 232px;
+  --topbar-h: 56px;
+}
+
+.mp-dark {
+  --mp-bg: #0f172a; --mp-surface: #1e293b; --mp-border: #334155;
+  --mp-text: #e2e8f0; --mp-text-dim: #94a3b8; --mp-text-invert: #0f172a;
+}

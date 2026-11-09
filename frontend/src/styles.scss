@@ -1,0 +1,14 @@
+// Global app styles: tokens + utilities once, components carry only their own css.
+@use 'app/design-system/_index.scss';
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  color: var(--mp-text);
+  background: var(--mp-bg);
+}
+h1, h2, h3 { margin: 0; font-weight: 600; }
+a { color: var(--mp-teal); text-decoration: none; }

@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mipay
+      POSTGRES_USER: mipay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mipay}
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mipay -d mipay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- --timeout=3 http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-sandbox}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-sandbox-jwt-secret-change-me-in-production-0123456789}
+      POSTGRES_URL: jdbc:postgresql://db:5432/mipay
+      POSTGRES_USER: mipay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mipay}
+    ports: ["8080:8080"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports: ["4200:80"]
+    depends_on:
+      backend:
+        condition: service_healthy
