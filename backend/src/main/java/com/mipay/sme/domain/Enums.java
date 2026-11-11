@@ -41,8 +41,6 @@ public final class Enums {
 
     /** Role of a user inside their org: ADMIN may onboard/staff/decide; STAFF is operational. */
     public enum OrgMemberRole { ADMIN, STAFF }
-    public enum TenantType { TPTS, MINDLABS, ISSUER, LENDER, SUPPLIER }
-    public enum TenantStatus { ACTIVE, SUSPENDED }
 
     // ---------- onboarding / approval ----------
     public enum KycStatus { PENDING, VERIFIED, REJECTED }

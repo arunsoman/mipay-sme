@@ -1,89 +1,98 @@
 # Two-factor authentication: push with number matching, authenticator app, passkeys and step-up
 
-Status: **draft for review** · 2026-11-11 · **revised 2026-11-11 by `fapi2-design.md`**
+Status: **draft for review** · 2026-11-11 · **revised 2026-11-11** to match [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) and [`fapi2-design.md`](fapi2-design.md)
 
-> **Revision: the trustplane IdP owns every login.** This design was first written for 2FA inside the
-> MiPay backend's `AuthService`. Per `fapi2-design.md` (I1–I8), every login, second factor, recovery and
-> account lifecycle now lives in the **trustplane IdP**, browsers reach it through the **gateway acting as a
-> FAPI 2.0 BFF**, and permissions come from **trustplane RBAC**. The factors, policies, recovery rules and
-> invariants below are unchanged; only *where* they run moves:
->
-> | Part of this design | Now implemented in |
-> |---|---|
-> | Factors (§3), policy master (§4), sign-in second step (§5), approver app and push (§6), enrolment and recovery (§8), merchant OTP (§9) | **IdP**: its login and account pages at `auth.afriqpay.com` |
-> | `mfaToken` / `/api/auth/mfa/*` (§5, §10) | IdP-internal login steps; the browser only ever talks to `/authorize` and the IdP's pages |
-> | Step-up (§7) | **RFC 9470** step-up through the gateway (`acr_values`, `max_age`); transaction binding through **RAR** (`authorization_details`), see `fapi2-design.md` §4.3 |
-> | Token claims `amr` / `acr` / `auth_time` | IdP ID and access tokens; forwarded to upstreams in the gateway's signed context |
-> | "Who decides" recovery and platform functions (§8.4) | RBAC roles and permissions (`fapi2-design.md` §9): e.g. deciding an `ACCOUNT_RECOVERY` needs `org.user.recover` on the user's org |
-> | Phases (§16) | run after migration step 5 of `fapi2-design.md` §8, as its step 6 |
+> **Where this runs, in one paragraph.**
+> - 2FA is built in the **trustplane IdP**, the credential plugin. Browsers reach it through the gateway acting as a FAPI 2.0 BFF.
+> - The **MiPay core** owns users, their org, their status and their contact details. It decides which 2FA *profile* each user needs, from their RBAC roles and their org.
+> - **Trustplane RBAC** decides permissions, and each permission cell says whether it needs a step-up.
+> - Every message (OTP, push, links, notices) goes through the **comms plane** ([`comms-design.md`](comms-design.md)), addressed by the core user id.
+> - The whole feature ships **switched off** (`mfa.mode=off`). Each factor turns itself on when the comms channel it needs is live (§4).
 
-## 1. Context and proposed decisions
+| Part of this design | Implemented in |
+|---|---|
+| Factors (§3), policy (§5), login second step (§6), approver app and push (§7), self-service password reset (§9.3), merchant OTP (§10) | **IdP**: its login and account pages at `auth.afriqpay.com`, and its own database |
+| Which profile a user needs (§5.1), assisted recovery (§9.4), contact changes (§9.7), cooling-off (§9.5) | **Core**, through the `AuthProvider` contract (`idp-rbac-cutover-plan.md` §1.2) |
+| Step-up (§8) | Each RBAC permission cell declares its step-up rule. The gateway or core answers with an **RFC 9470** challenge; transaction binding uses **RAR** (`authorization_details`) |
+| Sending OTPs, pushes, links and notices | **Comms plane**, through the IdP's and core's `CommsClient`; a sandbox implementation is used until it is live |
+| Token claims `amr` / `acr` / `auth_time` | IdP ID and access tokens (with `uid`), forwarded to upstreams in the gateway's signed context |
 
-**How sign-in works today:**
-- **Portal users** sign in with username or phone plus a password at `POST /api/auth/login`, served by the core backend (`AuthService.loginWithPassword`). The trustplane gateway forwards `/api/auth/**` to the backend unchanged, and the backend issues its own HS256 token (12 h, `JwtService.TTL`). Each token is registered in `devices_sessions`, which already has an unused `mfa_method` column.
-- **Merchants on the legacy path** sign in with phone and OTP (`/api/auth/otp`, `/api/auth/otp/verify`). The OTP is kept in an in-memory map: it has no expiry and no attempt limit, and it is lost on restart. In the sandbox it is the fixed dev code.
-- **API clients** use the trustplane IdP, which implements FAPI 2.0 (OAuth with DPoP or mTLS) and is separate from the portal login. It puts `amr: ["pwd"]` in its tokens.
-- **No second factor exists.** Privileged actions (KYC decisions, rights changes, user administration) need only a valid token.
+## 1. Context and decisions
 
-**Proposed decisions.** These are drafted from the discussion and still need the product owner's confirmation; §16 lists what is still open.
+**Today:**
+- Portal users sign in with username or phone plus a password at the core's `POST /api/auth/login`, which issues its own HS256 token. This is being replaced by the IdP login (`idp-rbac-cutover-plan.md` P1–P5).
+- Merchants sign in with phone and OTP. The OTP is kept in memory, with no expiry and no attempt limit, and in production it is never actually sent.
+- **No second factor exists.** Privileged actions need only a valid token.
+- **No message is actually delivered:** `notification_messages` has nothing that sends it (`comms-design.md` §0).
+
+**Decisions:**
 
 | # | Decision |
 |---|---|
-| D1 | ~~Portal 2FA is enforced in core's `AuthService`.~~ **Revised:** 2FA is enforced in the **trustplane IdP**, the only place anyone logs in (`fapi2-design.md` I1). Portals reach it through the gateway BFF; API clients reach it directly. |
-| D2 | **Factors, in order of preference:** push approval with number matching, passkey (WebAuthn), authenticator app (TOTP), SMS OTP (fallback only), recovery codes (recovery only). |
-| D3 | **Mandatory for MiPay staff** (TPTS_OPS, MINDLABS_ADMIN and every holder of a platform function) **and for every org ADMIN.** Optional for other org members unless their org switches it on. Legacy OTP merchants keep phone OTP as their login factor (§9). |
-| D4 | **Push is delivered through an installable web app (PWA) first**, using Web Push, with a WebAuthn passkey as the device key. A native app (Firebase / Apple push, hardware-backed key) comes later and uses the same server API (§6.6). |
-| D5 | **Step-up:** sensitive actions need a second factor less than 5 minutes old. For money movement and KYC decisions, the approval is bound to the exact action (§7). |
-| D6 | **Policy lives in a master table** maintained by migrations, like the KYC master: which factors each role may use, whether 2FA is required, how long a device may be remembered, and the step-up rules. The system behaves from it. |
-| D7 | **Recovery covers passwords and 2FA, and never lets one lost secret unlock everything.** Forgot password → self-service by email or SMS link, but the second factor is still required. Lost 2FA → recovery code, else assisted recovery. Lost both → assisted recovery only, decided by a second person after verifying the user's identity, followed by a cooling-off period (§8). |
-| D8 | **No personal data in push payloads.** A push carries only a challenge id and a fixed message; the phone fetches the details over an authenticated call. |
+| D1 | 2FA is enforced in the **trustplane IdP**, the only place anyone logs in. The core never sees a factor or a code. |
+| D2 | **Factors, in order of preference:** push approval with number matching, passkey (WebAuthn), authenticator app (TOTP), SMS OTP (fallback only), recovery codes (recovery only). Merchants also get a transaction PIN for step-up (§10). |
+| D3 | **Mandatory for platform staff** (any `platform_*` role) **and for every `org_admin`.** Optional for other org members unless their org switches it on. Merchants keep phone OTP as their login factor (§10). |
+| D4 | **Push goes straight to the native MiPay mobile app** (decided 2026-11-11: a native app is on the roadmap). Delivery is Firebase / Apple push through the comms plane (accepted under MiPay's data rules, because only a challenge id and fixed text pass through them; D8). The device key is ES256 in Android Keystore / iOS Secure Enclave, gated by biometrics. **No PWA approver is built**, to avoid building push twice; until the app ships, users use TOTP or a passkey (§7). |
+| D5 | **Step-up:** sensitive actions need a second factor less than 5 minutes old. For money movement and KYC decisions, the approval is bound to the exact action (§8). |
+| D6 | **The login policy lives in an IdP master table** keyed by **2FA profile** (`PLATFORM-STAFF`, `ORG-ADMIN`, `ORG-MEMBER`, `MERCHANT-OTP`). The core sets each account's profile. **Step-up rules live on the RBAC permission cells**, not in the 2FA policy. |
+| D7 | **Recovery covers passwords and 2FA, and never lets one lost secret unlock everything** (§9). |
+| D8 | **No personal data in push payloads.** A push carries only a challenge id and a fixed message. |
+| D9 | **Off until switched on.** One switch, `mfa.mode = off \| shadow \| enforce`. Factors that need a comms channel are available only while that channel is live, so turning the switch on, or a channel going live, needs no deployment (§4). |
+| D10 | **All messages go through the comms plane, addressed by the core user id** (`user:<uid>`). The IdP holds no email address or delivery phone; the core is the only writer of contact details in comms. |
 
 ## 2. Building blocks
 
 ```
-                   ┌──────────────── mfa master (developer-maintained) ────────────────┐
-                   │ mfa_policies (role/org-role → required, methods, remember, step-up)│
-                   └──────────────────────────────┬─────────────────────────────────────┘
- browser ── password ──▶ IdP login ───▶ MfaPolicyResolver ──▶ needs MFA?     (was: MiPay AuthService)
-                              │                                   │ no → token (amr=pwd)
-                              ▼                                   ▼ yes
-                         MfaService ── challenge ──▶ ┌──────────── factor plugins ───────────┐
-                              ▲                      │ PushFactor   (number match, signed)   │
-                              │                      │ WebAuthnFactor (passkey assertion)    │
-                     verify / poll                   │ TotpFactor    (RFC 6238)              │
-                              │                      │ SmsOtpFactor  (hashed, 5 min, 5 tries)│
-                              │                      │ RecoveryCodeFactor (single use)       │
-                              │                      └───────────────────────────────────────┘
-                              ▼
-                    token (amr=pwd+push|hwk|otp|sms, acr, auth_time) + devices_sessions.mfa_method
-
- any API call ──▶ StepUpGuard (@RequiresStepUp) ── fresh enough + bound to this action? ──▶ handler
-                                                  └─ no → 401 STEP_UP_REQUIRED + challenge
+ core ── sets mfa_profile per account (from RBAC roles + org.mfa_required) ──▶ IdP accounts
+                                                                                 │
+ browser ─▶ gateway BFF ─▶ IdP /authorize ── password ──▶ MfaPolicyResolver(profile, mfa.mode)
+                                                   │            │
+                                                   │            ├─ not needed → token (amr=pwd, acr=aal1)
+                                                   ▼            ▼ needed
+                                              MfaService ── challenge ──▶ factor plugins (available ones only)
+                                                   ▲                      PushFactor · WebAuthnFactor · TotpFactor
+                                                   │                      SmsOtpFactor · RecoveryCodeFactor · PinFactor
+                                             verify / poll                       │ needs comms?
+                                                   │                             ▼
+                                                   ▼                      FactorReadiness ◀── comms /capabilities
+                                    token (uid, amr, acr=aal2, auth_time) ──▶ gateway session
+ any request ─▶ gateway / core: permission cell needs step-up? ── no ─▶ handler
+                                                               └─ yes, not fresh/bound → 401 step_up_required (RFC 9470)
 ```
 
-Each factor is a Spring bean behind `MfaFactor`, named by key in the policy table:
+Each factor implements one interface in the IdP and declares what it needs from the comms plane:
 
-```java
-public interface MfaFactor {
-    String key();                                          // PUSH | WEBAUTHN | TOTP | SMS | RECOVERY
-    boolean enrolled(User u);
-    EnrollmentStart startEnrollment(User u, EnrollContext c);
-    void finishEnrollment(User u, EnrollmentProof proof);  // e.g. first TOTP code, WebAuthn attestation
-    ChallengeView challenge(MfaChallenge ch);              // e.g. sends the push, sends the SMS
-    VerifyResult verify(MfaChallenge ch, FactorResponse r);
-    Amr amr();                                             // the value written into the token
+```go
+type Factor interface {
+    Key() string                       // PUSH | WEBAUTHN | TOTP | SMS | RECOVERY | PIN
+    Requires() []Capability            // e.g. {CommsSMS}; nil for TOTP, WebAuthn, recovery codes, PIN
+    Enrolled(acct Account) bool
+    StartEnrollment(acct Account, c EnrollContext) (EnrollmentStart, error)
+    FinishEnrollment(acct Account, proof EnrollmentProof) error
+    Challenge(ch *Challenge) (ChallengeView, error)   // sends the push / SMS through CommsClient
+    Verify(ch *Challenge, r FactorResponse) (VerifyResult, error)
+    AMR() []string                     // RFC 8176 values written into the token
 }
 ```
 
 ## 3. Factors
 
+| Factor | Needs comms | Usable for login | Usable for step-up |
+|---|---|---|---|
+| Push with number matching | `comms.push` (comms P2) **and** the MiPay app installed | yes | yes, with transaction binding |
+| Passkey / security key | no | yes | yes |
+| Authenticator app (TOTP) | no | yes | yes |
+| SMS OTP (fallback) | `comms.sms` (comms P1) | per policy | per policy, never for staff |
+| Recovery codes | no | recovery only | **never** for `PAYOUT` / `KYC_DECISION` |
+| Transaction PIN (merchants) | no | no | merchant step-up only |
+
 ### 3.1 Push approval with number matching (preferred)
 
 1. The browser shows a 2-digit number (10–99) in large type. The phone shows three choices: that number and two random decoys, in random order.
-2. The user unlocks the approver app with fingerprint, face or PIN and taps the matching number. The phone signs `(challenge_id, chosen_number, decision, action_hash, nonce)` with its device key.
-3. The server checks, in this order:
+2. The user opens the MiPay app (fingerprint, face or device PIN) and taps the matching number. The phone signs `(challenge_id, chosen_number, decision, action_hash, nonce)` with its device key.
+3. The IdP checks, in this order:
    - the signature against the registered public key;
-   - that the device is active and belongs to the user;
+   - that the device is active and belongs to the account;
    - that the challenge is pending and not expired;
    - that the chosen number is correct.
 
@@ -94,379 +103,451 @@ public interface MfaFactor {
 - **A wrong number** fails the challenge immediately. The browser has to start over, and the event is audited.
 - At most **3 push challenges per user per 10 minutes**.
 - **3 denials or wrong numbers in 30 minutes** lock push for that user for 30 minutes (other factors still work) and raise an ops alert.
-- **"This wasn't me"** on the phone denies the challenge and revokes all of that user's sessions. It then requires a password reset at the next login and notifies their org's ADMINs (or MiPay ops, for staff).
+- **"This wasn't me"** on the phone:
+  - denies the challenge and revokes all of the user's sessions (back-channel logout);
+  - requires a password reset at the next login;
+  - sends the core a `SUSPICIOUS_LOGIN` event, and the core notifies the org's admins (or platform security, for staff) through comms.
 
-**How the waiting browser learns the result:** it polls `GET /api/auth/mfa/challenges/{id}` every 2 seconds. At about 80 orgs a month this costs nothing, so there is no need for server-sent events or WebSockets yet. The page offers "Use another method" at any time.
+**How the waiting browser learns the result:** the IdP page polls its own challenge status every 2 seconds and offers "Use another method" at any time.
 
 ### 3.2 Passkey / security key (WebAuthn)
 
 - Platform authenticators (Windows Hello, Touch ID, Android) and roaming keys (YubiKey) both work, with user verification required.
-- The relying-party id is the portal host (`portal.fapi.local` in the sandbox, the production host later).
-- **A passkey is also the device key for PWA push** (§6.6), so enrolling a phone for push is the same ceremony as enrolling a passkey.
-- The server stores the credential id, public key (COSE), signature counter, transports and attestation format. We don't require attestation (`none`), because we don't restrict hardware models.
+- **The relying-party id is the IdP host** (`auth.afriqpay.com`; `idp.fapi.local` in the sandbox), because every login happens there. Passkeys therefore work across all four portals and survive portal host changes.
+- The IdP stores the credential id, public key (COSE), signature counter, transports and attestation format. Attestation is `none`.
 
 ### 3.3 Authenticator app (TOTP)
 
-- RFC 6238: SHA-1, 6 digits, 30-second step, ±1 step of clock drift. This is compatible with Google Authenticator, Microsoft Authenticator, 1Password and Authy.
-- The secret is 160 bits, shown once as a QR code (`otpauth://totp/MiPay:<username>?issuer=MiPay`), and stored encrypted with AES-GCM under `app.mfa.encryption-key`. It never shares a key with KYC.
-- **Replay protection:** the last accepted time step is stored, so a code cannot be used twice.
+- RFC 6238: SHA-1, 6 digits, 30-second step, ±1 step of clock drift.
+- The secret is 160 bits, shown once as a QR code (`otpauth://totp/MiPay:<login_name>?issuer=MiPay`), and stored encrypted with AES-GCM under the IdP's `mfa.encryption_key`.
+- **Replay protection:** the last accepted time step is stored.
 - Enrolment is confirmed only after the user enters one valid code.
 
 ### 3.4 SMS OTP (fallback only)
 
-- 6 digits, a 5-minute life, at most 5 attempts, then a new code is needed.
-- The code is stored **hashed in the database** (`mfa_challenges`), replacing today's in-memory map.
-- It is sent through an `SmsGateway` adapter that queues messages in the existing notification outbox. The sandbox adapter shows the code on screen, as today.
-- **Not allowed for MiPay staff.** For org users it is allowed only when the policy permits it, because SIM swap makes it weak.
+- 6 digits, a 5-minute life, at most 5 attempts, then a new code is needed. Stored **hashed** in `mfa_challenges`.
+- Sent with `CommsClient.Send(event=auth.otp.sms, to=user:<uid>, lane=CRITICAL, expiresAt=+5 min)`. Comms looks up the phone the core registered and **never sends it late**.
+- **Not allowed for platform staff.** For org users it is allowed only when the policy permits it, because SIM swap makes it weak.
+- Available only while `comms.sms` is live (§4).
 
 ### 3.5 Recovery codes
 
-- 10 codes of 10 characters (Crockford base32, grouped `XXXXX-XXXXX`), shown once at enrolment and stored bcrypt-hashed. Each code works once.
-- Regenerating them invalidates the old set. Using one is audited and emails the user.
+- 10 codes of 10 characters (Crockford base32, grouped `XXXXX-XXXXX`), shown once at enrolment and stored bcrypt-hashed. Each works once.
+- Regenerating them invalidates the old set. Using one is audited and triggers a notice through comms.
 - A recovery code signs the user in, but **cannot satisfy a step-up** for money movement or KYC decisions.
 
-## 4. Policy master
+## 4. Switching it on: `mfa.mode` and factor readiness
 
-`mfa_policies` is created in `V12__mfa.sql`, and rows are maintained only through migrations.
+### 4.1 The switch
+
+| `mfa.mode` | Login | Step-up | Enrolment |
+|---|---|---|---|
+| `off` (initial) | password only (`acr=aal1`) | **fresh re-authentication**: password re-entered within `max_age` (`acr=aal1`, `auth_time` fresh); audited as `step_up_without_mfa` | **optional**: users may enrol TOTP or a passkey from the Security page, so they are ready on day one |
+| `shadow` | as `off`, but the IdP logs which users *would* have been asked, and for what | as `off` | optional; the Security page shows "2FA will soon be required" to users whose profile needs it |
+| `enforce` | the policy (§5) applies, with grace logins | the second factor is required (`acr=aal2`), bound where the rule says so | forced after the grace logins |
+
+- **The minimum strength for step-up comes from the IdP, not from code.** The IdP publishes `step_up_acr` (`aal1-fresh` while `off`/`shadow`, `aal2` in `enforce`). The gateway and core's `@Perm` checks (`idp-rbac-cutover-plan.md` P6.4) read it, so switching to `enforce` changes nothing in the portals or the backend.
+- **Grace logins** (`enroll_grace_logins`: 0 for staff, 3 for existing org admins) mean switching to `enforce` takes everyone through the enrolment wizard at their next login and locks nobody out.
+
+### 4.2 Factor readiness
+
+The IdP computes, for each account at each login:
+
+```
+usable_methods = policy(profile).allowed_methods  ∩  { factor | every capability in factor.Requires() is live }
+```
+
+- **Where readiness comes from:** the comms plane publishes `GET /comms/v1/capabilities`. For each channel it reports `live` (a provider is configured, healthy, and the auth event templates are published). The IdP caches it for 60 s.
+- **When a channel goes live, the factor appears.** When it fails, the factor disappears and the user is offered another method. **It never falls back to "no second factor".**
+- **Before comms exists:** `CommsClient` uses the sandbox implementation (writes to `sim_outbox`) in the sandbox and CI, so every factor is tested. In production it reports every channel as not live.
+- **Flows that need comms, not just factors:**
+  - self-service "Forgot password" (§9.3) is offered only while email or SMS is live; until then the login page shows only "Can't get in?" (assisted recovery);
+  - merchant phone-OTP login (§10) is offered only while `comms.sms` is live; until then merchants sign in with a password.
+
+### 4.3 Safety check before enforcing
+
+- **No lock-out:** `enforce` is refused for any profile whose policy is `ALWAYS` but whose `usable_methods` is empty. The profile stays in `shadow`, and an alert is raised. Profiles that allow TOTP or a passkey (`PLATFORM-STAFF`, `ORG-ADMIN`) can always be enforced, comms or not.
+- **At boot,** `MfaPolicyValidator` checks that every method key names a factor, every profile is unique, and the step-up rule keys published by the RBAC catalogue are all known. If anything fails, the IdP refuses to start.
+- **Readiness page** (admin portal → Security → 2FA readiness): for each profile, its mode, its usable methods, the methods waiting for a comms channel, how many users are enrolled, and how many grace logins are left.
+
+### 4.4 Switch-on order
+
+1. **Now:** `mfa.mode=off`; optional TOTP and passkey enrolment allowed; step-up by fresh password.
+2. **`shadow`** for a week: see who would be prompted, and chase enrolment.
+3. **`enforce`:** staff and admins use TOTP or a passkey straight away.
+4. **Comms P1 live:** the SMS fallback, self-service reset by SMS or email, and merchant phone-OTP login appear on their own.
+5. **Comms P2 live:** push appears on its own and becomes the preferred method.
+
+## 5. Login policy master (IdP)
+
+`mfa_policies` is part of the IdP schema (the IdP's DDL, not a core Flyway migration), and its rows are seeded from config.
 
 | column | notes |
 |---|---|
-| `id`, `code` | e.g. `PLATFORM-STAFF`, `ORG-ADMIN`, `ORG-MEMBER`, `MERCHANT-OTP` |
-| `match_role`, `match_org_role`, `match_platform_function` | nullable means any. Resolution: the most specific match wins, and a tie is a boot failure (as for KYC profiles) |
+| `profile` | `PLATFORM-STAFF`, `ORG-ADMIN`, `ORG-MEMBER`, `MERCHANT-OTP` (primary key) |
 | `required` | `ALWAYS` \| `IF_ORG_REQUIRES` \| `NEVER` |
 | `allowed_methods` (jsonb) | e.g. `["PUSH","WEBAUTHN","TOTP"]` |
 | `fallback_methods` (jsonb) | e.g. `["SMS","RECOVERY"]` |
 | `remember_device_days` | `0` for staff, `30` for org users |
-| `step_up` (jsonb) | rule keys and their maximum ages (§7) |
-| `enroll_grace_logins` | logins allowed before enrolment is forced: `0` for staff, `3` for existing org ADMINs at rollout |
+| `enroll_grace_logins` | `0` for staff, `3` for existing org admins at rollout |
 
 **Default rows:**
 
-| policy | required | allowed | fallback | remember | step-up |
-|---|---|---|---|---|---|
-| `PLATFORM-STAFF` | ALWAYS | PUSH, WEBAUTHN, TOTP | RECOVERY | 0 days | every KYC decision, rights, users, platform functions |
-| `ORG-ADMIN` | ALWAYS | PUSH, WEBAUTHN, TOTP | SMS, RECOVERY | 30 days | onboarding, KYC submit, rights, users, bank accounts, payouts |
-| `ORG-MEMBER` | IF_ORG_REQUIRES | PUSH, WEBAUTHN, TOTP, SMS | RECOVERY | 30 days | payouts, withdrawals |
-| `MERCHANT-OTP` | (OTP is the login) | SMS | — | 30 days | withdrawals, account changes |
+| profile | required | allowed | fallback | remember |
+|---|---|---|---|---|
+| `PLATFORM-STAFF` | ALWAYS | PUSH, WEBAUTHN, TOTP | RECOVERY | 0 days |
+| `ORG-ADMIN` | ALWAYS | PUSH, WEBAUTHN, TOTP | SMS, RECOVERY | 30 days |
+| `ORG-MEMBER` | IF_ORG_REQUIRES | PUSH, WEBAUTHN, TOTP, SMS | RECOVERY | 30 days |
+| `MERCHANT-OTP` | (OTP is the login) | SMS | — | 30 days |
 
-**Org override:** an org ADMIN can set `organizations.mfa_required = true` to require 2FA for all of its members. An org can only make the policy stricter, never looser.
+### 5.1 How an account gets its profile (core)
 
-**At boot,** `MfaPolicyValidator` checks that every method key resolves to a factor bean, every step-up rule key resolves to a guard rule, and policy matching is unambiguous. If anything fails, the app refuses to start.
+The IdP knows no roles, so the **core decides the profile** and sets it on the account with `AuthProvider.setMfaProfile(subject, profile, orgRequires)`:
 
-## 5. Sign-in flow
+| The user… | Profile |
+|---|---|
+| holds any `platform_*` role (home org PLATFORM) | `PLATFORM-STAFF` |
+| holds `org_admin` on their org | `ORG-ADMIN` |
+| is a merchant user who signs in by phone OTP | `MERCHANT-OTP` |
+| anyone else (`org_staff`, `org_viewer`, `kyc_applicant`) | `ORG-MEMBER`, with `orgRequires = organizations.mfa_required` |
+
+- **Kept in step by the core's `AuthSyncService.reconcile`** (`idp-rbac-cutover-plan.md` §1.5). It runs whenever a role assignment or `mfa_required` changes, so granting someone `org_admin` makes 2FA required at their next login.
+- **The strictest profile wins** when a user matches more than one.
+- **Org override:** an org admin can set `organizations.mfa_required = true` (core) to require 2FA for all members. An org can only make the policy stricter.
+
+## 6. Login flow (inside the IdP)
 
 ```
-POST /api/auth/login {identifier, password, deviceId?}
-  ├─ password wrong ─────────────────────────────▶ 403 (unchanged)
-  ├─ policy: 2FA not needed, or device remembered ─▶ 200 TokenView (amr=["pwd"] or remembered amr)
-  ├─ policy: 2FA needed, user enrolled ───────────▶ 200 {mfaRequired:true, mfaToken, methods:[...],
-  │                                                     preferred:"PUSH", challenge:{id, number}}
-  └─ policy: 2FA needed, user not enrolled
-        ├─ grace logins left ─▶ 200 TokenView + {enrollmentDue: n}
-        └─ none left ─────────▶ 200 {enrollmentRequired:true, enrollToken, methods:[...]}
-
-POST /api/auth/mfa/challenges {mfaToken, method}            → start or switch method (sends push / SMS)
-GET  /api/auth/mfa/challenges/{id}  (Authorization: mfaToken) → PENDING | APPROVED | DENIED | EXPIRED
-POST /api/auth/mfa/verify {mfaToken, challengeId, method, code | assertion, rememberDevice?}
-                                                             → 200 TokenView (amr=["pwd","<factor>"])
+/authorize (from the gateway BFF, via PAR)
+  └─ IdP login page: login name or phone + password
+       ├─ wrong password ───────────────────────────▶ error, per-account lockout counts
+       ├─ mfa.mode=off/shadow, or 2FA not needed,
+       │  or remembered device ──────────────────────▶ code → token (amr=["pwd"], acr=aal1)
+       ├─ 2FA needed, enrolled ──────────────────────▶ step 2: preferred usable method, "Use another method"
+       │                                               → verify → code → token (amr=["pwd","mfa",<f>], acr=aal2)
+       └─ 2FA needed, not enrolled
+             ├─ grace logins left ─▶ token (aal1) + "Set up 2FA (n left)" banner
+             └─ none left ─────────▶ enrolment wizard (choose method, confirm, save recovery codes), then token (aal2)
 ```
 
-**The `mfaToken`:**
-- a short-lived JWT (5 minutes) with `typ=mfa`, the user id, the session nonce and the methods offered;
-- it is accepted **only** by `/api/auth/mfa/**`, and `JwtAuthFilter` rejects `typ=mfa` everywhere else;
-- at most 5 failed verifications per `mfaToken`, after which the user starts over from the password.
+- **Step 2 lives inside the IdP's own login transaction** (bound to the PAR request and the IdP session cookie): at most 5 failed verifications, then back to the password. Nothing like an `mfaToken` reaches the portals.
+- **Token claims:**
+  - `amr`: RFC 8176 values, e.g. `["pwd","mfa","hwk"]` (passkey), `["pwd","mfa","otp"]` (TOTP), `["pwd","mfa","sms"]`, `["pwd","mfa","swk"]` (push);
+  - `acr`: `aal1` or `aal2`;
+  - `auth_time`, `mfa_time`, `uid`.
 
-**Claims on the final token:**
-- `amr`: RFC 8176 values, e.g. `["pwd","mfa","hwk"]` for a passkey, `["pwd","mfa","otp"]` for TOTP or SMS, `["pwd","mfa","swk"]` for push;
-- `acr`: `aal1` (password only) or `aal2` (password plus a second factor);
-- `auth_time` and `mfa_time`;
-- `devices_sessions.mfa_method` records the factor used.
+  The gateway session stores them, and they reach the core in the signed context.
+- **Remember this device:**
+  - a `__Host-mp_dev` cookie on the IdP host (HttpOnly, 256-bit random); the IdP stores `mfa_trusted_devices(subject, device_hash, ua_hash, expires_at, last_ip)`;
+  - it skips the second factor at login only: never at step-up, and never for `PLATFORM-STAFF`;
+  - revoking sessions (from the core or "This wasn't me") clears remembered devices.
 
-**Remember this device:**
-- The browser keeps a random 256-bit `deviceId` in localStorage.
-- The server stores `mfa_trusted_devices(user_id, device_id_hash, ua_hash, expires_at, last_ip)`.
-- A remembered device skips the second factor at login, never at step-up, and never for `PLATFORM-STAFF` (whose `remember_device_days` is 0).
-- Revoking all sessions also clears remembered devices.
+## 7. Push delivery through the MiPay app (native)
 
-## 6. Push delivery and the approver app
+### 7.1 Enrolling a phone
 
-### 6.1 Enrolling a phone
+1. Signed in on a portal, the user opens **Security → Add a phone** (an IdP account page, linked from every portal's menu). It shows a QR code with a one-time pairing token (10 min, single use).
+2. In the MiPay app, the user signs in (it uses the same IdP, as a native FAPI client) and scans the QR code; or, when they sign in to the app itself, it offers "Use this phone to approve sign-ins".
+3. The app generates an **ES256 key in Android Keystore / iOS Secure Enclave**, marked non-exportable and usable only after biometric or device-PIN verification. Where the platform supports it, the app sends the key attestation (Play Integrity / App Attest), and the IdP records whether the key is hardware-backed.
+4. The IdP stores the device (name, platform, public key, attestation result). The app registers its FCM / APNs token with comms as a device of `user:<uid>` (`POST /comms/v1/subjects/user:<uid>/devices`). The browser that showed the QR confirms "Phone added".
 
-1. Signed in on the portal, the user opens **Security → Add a phone**. The portal shows a QR code that holds a one-time pairing URL: `https://<portal>/approve/pair?t=<pairing token, 10 min, single use>`.
-2. The phone opens the URL. The PWA installs (the browser offers "Add to Home Screen") and asks permission for notifications.
-3. The phone creates a WebAuthn credential bound to the user, with user verification required. It also subscribes to Web Push, which gives a subscription endpoint and keys.
-4. The server stores the device: name, credential, push subscription and platform. The browser that showed the QR code confirms "Phone added", and the next login offers push.
-
-### 6.2 What a push carries
+### 7.2 What a push carries
 
 ```json
 { "t": "mfa", "cid": "6f1c…", "title": "MiPay sign-in request", "body": "Open to approve or deny" }
 ```
 
-There is no name, amount or IP address in it. Opening the notification makes the app call `GET /api/approver/challenges/{cid}` (authenticated by a device-bound session; §6.3) to fetch the details and the three number choices.
+No name, amount or IP address, so Google and Apple see nothing personal (D8). Opening it makes the app call `GET https://auth.afriqpay.com/approver/challenges/{cid}` for the details and the three numbers. The call is authenticated by a signature from the device key.
 
-### 6.3 What the phone signs
+### 7.3 What the phone signs
 
 ```
-clientData.challenge = SHA-256( "mipay-push-v1" | cid | chosenNumber | decision | actionHash | serverNonce )
+signature = ES256( device_key, SHA-256( "mipay-push-v1" | cid | chosenNumber | decision | actionHash | serverNonce ) )
 ```
 
-This is sent as a WebAuthn assertion (PWA) or an ES256 signature (native) with `POST /api/approver/challenges/{cid}/respond`.
+The app sends it to `POST /approver/challenges/{cid}/respond`. The IdP recomputes the hash from its own copy, so tampering fails, and a stolen push token gives an attacker nothing.
 
-- **The server recomputes the hash** from its own copy of the challenge, so a tampered number, decision or action fails signature verification.
-- **The approver app's own session** is the WebAuthn credential: every respond call carries an assertion, so a stolen push subscription gives an attacker nothing.
+### 7.4 Sending pushes
 
-### 6.4 Sending pushes
+- Sent with `CommsClient.Send(event=auth.push.challenge, to=user:<uid>, channel=PUSH, lane=CRITICAL, expiresAt=+60 s)`. Comms holds the FCM / APNs credentials, the retries and the stale-token handling (`comms-design.md` §7). When the challenge is answered elsewhere, the IdP asks comms for a silent cancel push.
+- **If nothing arrives within 15 seconds,** the page shows "Didn't get it? Use your authenticator app / passkey / text message".
 
-- Sends go through a `PushSender` adapter. `WebPushSender` signs with VAPID, using a key from the environment.
-- **Delivery is queued** in the notification outbox (`notification_messages` with channel `PUSH`), with retries. A device whose subscription returns 404 or 410 is marked stale.
-- **If delivery fails, or nothing arrives within 15 seconds,** the browser shows "Didn't get it? Use your authenticator app / passkey / text message".
+### 7.5 Why native and not a PWA
 
-### 6.5 Limits of the PWA route
+- **Reliable delivery on iOS:** Web Push to a PWA works on iOS only after "Add to Home Screen", which most users never do.
+- **A hardware key gated by biometrics:** this is stronger than a browser credential, and attestation shows it is the genuine app.
+- **One phone app:** merchants get the MiPay app anyway; adding a separate approver PWA would mean building and supporting push twice.
 
-| Platform | Web Push to an installed PWA | Notes |
-|---|---|---|
-| Android (Chrome, Edge, Samsung Internet) | Yes | Reliable; works with the browser closed |
-| iOS / iPadOS 16.4+ | Yes, **only when added to the Home Screen** | The pairing page guides the user through Share → Add to Home Screen |
-| Desktop browsers | Yes | Useful for staff with a second laptop; never pair the computer you sign in on |
+**Until the app ships,** push is simply not offered (§4.2), and users who need 2FA use TOTP or a passkey. Push is never the only factor.
 
-These limits are why push is never the only factor (§3).
+## 8. Step-up for sensitive actions
 
-### 6.6 Native app later
+**The rule belongs to the permission.** Each `@Perm` cell that needs it declares a step-up rule. It is published in the manifest (`fapi2-design.md` Appendix F), and both the gateway and the core enforce it:
 
-- A Flutter or React Native app replaces the PWA on the phone side only: it uses Firebase / Apple push and an ES256 key in Android Keystore or iOS Secure Enclave, gated by biometrics.
-- The server API (§10) is the same: `device.kind = NATIVE` adds `public_key` and `push_token` instead of a WebAuthn credential.
-- **Do it** when merchants get a mobile app, or when iOS home-screen installation proves to be too much friction.
-
-## 7. Step-up for sensitive actions
-
-> **Revised:** the rules below (which actions, how fresh, which are bound to the action) still hold.
-> The mechanism is standard: the gateway or MiPay answers with an **RFC 9470** challenge
-> (`acr_values=aal2`, `max_age`), the gateway BFF re-runs the FAPI flow, and for bound actions the PAR
-> carries **RAR `authorization_details`** describing the action, so the token is good only for it
-> (`fapi2-design.md` §4.3). The `X-Step-Up` replay header below is superseded by that flow.
-
-A step-up guard runs on the endpoint before the handler. Each step-up rule names the actions it covers, the maximum age of the user's last second factor, and whether the approval must be bound to the exact request:
-
-| rule key | covers | max age | bound to the action |
+| rule key | example cells | max age | bound to the action |
 |---|---|---|---|
-| `KYC_DECISION` | `POST /api/kyc/tasks/{id}/decision` | 5 min | **yes**: task id + outcome |
-| `RIGHTS_CHANGE` | `PUT /api/orgs/{id}/rights`, platform functions | 5 min | yes: org id + new rights |
-| `USER_ADMIN` | create, deactivate or reset users and admins; MFA reset approvals | 5 min | no |
-| `ONBOARD` | `POST /api/orgs/me/children` | 15 min | no |
-| `BANK_ACCOUNT` | adding or changing a payout bank account | 5 min | yes: account digest |
-| `PAYOUT` | supplier payments, withdrawals, disbursements | 0 (every time) | **yes**: amount + currency + payee |
+| `KYC_DECISION` | `kyc.task:authorize` | 5 min | **yes**: task id + outcome |
+| `RIGHTS_CHANGE` | `org.rights:administer`, `rbac.assignment:*` | 5 min | yes: org id + new rights / role |
+| `USER_ADMIN` | `org.user:create/delete/execute`, recovery decisions | 5 min | no |
+| `ONBOARD` | `org.onboarding:create` | 15 min | no |
+| `BANK_ACCOUNT` | `supplier.bank_account:modify/delete`, merchant payout accounts | 5 min | yes: account digest |
+| `PAYOUT` | `merchant.withdrawal:execute`, supplier payments, disbursements | 0 (every time) | **yes**: amount + currency + payee |
 
-**What the user sees when a step-up is needed:**
-1. The endpoint returns `401 STEP_UP_REQUIRED {challengeId, number?, methods, actionSummary}`.
-2. The portals' HTTP interceptor opens a step-up dialog (the same component as the login step), waits for approval, and **replays the original request** with `X-Step-Up: <challengeId>`.
-3. The guard accepts the replay only if:
-   - the challenge is APPROVED, less than 2 minutes old and not yet used;
-   - it belongs to this session;
-   - its `actionHash` equals `SHA-256(method | path | canonical body)` of the replayed request.
-4. **Bound challenges are used up by one request.** Unbound ones also set `devices_sessions.step_up_at`, which then satisfies later unbound rules within their maximum age.
+**How it runs (RFC 9470 + RAR):**
+1. The request lacks a fresh enough `auth_time` / `mfa_time`, or lacks a binding for this action. The gateway, or the core when the cell is checked there, answers `401 {"error":"step_up_required","acr_values":"<step_up_acr>","max_age":…,"authorization_details":…}`.
+2. The portal opens the step-up dialog, and the gateway runs the FAPI flow again with those values. For bound rules, the PAR carries **RAR `authorization_details`** describing the action, e.g. `{"type":"payout","amount":"12400.00","currency":"NAD","payee":"…"}`.
+3. The IdP asks for **only the second factor** (the session already has the password) and shows exactly what is being approved, on the page and on the push.
+4. **A bound token is good for that one action only,** and the gateway replays the original request once.
 
-**Push gives transaction signing for free:** for `PAYOUT` and `KYC_DECISION`, the phone shows exactly what is being approved, and the signature covers the action hash. Phishing an approval for a different amount or payee fails.
+**While `mfa.mode` is `off` or `shadow`,** the same flow runs with `step_up_acr = aal1-fresh` (password re-entry, §4.1). Binding still applies, so the token is still good only for that action.
 
-**KYC as a separate service:** step-up for KYC decisions has to work across services. Core's `Authorize` reply gets `amr`, `mfa_time` and the matched step-up challenge, and kyc-service passes `X-Step-Up` through to core with `CheckActor`. Core stays the single place that verifies factors.
+**Push gives transaction signing for free:** for `PAYOUT` and `KYC_DECISION`, the signature covers the action hash, so phishing an approval for a different amount or payee fails.
 
-## 8. Enrolment, and recovering passwords and 2FA
+## 9. Enrolment, and recovering passwords and 2FA
 
-### 8.1 Enrolment
+### 9.1 Enrolment
 
-**Rollout:**
-- Users who must have 2FA get `enroll_grace_logins` sign-ins (0 for staff, 3 for org ADMINs). After that, login returns `enrollmentRequired` and the portal shows the enrolment wizard: choose a method, confirm it, then save the recovery codes (the user has to tick "I saved them").
-- **New users** enrol straight after activation (`/api/auth/activate`), before their first token is issued.
+- **New users** set their password through the IdP set-up link the core sent them (`idp-rbac-cutover-plan.md` §1.4). If their profile needs 2FA and `mfa.mode=enforce`, the wizard follows immediately: choose a method, confirm it, then save the recovery codes (the user must tick "I saved them").
+- **Existing users** get the grace logins when `enforce` is switched on (§4.1).
+- **Managing factors:** the IdP Security page lists the methods, phones and passkeys (name, last used, Remove), remembered devices (Forget), and recovery codes (Regenerate). Removing the **last** factor of a user who needs 2FA is refused.
 
-**Managing factors:** the Security page lists the enrolled methods, phones and passkeys (name, last used, Remove), remembered devices (Forget), and recovery codes (Regenerate). Removing the **last** factor of a user who needs 2FA is refused.
-
-**Today:** no self-service password recovery exists. The existing `ADMIN_RECOVERY` request only creates a *replacement* admin for an org with no active admin (`OrgOnboardingService.requestAdminRecovery`). It doesn't reset an existing user, and it refuses Platform Root staff. The 72-hour single-use activation link (`ActivationService`) is the reusable piece.
-
-### 8.2 What can be lost, and the route for each
+### 9.2 What can be lost, and the route for each
 
 | User has lost… | Route | Who decides | After it |
 |---|---|---|---|
-| **Password** (still has 2FA) | Self-service **Forgot password** (§8.3) | Nobody; the second factor proves it is the user | All sessions and remembered devices revoked; notice to every channel |
-| **2FA** (knows the password) | Sign in with a **recovery code** → enrol a new factor (§3.5) | Nobody | Notice; remaining codes kept; prompt to regenerate |
-| **2FA, no recovery code** | **Assisted recovery**, scope `MFA` (§8.4) | A second person (table in §8.4) | Factors wiped; enrolment link; cooling-off (§8.5) |
-| **Password and 2FA** | **Assisted recovery**, scope `FULL` (§8.4) | A second person, with an identity check | New password and 2FA via a single-use link; cooling-off |
-| **Phone number** (SIM lost, number changed) | **Assisted recovery**, scope `CONTACT` | A second person | New number verified by OTP; cooling-off |
-| **The org's only ADMIN left** | Existing `ADMIN_RECOVERY` (replacement admin), unchanged | Parent org ADMIN or MiPay | The new admin activates and enrols 2FA |
-| **Merchant transaction PIN** | OTP to the registered phone + new PIN | Nobody | 24-hour hold on withdrawals |
-| **Every MiPay staff account** (no admin left to help) | **Break-glass** (§8.6) | Two named officers, offline | Full audit; staff accounts re-enrolled |
+| **Password** (still has 2FA) | Self-service **Forgot password** in the IdP (§9.3) | Nobody; the second factor proves it is the user | Sessions and remembered devices revoked; notices on every channel; 24 h cooling-off |
+| **2FA** (knows the password) | Sign in with a **recovery code**, then enrol a new factor | Nobody | Notice; prompt to regenerate codes |
+| **2FA, no recovery code** | **Assisted recovery** in the core, scope `MFA` (§9.4) | A second person (table in §9.4) | Factors wiped; set-up link; 72 h cooling-off |
+| **Password and 2FA** | **Assisted recovery**, scope `FULL` | A second person, with an identity check | New password and 2FA through a single-use link; cooling-off |
+| **Phone number** | **Assisted recovery**, scope `CONTACT` | A second person | New number verified by OTP; cooling-off |
+| **The org's only admin left** | Core `ADMIN_RECOVERY` (a *replacement* admin is created with `createInOrg` and enrolled) | Parent org admin or platform | The new admin enrols 2FA |
+| **Merchant transaction PIN** | OTP to the registered phone, then a new PIN (needs `comms.sms`) | Nobody | 24-hour hold on withdrawals |
+| **Every platform staff account** | **Break-glass** (§9.6) | Two named officers, offline | Full audit; staff re-enrolled |
 
-### 8.3 Self-service "Forgot password"
+### 9.3 Self-service "Forgot password" (IdP; needs a live email or SMS channel)
 
 ```
-login page ─ "Forgot password?" ─▶ POST /api/auth/password/forgot {identifier}
-   always: 202 "If an account matches, we sent a reset link to its registered email / phone."
+IdP login page ─ "Forgot password?" ─▶ POST /account/password/forgot {identifier}
+   always: 202 "If an account matches, we sent a reset link to its registered contact."
    (same response and timing whether or not the account exists)
+   → IdP: CommsClient.Send(event=auth.password.reset, to=user:<uid>, data{link}, lane=CRITICAL, expiresAt=+30 min)
 
-user opens link /reset?token=…  ─▶ GET  /api/auth/recovery/{token}
-   → {step: "MFA", methods:[...]}  (users with 2FA)  |  {step: "PASSWORD"}  (users without)
-   2FA step: the normal challenge (push / passkey / TOTP / SMS) from §5, purpose RECOVERY
-   ─▶ POST /api/auth/recovery/{token}/password {newPassword}
-   → password set; every session, remembered device and pending challenge revoked;
-     notice to email + phone: "Your password was changed. Not you? Report it here."
-   → the user signs in normally (password + 2FA)
+user opens /reset?token=…  → 2FA step (if enrolled: push / passkey / TOTP / SMS, purpose RECOVERY)
+                           → new password → every session, remembered device and pending challenge revoked
+                           → IdP event CREDENTIAL_RESET → core sets recovered_until = now + 24 h, and a notice goes out
 ```
 
-- **Reset link:** 256-bit random, **stored hashed**, single-use, valid 30 minutes, bound to user and purpose. It goes to the email on file, or to the phone by SMS if there is no email. It reuses the activation-token store with `purpose = PASSWORD_RESET`.
-- **No account enumeration:** identical responses and timing. Limits are 3 requests an hour per identifier and 10 an hour per IP; beyond them requests are silently dropped.
-- **Recovery code:** it can stand in for the 2FA step only if the user's policy allows it. For MiPay staff it can't, so a staff member who has lost both goes to §8.4.
-- **Password rules:**
-  - at least 12 characters;
-  - not one of the last 5 passwords (`password_history`, bcrypt);
-  - checked against a bundled list of common and breached passwords (offline, no external call);
-  - no forced periodic expiry.
-- **Changing the password while signed in:** `POST /api/me/password` needs the current password **and** a step-up (rule `USER_ADMIN`). The same revoke-and-notify follows.
+- **Reset link:** 256-bit random, **stored hashed** in the IdP, single-use, valid 30 minutes, bound to the account and purpose. The raw link exists only inside the comms send request, and the comms plane builds it at dispatch, never storing it (H8 rule, `comms-design.md` §9).
+- **No account enumeration:** identical responses and timing; 3 requests an hour per identifier and 10 an hour per IP, beyond which requests are silently dropped.
+- **Recovery code** can stand in for the 2FA step only if the policy allows it. For staff it can't, so they go to §9.4.
+- **Password rules:** at least 12 characters; not one of the last 5 (`password_history` in the IdP); checked against a bundled list of common and breached passwords; no forced periodic expiry.
+- **Changing the password while signed in:** on the IdP Security page; needs the current password and a fresh second factor (or a fresh password while `off`). The same revoke-and-notify follows.
 
-### 8.4 Assisted recovery (`ACCOUNT_RECOVERY` request)
+### 9.4 Assisted recovery (core `ACCOUNT_RECOVERY` request)
 
-A new kind of onboarding request, `ACCOUNT_RECOVERY`, with `scope` `MFA` | `FULL` | `CONTACT`. It reuses the request queue, inboxes and second-person rule the platform already has.
+The core owns users, so assisted recovery is a core onboarding request, `ACCOUNT_RECOVERY`, with `scope` `MFA` | `FULL` | `CONTACT`. It reuses the request queue and the second-person rule.
 
 **Who can raise it:**
-- **The user,** from the login page ("Can't get in?"): they give their identifier, a contact number to call back on, and a note. The request is created **unverified** and nothing is revealed to them.
-- **An ADMIN of the user's org, or of its parent org,** from **Users → Recover access**.
-- **MiPay staff,** for org users.
+- **the user,** from the IdP login page ("Can't get in?"). The IdP forwards `{identifier, callbackPhone, note}` to the core. The request is **unverified**, and nothing is revealed;
+- **an admin of the user's org, or of its parent org,** from **Users → Recover access** (RBAC cell `org.user:execute` on that org);
+- **platform staff,** for org users.
 
-**Who decides:**
+**Who decides** (RBAC permission `org.user.recovery:authorize`; never the requester, never the user):
 
-| Account being recovered | Decided by (never the requester, never the user) |
+| Account being recovered | Decided by |
 |---|---|
-| Org member | An ADMIN of the same org, or of the parent org, or MiPay staff |
-| Org ADMIN | An ADMIN of the parent org, or MiPay staff |
-| MiPay staff (TPTS_OPS) | A different MiPay staff member holding OPS_REVIEWER, with step-up |
-| MINDLABS_ADMIN, or holders of COMPLIANCE_OFFICER / MLRO / SENIOR_APPROVER | **Two** different MiPay staff, one of them COMPLIANCE_OFFICER or MLRO |
+| Org member | an `org_admin` of the same org or of the parent org, or a `platform_user_admin` |
+| `org_admin` | an `org_admin` of the parent org, or a `platform_user_admin` |
+| Platform staff with operational roles | a different `platform_user_admin`, with step-up |
+| `platform_user_admin`, `platform_compliance_officer`, `platform_mlro`, `platform_senior_approver` | **two** different platform staff, one of them `platform_mlro` (or `platform_senior_approver` when recovering the MLRO) |
 
 **Identity check before deciding:**
-- The decider must complete and record a checklist on the request, and it is kept with the audit:
-  - called back on the number on file, **not** the number given in the request;
-  - confirmed name, date of birth and the last 4 digits of the ID number against the user's record (for org ADMINs, against the KYC owners or controllers where the admin is one);
-  - saw the user's ID document on a video call (optional, but required for scope `FULL` on staff accounts).
-- The decision needs the decider's own **step-up** (`USER_ADMIN`).
+- The decider records a checklist, kept with the audit:
+  - called back on the number on file (from the core), **not** the number given in the request;
+  - confirmed name, date of birth and the last 4 digits of the ID number against the user's record (for org admins, against the KYC owners or controllers where the admin is one);
+  - saw the ID document on a video call (required for scope `FULL` on staff accounts).
+- The decision needs the decider's own step-up (`USER_ADMIN`).
 
-**When it is approved:**
-1. Revoke, according to the scope:
-   - `MFA`: all factors;
-   - `FULL`: all factors, the password and the recovery codes;
-   - `CONTACT`: the old phone number.
-   In every case, all sessions and remembered devices are revoked too.
-2. Issue a **single-use recovery link**: 24 hours, stored hashed, sent **only to the verified contact**. It may go to a new number only for scope `CONTACT`, and only after an OTP has proved the new number. The link sets a new password (for `FULL`) and then forces 2FA enrolment before any token is issued.
-3. Start the **cooling-off period** (§8.5).
-4. Notify the user on **every** known channel, old and new: "Access to your MiPay account was recovered by <decider org>. Not you? Call …".
+**When it is approved:** the core calls `AuthProvider.resetCredential(subject, scope)`:
+1. **The IdP revokes**, according to the scope: `MFA` → all factors; `FULL` → all factors, the password and the recovery codes; `CONTACT` → nothing in the IdP (the core changes the contact, §9.7). In every case it also revokes all sessions and remembered devices.
+2. **The IdP returns a single-use recovery link** (24 h, stored hashed). The core sends it through comms **only to the verified contact**; a new number is used only for scope `CONTACT`, and only after an OTP has proved it.
+3. **The core sets `recovered_until`** = now + 72 h (§9.5).
+4. **The core notifies the user on every known channel,** old and new.
 
-**When it is rejected, or not decided within 7 days:** nothing changes, the request is closed, and the user is told through the original channels.
+**When it is rejected, or not decided within 7 days:** nothing changes, and the user is told through the original channels.
 
-### 8.5 Cooling-off after recovery
+### 9.5 Cooling-off after recovery (core)
 
-For **72 hours** after any assisted recovery, and for 24 hours after a self-service password reset, the account is marked `recovered_until`. During that time:
-- payouts, withdrawals, bank-account changes, rights changes, adding users and changes to contact details are **blocked**. The guard returns `409 RECOVERY_COOLING_OFF`;
+`users.recovered_until` is set by the core. The length follows how much the recovery actually proved:
+
+| Recovery | Cooling-off | Why |
+|---|---|---|
+| **Assisted recovery**, any scope (`MFA`, `FULL`, `CONTACT`) | **72 h** | This is the main account-takeover route: someone talks a helpdesk or an admin into it. 72 h spans a weekend, so a recovery done on Friday evening is still blocked when the real user sees the notices on Monday. One length for all scopes, so attackers don't pick the weakest |
+| **Self-service reset**, second factor was a **passkey, TOTP or push** | **none**: notices only | The user proved a strong factor they still hold. A hold would add friction without adding security |
+| **Self-service reset**, second factor was **SMS**, or 2FA not enrolled / `mfa.mode` not `enforce` | **24 h** | An emailed or texted link plus SMS can be taken over through the inbox or a SIM swap. 24 h gives the real user a day to see the notice and report it |
+| **Platform staff**, any recovery | **72 h**, and no KYC decisions | Staff can approve customers and move platform state |
+| **Contact change** (§9.7) | 24 h before the new contact can receive a recovery link | Unchanged |
+
+The core works out the length from the IdP's `CREDENTIAL_RESET` event, which says which factor was used.
+
+During that time:
+- payouts, withdrawals, bank-account changes, rights changes, adding users and contact changes are **blocked** (`409 RECOVERY_COOLING_OFF`). This is a core guard on the same cells that carry step-up rules;
 - KYC decisions by a recovered **staff** account are blocked;
 - browsing, saving drafts and submitting KYC still work.
 
 The decider can shorten the period only with a second approver, and the reason is recorded.
 
-**Why:** an attacker who talks their way through a recovery can't move money or grant rights before the real user sees the notices and reports it.
+### 9.6 Break-glass (every platform staff account locked out)
 
-### 8.6 Break-glass (every MiPay staff account locked out)
+**The two officers are roles, each with a named deputy** (four people in total, so one absence never blocks it):
 
-- A documented, offline procedure (`docs/runbooks/break-glass.md`), run on the server by two named officers who both have database access. It uses `make break-glass USER=<username>`, which runs a one-off command that:
-  - issues a recovery link for one staff account;
-  - writes an audit row `break_glass_used` naming both officers;
-  - sets the 72-hour cooling-off.
-- It refuses to run while any active staff account with an enrolled factor exists, so it can't become a shortcut around §8.4.
-- It sends an alert email to every compliance contact on file.
+| Officer | Who | Why this person |
+|---|---|---|
+| **A: authoriser** | the Head of Compliance (deputy: a `platform_compliance_officer`). **Not the MLRO** | Compliance owns who may access the platform. The MLRO must stay independent of access administration (the `{platform_mlro, platform_user_admin}` SoD set in `fapi2-design.md` §9.4) |
+| **B: operator** | the engineering lead with production server access (deputy: the on-call platform engineer, `platform_engineer`) | Someone has to run the command on the server; they cannot authorise it alone |
 
-### 8.7 Changing contact details
+**Assigned officers (placeholders until the names are confirmed):**
 
-The email and phone on file are what recovery trusts, so changing them is itself protected:
-- the change needs a **step-up**;
-- the **new** contact must be confirmed (link or OTP);
+```yaml
+break_glass:
+  officers:
+    authoriser:                     # Head of Compliance (not the MLRO)
+      primary: { name: "<BG_AUTHORISER_PRIMARY>", key_id: "<BG_AUTH_PRIMARY_KEY_ID>", public_key: "<BG_AUTH_PRIMARY_PUBKEY>" }
+      deputy:  { name: "<BG_AUTHORISER_DEPUTY>",  key_id: "<BG_AUTH_DEPUTY_KEY_ID>",  public_key: "<BG_AUTH_DEPUTY_PUBKEY>" }
+    operator:                       # engineering lead with production server access
+      primary: { name: "<BG_OPERATOR_PRIMARY>",   key_id: "<BG_OPER_PRIMARY_KEY_ID>", public_key: "<BG_OPER_PRIMARY_PUBKEY>" }
+      deputy:  { name: "<BG_OPERATOR_DEPUTY>",    key_id: "<BG_OPER_DEPUTY_KEY_ID>",  public_key: "<BG_OPER_DEPUTY_PUBKEY>" }
+  alert_contacts:
+    - "<BG_ALERT_CEO>"
+    - "<BG_ALERT_HEAD_OF_COMPLIANCE>"
+    - "<BG_ALERT_MLRO>"
+    - "<BG_ALERT_SECURITY_MAILBOX>"
+  signature_max_age_seconds: 900
+```
+
+- **The values are placeholders.** The command refuses to run, and the IdP/core health check reports `break_glass: not configured`, while any `<BG_…>` value is still in place. So nobody mistakes a placeholder setup for a working one.
+- **Only public keys go into config.** Private keys stay on the officers' hardware keys.
+
+**Two-person control is enforced by code, not only by process:**
+- `make break-glass USER=<username>` runs only with **two signatures** over `(username, timestamp, reason)`, one from an officer-A key and one from an officer-B key.
+- The keys are hardware security keys registered in `break_glass.officers` (core config; public keys only), one per person.
+- The command refuses a single signature, two signatures from the same side, or a timestamp older than 15 minutes.
+
+**What the command does:**
+- calls `resetCredential(subject, FULL)` for **one** staff account, and sets the 72 h cooling-off;
+- writes `break_glass_used` with both officers, the reason and the target;
+- refuses while any active staff account with an enrolled factor exists, so it can't become a shortcut around §9.4.
+
+**Alerts:**
+- go to the contacts in `break_glass.alert_contacts`: the CEO, the Head of Compliance, the MLRO and the security mailbox;
+- are sent through comms (CRITICAL lane) **and** by a direct SMTP fallback, because break-glass may be needed exactly when the comms plane is degraded.
+
+**Where things live:**
+- the runbook is `docs/runbooks/break-glass.md` in the repo; it contains no secrets;
+- a printed copy and the deputies' keys are kept in the office safe.
+
+**Keeping it working:**
+- a drill on staging every quarter, with the result recorded;
+- the officer list is re-confirmed at the quarterly access review, and whenever someone in these roles leaves.
+
+This is separate from the `platform_break_glass` *role* (`idp-rbac-cutover-plan.md` D10), which is emergency *access* by a working account.
+
+### 9.7 Changing contact details (core)
+
+The email and phone on file are what recovery trusts, and the core owns them, so the change is protected in the core:
+- it needs a step-up (`USER_ADMIN` rule on `org.user.contact:modify` / self-service equivalent);
+- the **new** contact must be confirmed (link or OTP through comms);
 - a notice goes to the **old** contact, with a 24-hour window to block the change;
-- the new contact can't receive a recovery link until those 24 hours have passed.
+- the new contact can't receive a recovery link until those 24 hours have passed;
+- on completion, the core updates the contact in comms and calls `updateLoginName` so the IdP's login phone matches.
 
-## 9. Merchants on the legacy OTP path
+## 10. Merchants on phone OTP
 
-The phone OTP *is* their possession factor, so their login stays one step, with these fixes:
-- the OTP moves from the in-memory map to hashed `mfa_challenges` rows (5-minute expiry, 5 attempts, rate-limited per phone and per IP);
-- the delivery adapter queues through the outbox (§3.4);
-- **step-up** for withdrawals and account changes requires a second factor that isn't the login SMS: a 4–6-digit **transaction PIN** (bcrypt-hashed, 5 attempts then locked), or push once a merchant app exists.
+- **The login is the phone OTP** (`idp-rbac-cutover-plan.md` D8): in the IdP, hashed, 5 minutes, 5 attempts, rate-limited, sent through comms (`auth.otp.sms`). It is **offered only while `comms.sms` is live**; until then, merchants sign in with a password.
+- **Step-up** for withdrawals and account changes needs a factor that isn't the login SMS: a 4–6-digit **transaction PIN** (`PinFactor`, bcrypt-hashed in the IdP, 5 attempts then locked), or push once a merchant app exists.
 
-## 10. API
+## 11. API
 
-> **Revised:** the `/api/auth/*`, `/api/me/security*` and `/api/approver/*` endpoints below move to the IdP
-> (`https://auth.afriqpay.com/...`, reached through the gateway's IdP vhost); `/api/orgs/.../recovery`
-> stays in MiPay but checks RBAC and calls the IdP admin API. Paths are otherwise as listed.
+**IdP (`https://auth.afriqpay.com`, through the gateway's IdP vhost):**
 
 | endpoint | purpose |
 |---|---|
-| `POST /api/auth/login` | as today, plus the MFA outcomes of §5 |
-| `POST /api/auth/mfa/challenges` | start or switch method (sends push / SMS) |
-| `GET /api/auth/mfa/challenges/{id}` | status poll (with `mfaToken`) |
-| `POST /api/auth/mfa/verify` | finish login: code or assertion, optional `rememberDevice` |
-| `POST /api/auth/mfa/enroll/{method}/start` · `/finish` | TOTP secret/QR, WebAuthn options/attestation, push pairing |
-| `GET /api/me/security` | enrolled factors, devices, remembered devices, recovery-code count |
-| `DELETE /api/me/security/factors/{id}` · `/devices/{id}` · `/trusted/{id}` | remove a factor, a phone or a remembered device |
-| `POST /api/me/security/recovery-codes` | regenerate (step-up) |
-| `POST /api/stepup/challenges` · `GET /api/stepup/challenges/{id}` | step-up for the current session (§7) |
-| `GET /api/approver/challenges/{cid}` · `POST …/respond` | phone side (device-bound) |
-| `POST /api/approver/pair` | phone completes pairing |
-| `POST /api/auth/password/forgot` `{identifier}` | always 202; sends a reset link if the account exists (§8.3) |
-| `GET /api/auth/recovery/{token}` | which step comes next: `MFA` / `PASSWORD` / `ENROLL` |
-| `POST /api/auth/recovery/{token}/mfa` · `/password` · `/enroll` | complete each step of a reset or recovery link |
-| `POST /api/me/password` | change password: current password + step-up |
-| `POST /api/me/contact` · `POST /api/me/contact/confirm` | change email or phone, with the 24-hour hold (§8.7) |
-| `POST /api/auth/recovery/assist` `{identifier, callbackPhone, note}` | "Can't get in?" from the login page: raises an unverified `ACCOUNT_RECOVERY` |
-| `POST /api/orgs/{id}/users/{userId}/recovery` `{scope}` | an admin raises `ACCOUNT_RECOVERY` for a user |
-| `POST /api/orgs/onboarding/{id}/decide` (existing) | decides `ACCOUNT_RECOVERY` too, with the identity checklist and step-up |
+| `/authorize`, `/login` (+ internal step-2 and enrolment pages) | login with the policy of §5 and the flow of §6 |
+| `GET /account/security` | factors, phones, remembered devices, recovery-code count, last 10 sign-ins |
+| `POST /account/security/enroll/{method}/start` · `/finish` | TOTP QR, WebAuthn options/attestation, push pairing, PIN |
+| `DELETE /account/security/factors/{id}` · `/devices/{id}` · `/trusted/{id}` | remove a factor, a phone or a remembered device |
+| `POST /account/security/recovery-codes` | regenerate (fresh second factor) |
+| `POST /account/password` | change password |
+| `POST /account/password/forgot` · `GET/POST /reset?token=` | self-service reset (§9.3) |
+| `POST /account/recovery/assist` | "Can't get in?": forwards to the core's `ACCOUNT_RECOVERY` |
+| `GET /approver/challenges/{cid}` · `POST …/respond` · `POST /approver/pair` | phone side (device-bound) |
+| `GET /mfa/readiness` (mTLS, admin) | per-profile mode, usable methods, waiting methods, enrolment counts (§4.3) |
 
-**Rate limits:**
-- per IP: login 10/min, verify 10/min, challenge start 5/min;
-- per user: push 3/10 min, SMS 3/10 min.
+**Contract additions** (core → IdP, mTLS; `idp-rbac-cutover-plan.md` §1.2): `setMfaProfile(subject, profile, orgRequires)`, `resetCredential(subject, scope)` (scopes `LINK`, `MFA`, `FULL`), `revokeSessions(subject)` (also clears remembered devices).
 
-The gateway gets matching per-IP limits for `/api/auth/**` and `/api/approver/**`.
+**Events** (IdP → core): `CREDENTIAL_RESET`, `MFA_ENROLLED`, `MFA_REMOVED`, `RECOVERY_CODE_USED`, `SUSPICIOUS_LOGIN`, `LOCKED`.
 
-## 11. Data model (core DB)
+**Core:**
+
+| endpoint | purpose |
+|---|---|
+| `POST /api/orgs/{id}/users/{userId}/recovery` `{scope}` | an admin raises `ACCOUNT_RECOVERY` |
+| `POST /api/orgs/onboarding/{id}/decide` (existing) | decides `ACCOUNT_RECOVERY` too, with the checklist and step-up |
+| `POST /api/me/contact` · `/confirm` | change email or phone, with the 24-hour hold (§9.7) |
+| `PUT /api/orgs/{id}/mfa-required` | org override (stricter only) |
+
+**Rate limits:** per IP, login 10/min, verify 10/min, challenge start 5/min; per user, push 3/10 min, SMS 3/10 min. The gateway gets matching per-IP limits for the IdP vhost.
+
+## 12. Data model
+
+**IdP database** (IdP DDL):
 
 | table | purpose |
 |---|---|
-| `mfa_policies` | §4 |
-| `mfa_factors` | one row per enrolled factor: `user_id`, `kind TOTP\|WEBAUTHN\|PUSH_WEB\|PUSH_NATIVE\|SMS`, `label`, encrypted `secret` (TOTP), `credential_id` / `public_key` / `sign_count` / `transports` (WebAuthn), `push_endpoint` + `push_keys` or `push_token`, `last_step` (TOTP replay), `created_at`, `last_used_at`, `revoked_at` |
-| `mfa_recovery_codes` | `user_id`, `code_hash`, `used_at` |
-| `mfa_challenges` | `id`, `user_id`, `session_nonce`, `purpose LOGIN\|STEP_UP\|ENROLL\|OTP_LOGIN`, `method`, `number`, `decoys`, `code_hash`, `context` (jsonb: portal, ua, ip, city, action summary), `action_hash`, `status PENDING\|APPROVED\|DENIED\|WRONG_NUMBER\|EXPIRED\|CONSUMED`, `attempts`, `factor_id`, `expires_at`, `responded_at` |
-| `mfa_trusted_devices` | §5 |
-| `mfa_lockouts` | `user_id`, `method`, `until`, `reason` |
-| `devices_sessions` | **add** `amr`, `acr`, `mfa_at`, `step_up_at` (the existing `mfa_method` becomes populated) |
-| `users` | **add** `mfa_enrolled_at`, `mfa_grace_left`, `transaction_pin_hash` (merchants), `password_changed_at`, `recovered_until` (cooling-off), `contact_hold_until` |
-| `password_history` | `user_id`, `password_hash`, `created_at` (the last 5 are kept) |
-| `activation_tokens` | **add** `purpose ACTIVATION\|PASSWORD_RESET\|ACCOUNT_RECOVERY\|CONTACT_CONFIRM` and `scope`. The TTL depends on the purpose (72 h / 30 min / 24 h / 24 h). Tokens are stored hashed (the existing sandbox-only raw copy in `sim_outbox` stays sandbox-only) |
+| `mfa_policies` | §5 |
+| `accounts` | **add** `mfa_profile`, `org_requires_mfa`, `mfa_enrolled_at`, `mfa_grace_left` (from `idp-rbac-cutover-plan.md` P1.1) |
+| `mfa_factors` | one row per enrolled factor: `subject`, `kind TOTP\|WEBAUTHN\|PUSH_NATIVE\|PIN`, `label`, encrypted `secret` (TOTP), `credential_id` / `public_key` / `sign_count` / `transports` (WebAuthn), `device_public_key` / `platform` / `attestation` (push), `pin_hash`, `last_step`, `created_at`, `last_used_at`, `revoked_at` (FCM / APNs tokens live in comms) |
+| `mfa_recovery_codes` | `subject`, `code_hash`, `used_at` |
+| `mfa_challenges` | `id`, `subject`, `login_tx`, `purpose LOGIN\|STEP_UP\|ENROLL\|OTP_LOGIN\|RECOVERY`, `method`, `number`, `decoys`, `code_hash`, `context` (jsonb), `action_hash` (from RAR), `status PENDING\|APPROVED\|DENIED\|WRONG_NUMBER\|EXPIRED\|CONSUMED`, `attempts`, `factor_id`, `expires_at`, `responded_at` |
+| `mfa_trusted_devices` | §6 |
+| `mfa_lockouts` | `subject`, `method`, `until`, `reason` |
+| `password_history` | `subject`, `password_hash`, `created_at` (the last 5) |
+| `credential_links` | one-time set-up / reset / recovery links: `subject`, `purpose SETUP\|PASSWORD_RESET\|RECOVERY`, `token_hash`, `expires_at`, `used_at` |
+
+**Core database** (Flyway, numbered after the cut-over migrations):
+
+| table | change |
+|---|---|
+| `users` | **add** `recovered_until`, `contact_hold_until` |
 | `organizations` | **add** `mfa_required` |
-| `onboarding_requests` | **add** kind `ACCOUNT_RECOVERY`, plus `target_user_id`, `scope MFA\|FULL\|CONTACT`, `verification` (jsonb checklist), `second_decider` (for dual approval) |
+| `onboarding_requests` | **add** kind `ACCOUNT_RECOVERY`, `target_user_id`, `scope MFA\|FULL\|CONTACT`, `verification` (jsonb checklist), `second_decider` |
 
-**Retention:** challenges are purged after 90 days, and their audit rows are kept under the normal audit retention.
+Not used any more: `devices_sessions.mfa_method` (dropped with `devices_sessions`) and `activation_tokens` purposes (activation tokens are deleted; links live in the IdP's `credential_links`).
 
-## 12. Security invariants (no configuration can override)
+**Retention:** challenges are purged after 90 days; their audit rows are kept under normal audit retention.
 
-1. **The second factor is never the same channel that proved the password.** For example, the email-reset path can't satisfy 2FA.
-2. **Every challenge is single-use, expires, and is bound to one session nonce.** An approved login challenge can't be replayed into another browser.
-3. **Push approvals count only when signed by the registered device key over the server's own challenge data.** The device key itself is protected by user verification on the device.
-4. **Secrets are stored encrypted or hashed:** TOTP secrets with AES-GCM under a key from the environment, recovery codes and PINs with bcrypt, SMS codes hashed. Nothing reversible is ever logged.
-5. **One lost secret never unlocks the account alone.** A password reset still needs the second factor. Losing the second factor needs a recovery code or a second person. Losing both always needs a second person **and** an identity check, followed by cooling-off (D7, §8).
-6. **Policy can only make org users stricter.** An org override never removes a platform requirement.
-7. **Every MFA event is audited**, without codes or keys: enrol, verify, fail, deny, wrong number, lockout, reset, remember, forget.
+## 13. Security invariants (no configuration can override)
+
+1. **The second factor is never the same channel that proved the password.** For example, an email reset link can't satisfy 2FA.
+2. **Every challenge is single-use, expires, and is bound to one login transaction or step-up request.**
+3. **Push approvals count only when signed by the registered device key over the IdP's own challenge data.**
+4. **Secrets are stored encrypted or hashed:** TOTP secrets with AES-GCM, recovery codes and PINs with bcrypt, SMS codes and links hashed. Nothing reversible is ever logged, and nothing secret is stored by comms.
+5. **One lost secret never unlocks the account alone** (D7, §9).
+6. **Policy can only make org users stricter.**
+7. **Every MFA event is audited**, without codes or keys.
 8. **Remembered devices never satisfy step-up,** and `PLATFORM-STAFF` never get remembered devices.
-9. **Recovery links go only to contact details that have been on file for more than 24 hours, or that were verified inside the recovery itself.** Every recovery, reset or contact change is notified on **all** known channels, old and new.
-10. **Recovery never reveals whether an account exists,** and every recovery endpoint is rate-limited per identifier and per IP.
+9. **Recovery links go only to contact details on file for more than 24 hours, or verified inside the recovery itself.** Every recovery, reset or contact change is notified on all known channels, old and new.
+10. **Recovery never reveals whether an account exists.**
+11. **An unavailable comms channel never weakens login.** It removes the factors that need it; it never removes the 2FA requirement. `enforce` is refused rather than allowing a profile with no usable method.
+12. **The core's legitimacy check always wins.** A suspended user or org is refused on every request, whatever their factors (`idp-rbac-cutover-plan.md` §1.5 U3).
 
-## 13. Screens
+## 14. Screens
 
-**Login, step 2** (both portals):
+**Login, step 2** (IdP page, styled like the portals):
 
 ```
 ┌───────────────────────── Approve on your phone ─────────────────────────┐
 │ We sent a request to “Selma’s Pixel 8”.                                  │
-│                                                                          │
 │                              ┌──────┐                                    │
 │                              │  47  │   ← tap this number on your phone  │
 │                              └──────┘                                    │
@@ -475,105 +556,80 @@ The gateway gets matching per-IP limits for `/api/auth/**` and `/api/approver/**
 │ Use another method:  Authenticator app · Passkey · Text message · Code   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+Only usable methods are listed (§4.2).
 
-- **Phone (PWA)**: the request card (portal, browser, city, time, action), three large number buttons, **Deny**, and a small "This wasn't me". After a choice it shows a result tick or cross.
-- **Security page** (both portals): factors, phones, remembered devices, recovery codes, and the last 10 sign-ins with method and city.
-- **Admin portal and org portals → Users:** each user's MFA status (enrolled / due / not required) and a **Recover access** action (scope MFA / full / phone number), which creates `ACCOUNT_RECOVERY` for a second person.
-- **Login page:** a **Forgot password?** link (§8.3) and a **Can't get in?** link, which raises an assisted-recovery request and shows "We'll call you on the number we have on file".
-- **Reset / recovery page** (`/reset?token=…`): step 1 is 2FA when required, step 2 a new password with live strength rules, step 3 (recovery only) enrolment of new 2FA plus recovery codes.
-- **Recovery request review** (in the existing onboarding queues): who is recovering whom, the scope, the identity checklist (call-back done, details matched, ID seen), the second approver when one is needed, and the cooling-off period to apply.
-- **Cooling-off banner** on every page: "Access was recovered on 11 Nov at 10:42. Payouts and admin changes unlock on 14 Nov at 10:42."
-- **Step-up dialog:** the same component as login step 2, showing the action summary ("Approve KYC: Okahandja Fresh Market").
+- **Phone (MiPay app):** the request card, three large number buttons, **Deny**, and "This wasn't me".
+- **Security page** (IdP, linked from every portal): factors, phones, remembered devices, recovery codes, last 10 sign-ins. While `off`/`shadow`, it shows "Set up 2FA now (optional)" or "2FA will soon be required".
+- **Users** (admin and org portals, core): each user's 2FA profile and status (enrolled / due / not required, from IdP events), and **Recover access**.
+- **Login page** (IdP): **Forgot password?** (only while email or SMS is live) and **Can't get in?**.
+- **Recovery request review** (core onboarding queues): who, scope, checklist, second approver, cooling-off.
+- **Cooling-off banner** on every portal page.
+- **Step-up dialog** (portals): "Confirm it's you" with the action summary, then the gateway's step-up flow.
+- **2FA readiness** (admin portal, from `GET /mfa/readiness`): §4.3.
 
-## 14. Trustplane IdP
+## 15. Test plan (IdP suite + `TUat21MfaTests` + portal headless E2E)
 
-**Revised:** this is no longer a later add-on. The IdP is where all of the above is built (see the revision note at the top, and `fapi2-design.md`). Its tokens carry `amr` (RFC 8176), `acr` (`aal1` / `aal2`) and `auth_time`, and it advertises `acr_values_supported = ["aal1","aal2"]` so FAPI clients and the gateway BFF can ask for `aal2`.
+**CI runs the whole suite with `mfa.mode=enforce` and every comms channel "live" in the sandbox,** plus the existing UAT packs with `mfa.mode=off`. Production runs the same code with the switch off.
 
-## 15. Test plan (`TUat21MfaTests` + portal headless E2E)
-
-- **Policy:**
-  - resolution, and the boot failure on an unknown method or an ambiguous policy;
-  - an org override can make the policy stricter, never looser;
-  - grace logins count down, then enrolment is forced.
+- **Mode and readiness:**
+  - `off`: no challenges; optional enrolment works; step-up asks for a fresh password and audits `step_up_without_mfa`;
+  - `shadow` logs would-be prompts;
+  - `enforce` applies grace logins, then forces enrolment;
+  - with `comms.sms` not live, SMS is not offered, and merchant OTP login and Forgot password are hidden;
+  - when a channel goes live, the factor appears within 60 s with no restart;
+  - a profile with no usable method refuses `enforce`.
+- **Profiles:** granting `org_admin` moves the account to `ORG-ADMIN` on the next reconcile; an org override makes the policy stricter, never looser; the strictest profile wins.
 - **Login:**
-  - password then push approve → a token with `amr` including `mfa` and `acr=aal2`;
+  - password then push approve → `amr` with `mfa`, `acr=aal2`, `uid`;
   - deny → no token;
-  - a wrong number, expiry or reuse of a challenge is refused;
-  - an `mfaToken` is refused by every non-MFA endpoint.
-- **Push:**
-  - a forged signature, another user's device, a revoked device, a tampered number or action hash, a replayed respond and an unpaired device are all refused;
-  - prompt-flood limits and lockouts work;
-  - "This wasn't me" revokes all sessions.
-- **TOTP:** RFC 6238 test vectors, ±1 step of drift, replay of the same step refused, the secret encrypted in the DB.
-- **WebAuthn:** registration and assertion through a virtual authenticator (Chrome DevTools protocol, headless); a signature-counter regression is refused.
-- **SMS:** the code is hashed, expires after 5 minutes, allows 5 attempts and is rate-limited; staff can't use SMS.
-- **Recovery:** each code works once; regenerating invalidates the old set; a recovery code can't satisfy `PAYOUT` or `KYC_DECISION`.
+  - a wrong number, expiry or reuse is refused.
+- **Push** (app test build with a software key standing in for Keystore / Secure Enclave): forged signature, another user's device, revoked device, tampered number or action hash, replayed respond and unpaired device are refused; flood limits and lockouts work; "This wasn't me" revokes all sessions and reaches the core as `SUSPICIOUS_LOGIN`.
+- **Cooling-off lengths:** assisted recovery gives 72 h; a self-service reset with a passkey, TOTP or push gives none; one with SMS (or with 2FA off) gives 24 h.
+- **Break-glass:** refused while any `<BG_…>` placeholder is configured, and the health check reports it; refused with one signature, two signatures from the same side, or a stale timestamp; refused while an active staff account with a factor exists; with valid signatures it is audited with both officers, and the alert goes out even with comms stopped.
+- **TOTP:** RFC 6238 vectors, ±1 step drift, replay refused, secret encrypted.
+- **WebAuthn:** virtual authenticator (headless Chrome DevTools protocol); a counter regression is refused; the RP id is the IdP host.
+- **SMS:** hashed, 5 min, 5 attempts, rate-limited; staff can't use it; never sent after `expiresAt`.
+- **Recovery codes:** single use; regeneration invalidates; can't satisfy `PAYOUT` or `KYC_DECISION`.
 - **Step-up:**
-  - a KYC decision without step-up gets 401;
-  - an approved challenge for task A can't approve task B;
-  - a payout challenge for N$100 can't approve N$1,000;
-  - a bound challenge works once;
-  - a remembered device doesn't help.
-- **Forgot password:**
-  - same response and timing for known and unknown identifiers;
-  - rate limits apply;
-  - a link is single-use, expires after 30 minutes, and a used or expired link is refused;
-  - a user with 2FA can't set a new password without passing the second factor;
-  - a reset revokes every session and remembered device and notifies on every channel;
-  - the last 5 passwords and passwords from the common/breached list are refused.
-- **Assisted recovery:**
-  - a request decided by its requester, or by the user being recovered, is refused;
-  - a decision without the identity checklist, or without step-up, is refused;
-  - a staff `FULL` recovery needs two different deciders;
-  - approval wipes the factors and password for the scope and issues a 24-hour link to the verified contact only;
-  - a request raised from the login page reveals nothing about the account.
-- **Cooling-off:** after recovery, payouts, bank-account and rights changes get `RECOVERY_COOLING_OFF` until `recovered_until`; drafts and KYC submission still work.
-- **Contact change:** needs step-up; the old contact is notified; a recovery link can't go to the new contact within 24 hours.
-- **Break-glass:** refuses while any active staff account with 2FA exists; when it runs, it is audited with both officers named.
-- **Regression:** existing UAT packs pass with policies switched off (`mfa.enforce=false` in the test profile), plus a run with them switched on.
+  - a KYC decision without step-up gets `step_up_required`;
+  - a bound token for task A can't approve task B;
+  - a payout for N$100 can't approve N$1,000;
+  - a bound token works once;
+  - a remembered device doesn't help;
+  - in `off` mode the same flows pass with a fresh password.
+- **Forgot password:** identical responses and timing; limits; single-use 30-minute link; 2FA still required; revocation and notices; `CREDENTIAL_RESET` sets 24 h cooling-off in the core.
+- **Assisted recovery:** requester or target can't decide; checklist and step-up required; privileged staff need two deciders; approval calls `resetCredential` with the right scope; the link goes only to the verified contact; the login-page request reveals nothing.
+- **Cooling-off, contact change, break-glass:** as §9.5–9.7.
 
 ## 16. Implementation phases
 
-> **Revised:** these phases run **in the IdP**, after the identity migration in `fapi2-design.md` §8
-> (they are its step 6). "Two-step login (`mfaToken`)" becomes the IdP's own login steps, and "the portal
-> interceptor and dialog" for step-up becomes the gateway's RFC 9470 handling plus the portals' reaction to
-> `step_up_required`.
+These run in the IdP after `idp-rbac-cutover-plan.md` P1 (credential accounts) and alongside its later phases. **Everything ships with `mfa.mode=off`.**
 
-1. **Foundations:**
-   - the `V12__mfa.sql` tables;
-   - policy master and boot validator;
-   - two-step login (`mfaToken`) and the new token claims;
-   - TOTP and recovery codes;
-   - enrolment wizard and Security page in both portals;
-   - OTP hardening (§9);
-   - audit events.
-2. **Step-up:** the `@RequiresStepUp` guard, the portal interceptor and dialog, the action-bound challenges and the default rules (§7).
-3. **Push through the PWA:**
-   - WebAuthn registration and assertion (a library such as `webauthn4j`);
-   - pairing by QR code;
-   - Web Push with VAPID;
-   - the approver PWA;
-   - number matching and prompt-flood protection.
-4. **SMS fallback** through a real provider adapter, the transaction PIN for merchants, and remembered devices.
-5. **Password and 2FA recovery** (§8):
-   - self-service Forgot password, with 2FA still required;
-   - password rules and history;
-   - assisted `ACCOUNT_RECOVERY` through the onboarding-request machinery, with the identity checklist and dual approval for privileged staff;
-   - cooling-off;
-   - protected contact changes;
-   - the break-glass runbook.
-   Recovery codes ship in phase 1, so nobody is ever left with no way back in between phases.
-6. **Later:** the native approver app (§6.6), and 2FA on the IdP for FAPI clients (§14).
+1. **Foundations (no comms needed):**
+   - IdP 2FA tables, policy master, boot validator, `mfa.mode`, `FactorReadiness` with `CommsClient` (sandbox + comms plane implementations);
+   - login step 2 and the enrolment wizard;
+   - **TOTP, WebAuthn passkeys, recovery codes, merchant PIN**;
+   - Security page; core `setMfaProfile` and the reconcile hook;
+   - readiness page; audit events.
+2. **Step-up:**
+   - step-up rules on `@Perm` cells and in the manifest; gateway RFC 9470 handling and RAR binding; the portals' step-up dialog;
+   - `step_up_acr` published by the IdP (`aal1-fresh` until enforced).
+3. **Recovery:**
+   - core `ACCOUNT_RECOVERY` with checklist and dual approval; `resetCredential` scopes; cooling-off; protected contact changes; break-glass runbook;
+   - self-service Forgot password (lights up when email or SMS is live).
+4. **SMS factor and merchant phone-OTP login:** code-complete, tested in the sandbox; **light up when comms P1 is live.**
+5. **Push in the MiPay app:** pairing, hardware-backed device key with attestation, number matching, flood protection, FCM / APNs registration with comms. **Lights up when comms P2 is live and the app is released.**
 
-## 17. Open items
+Switch-on follows §4.4.
 
-1. **Who must use push first:** MiPay staff only, or org ADMINs from day one? D3 currently makes both require some 2FA, with push one of the choices.
-2. **Native app:** is one on the roadmap (for merchants, say)? If so, phase 3 may go straight to native.
-3. **Step-up for money movement:** in phase 2, or only after payouts move to the new rules?
-4. **Push through Google and Apple services:** acceptable under MiPay's data rules? Only a challenge id and a fixed text pass through them (D8).
-5. **SMS provider** for Namibia (MTC / TN Mobile, or an aggregator), and whether WhatsApp OTP is wanted as a channel.
-6. **Regulatory:** compliance to confirm which factors meet the Bank of Namibia's expectations for privileged and payment access, and whether `aal2` from push or TOTP is enough for payouts or a passkey is required.
-7. **Production relying-party id and portal hosts:** passkeys are tied to the host, so moving hosts later invalidates them.
-8. **Email delivery:** the platform has no real email sender yet; notices and activation links go to the simulated outbox. Password-reset links need a real email provider (or SMS-only reset) before production.
-9. **Cooling-off lengths:** 72 hours after assisted recovery and 24 hours after a self-service reset are proposals; compliance and operations should confirm what customers will tolerate.
-10. **Break-glass officers:** who the two named officers are, and where the runbook and the alert contacts live.
+## 17. Decisions on the former open items (2026-11-11)
+
+| # | Item | Decision |
+|---|---|---|
+| 1 | Native app | **Yes, one is on the roadmap.** Push goes straight to the native MiPay app; no PWA approver is built (D4, §7) |
+| 2 | Push through Google and Apple services | **Accepted.** Only a challenge id and a fixed text pass through them (D8) |
+| 3 | Regulatory | **Accepted:** push, TOTP and passkeys all satisfy AAL2 for privileged and payment access, so a passkey is not mandatory for payouts. Password re-entry is acceptable as the interim step-up while `mfa.mode` is `off` or `shadow` (§4.1) |
+| 4 | Cooling-off lengths | **Adopted (confirmed 2026-11-11):** 72 h after any assisted recovery and for staff; none after a self-service reset proved with a passkey, TOTP or push; 24 h after one with SMS or without 2FA (§9.5) |
+| 5 | Break-glass officers | **Recommended and adopted:** two roles with a deputy each (Head of Compliance, not the MLRO; engineering lead with server access); two hardware-key signatures enforced by the command; alerts through comms and direct SMTP; runbook in the repo, printed copy and keys in the safe; quarterly drill (§9.6). Two people are assigned (plus deputies). They are recorded as **placeholders** (`<BG_…>`) in `break_glass.officers` until the names and key ids are confirmed, and the command refuses to run while any placeholder remains |
+
+The SMS provider, WhatsApp OTP and email delivery are comms-plane decisions (`comms-design.md` §14), not 2FA ones.

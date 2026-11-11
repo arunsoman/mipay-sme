@@ -2,6 +2,13 @@
 
 Status: **draft for review** · 2026-11-11
 
+> **Revised 2026-11-11:** login is a credential **plugin**, and the MiPay core stays the owner of users.
+> - Onboarding/KYC creates every user inside an org.
+> - The IdP only proves who is at the keyboard.
+> - The core links the two through `identity_links`; tokens carry the core user id as `uid`.
+>
+> Decisions I5, I6 and I9 below, §6 and §8 reflect this. The build order and the full model are in [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) (§1). Where this document writes `Check(sub, …)`, the subject is the **core user id** (the `uid` claim), not the IdP's own `sub`.
+
 ## 1. Where we are, and where we are going
 
 **Today (two identity systems side by side):**
@@ -37,8 +44,9 @@ every request ─▶ nginx ─▶ GATEWAY ── login / auth routes ───�
 | I2 | **Every request lands on the gateway first.** It routes login/auth requests to the IdP, checks the credential on every other request, starts the FAPI 2.0 flow when there is no valid credential, and only then lets the request through. |
 | I3 | **The system follows the FAPI 2.0 Security Profile.** PAR, PKCE S256 and confidential clients only (`private_key_jwt` or mTLS); access tokens sender-constrained with DPoP or mTLS; short code lifetimes; `iss` in the authorization response; TLS 1.2+ with FAPI cipher suites. |
 | I4 | **Browsers are not FAPI clients themselves.** A browser app cannot keep a client secret or a long-lived private key, and FAPI 2.0 forbids public clients. So the **gateway acts as a Backend-for-Frontend (BFF)**: it is the confidential FAPI client for the four portals, holds their tokens server-side, and gives the browser only an HttpOnly session cookie. |
-| I5 | **Who you are** (authentication: password, 2FA, recovery, sessions) lives in the IdP. **What you may do** is decided by **trustplane RBAC** (§9): org roles, platform roles and onboarding rights. The MiPay backend keeps the business data (the org tree, KYC applications, workflow state) and the object-level rules that depend on it (e.g. maker ≠ checker on one application). |
-| I6 | **A user's IdP subject (`sub`) is their existing MiPay user id**, so no mapping table is needed and the migration keeps every id. |
+| I5 | **Three owners.**<br>• **Who is legitimate** (users, their org, their status) is owned by the **MiPay core**: onboarding, using the KYC plugin, creates every user.<br>• **Who is at the keyboard** (password, 2FA, recovery, sessions) is the **IdP**, a credential plugin behind an `AuthProvider` contract, like the KYC providers. It holds credential accounts, never users, orgs or roles.<br>• **What you may do** is decided by **trustplane RBAC** (§9).<br>The core also keeps the business data (the org tree, KYC applications, workflow state) and the object-level rules that depend on it (e.g. maker ≠ checker on one application). |
+| I6 | **The core links credentials to users.** `identity_links (user_id, provider, issuer, subject, status)` maps the IdP's `sub` to the core user; one user may have several links (password today; later eID, staff SSO, partner client). At enrolment the core gives the IdP the user id, and **tokens carry it as `uid`**. The gateway uses `uid` for RBAC; the core re-checks the link on every request. The migration keeps every core user id. |
+| I9 | **Every user belongs to exactly one org, and the org governs the user.** No user exists outside the org tree; platform staff belong to the Platform Root org. A user can act only while they **and** their org (and every ancestor) are operational, KYC included, so deactivating an org or failing its KYC deactivates its users by default. User management is always org-scoped. |
 | I7 | **Upstreams trust identity only through the gateway's signed context headers** (the existing `ctxauth` HMAC). They never see or parse user tokens. |
 | I8 | **Full RBAC (NIST / ANSI INCITS 359: Core, Hierarchical, Static and Dynamic SoD) in trustplane RBAC is the single source of every permission** for people and systems. Code checks permissions for a tenant (an org), never role names. MiPay's org roles, platform review functions and onboarding rights all become RBAC roles, assignments and delegated grants (§9). |
 
@@ -167,25 +175,29 @@ The only additions are a public host and the route table for the APIs we decide 
 
 **One fix is needed for it to work behind nginx.** The gateway computes the DPoP `htu` from `r.Host`. Behind nginx, that host is rewritten to the internal vhost, so proofs signed for the public URL would fail. The gateway must build `htu` from `X-Forwarded-Host`, and only when the peer is a trusted proxy (the same rule as `limits.trusted_proxies`).
 
-## 6. The IdP becomes the account system
+## 6. The IdP becomes a credential plugin
+
+The IdP holds **credential accounts** for users the core created. It has no org, role, KYC or business status. The contract (`AuthProvider`), the `identity_links` table and the flows are in [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) §1.
 
 | Capability | Today | Target in the IdP |
 |---|---|---|
-| Users | `user_id`, `password_hash`, `scopes`, `active` | + `username`, `email`, `phone`, `status` (PENDING / ACTIVE / SUSPENDED / ARCHIVED), `display_name`, `password_changed_at` |
+| Accounts | `users(user_id, password_hash, scopes, active)` | `accounts(subject, uid, login_name, phone, display_name, password_hash, state ENROLLING/ACTIVE/DISABLED, failed_attempts, locked_until, password_changed_at)`. `uid` is the core user id; the IdP never decides who is legitimate |
 | Login page | plain HTML form | TPTS-styled login: username or phone + password; "Forgot password?"; "Can't get in?" |
 | Lockout | per-IP rate limit on the form | + per-account back-off, then a temporary lock; audited |
 | 2FA, recovery | — | everything in `2fa-design.md`, now implemented here (push number-matching, passkeys, TOTP, SMS fallback, recovery codes, assisted recovery, cooling-off) |
 | Activation (first password + 2FA enrolment) | MiPay `ActivationService` | IdP "set up your account" link (72 h, single use, stored hashed) |
 | Merchant phone login | MiPay OTP (in-memory) | IdP passwordless phone-OTP method (`acr` aal1), plus a transaction PIN or push for step-up |
-| Provisioning API | — | **internal admin API** over mTLS, for MiPay only: create / update / disable / enable a user; issue an activation or reset link; revoke sessions |
-| Notifications | — | IdP sends account mail and SMS (activation, reset, new-device, recovery notices) through the notification sender |
-| Token claims | `sub`, scopes | + `acr`, `amr`, `auth_time`, `sid`; optional `org_id` hint (MiPay remains the authority) |
+| Enrolment API | — | **internal API** over mTLS, for the MiPay core only: enrol a credential account for an existing core user (returns the subject and a one-time set-up link); reset link; disable / enable; revoke sessions; update login name or phone; delete |
+| Events to the core | — | `CREDENTIAL_SET`, `CREDENTIAL_RESET`, `LOCKED`, `UNLOCKED` (later factor changes), signed, retried, de-duplicated |
+| Notifications | — | **Through the comms plane only, addressed by the core user id** (`user:<uid>`). The IdP sends what happens inside a login (OTP, 2FA codes, push, self-service reset links, security notices); the core sends what it starts (set-up and recovery links, onboarding). The core is the only writer of contact details, so the IdP holds no email address or delivery phone (`2fa-design.md` D10) |
+| 2FA switch | — | `mfa.mode = off \| shadow \| enforce`, shipped `off`; factors that need a comms channel are offered only while it is live (`2fa-design.md` §4) |
+| Token claims | `sub`, scopes | + **`uid`** (core user id), `acr`, `amr`, `auth_time`, `sid`. No org or role claims: the core and RBAC are the authority |
 
-**How the MiPay backend uses the IdP afterwards:**
-- **Onboarding or adding a team member:** MiPay creates its own user row (profile, org, ADMIN/STAFF) **and** calls `POST /admin/users` on the IdP with the same id, status PENDING. The IdP sends the activation link. This replaces `ActivationService.issue` and fixes today's wrong-portal link.
-- **KYC go-live:** MiPay calls the IdP to issue the admin's activation link. The IdP sends the welcome message with the username and the link to that org's own portal.
-- **Deactivate, suspend, or "this wasn't me":** MiPay calls `POST /admin/users/{sub}/disable` and `/revoke-sessions`. The IdP back-channel-logs-out the gateway.
-- **Every request:** MiPay reads `sub` from the signed context. It loads the user's org and role from its own tables, and still refuses suspended orgs or users as it does today.
+**How the MiPay core uses the IdP afterwards:**
+- **Users are created only by the core, inside an org.** That happens at KYC go-live (the org admin), when an org admin adds a team member, or when a platform admin adds staff to the Platform Root org. The core then calls `enrol` with the user id and delivers the set-up link. When the IdP reports `CREDENTIAL_SET`, the core makes the link and the user ACTIVE. This replaces `ActivationService.issue` and fixes today's wrong-portal link.
+- **The KYC applicant admin** of a PENDING org is enrolled when the application starts, and is limited to the KYC application screens until go-live.
+- **Suspend, deactivate, archive, or "this wasn't me":** the core changes its own state, then a single reconcile computes which IdP accounts should be enabled. It calls `disable` / `enable` / `revoke-sessions` to match, and the IdP back-channel-logs-out the gateway. Org suspensions, KYC lapses and KYC rejections reach every user of the org's subtree this way.
+- **Every request:** the core reads `iss`, `sub` and `uid` from the signed context, finds the link, and refuses the request unless the link is active, `uid` matches, the user is ACTIVE and their org (and every ancestor) is operational.
 
 ## 7. What changes in each component
 
@@ -193,9 +205,9 @@ The only additions are a public host and the route table for the APIs we decide 
 |---|---|
 | **nginx (host)** | Send **all** traffic for the portal hosts to the gateway, not only `/api`. Add `auth.afriqpay.com` → gateway (IdP vhost) and `api.afriqpay.com` → gateway (partner APIs). FAPI TLS settings (§10). |
 | **Gateway** | BFF module (§4.2) with `/auth/*` handlers, session store, CSRF, refresh, back-channel logout; portal static upstreams; step-up challenges; `htu` from a trusted `X-Forwarded-Host`; route policies get `session: required`, `acr`, `max_age` and `permission`. |
-| **IdP** | Public issuer `https://auth.afriqpay.com`; extended user model; TPTS login UI; lockout; 2FA and recovery; admin provisioning API; RAR (`authorization_details`); RFC 9470 step-up; back-channel logout; account notifications. Remove the dev seed users in production. |
+| **IdP** | Public issuer `https://auth.afriqpay.com`; credential accounts with `uid`; TPTS login UI; lockout; 2FA and recovery; enrolment API and events to the core; `uid` claim; RAR (`authorization_details`); RFC 9470 step-up; back-channel logout. Remove the dev seed users in production. |
 | **RBAC** | The full model in §9: org tree as tenants with `subtree` scope; role hierarchy; SSD/DSD sets; session role activation; onboarding rights as delegated grants; four-eyes for privileged assignments; access reviews; decision ids; extra review APIs. |
-| **MiPay backend** | Remove `/api/auth/login`, `/otp`, `/activate`, `JwtService` and `JwtAuthFilter`. Add `GatewayContextFilter`: verify the `ctxauth` HMAC, then load the user by `sub`. Replace hard-coded role checks (`isOrgAdmin`, `platformStaff`, `user_platform_functions`) with RBAC `Check(sub, org, permission)`, recording the decision id in audit rows. Org creation, user changes and suspension sync to the IdP admin API and to RBAC (tenant, assignments, grants). The `users` table keeps profile and org, minus `password_hash` and role columns. |
+| **MiPay backend** | Remove `/api/auth/login`, `/otp`, `/activate`, `JwtService` and `JwtAuthFilter`. Add the `AuthProvider` contract, `identity_links`, `UserLifecycleService` (the only place users are created or changed, always inside an org), `AuthSyncService.reconcile` and `GatewayIdentityFilter` + `IdentityResolver` (verify the `ctxauth` HMAC, then resolve `iss`/`sub`/`uid` through the link). Replace hard-coded role checks (`isOrgAdmin`, `platformStaff`, `user_platform_functions`) with RBAC `Check(uid, org, permission)`, recording the decision id in audit rows. Org and user changes sync to RBAC (tenant, holds, assignments, grants). The `users` table stays the user master: profile, org (`NOT NULL`), status; minus `password_hash` and role columns. |
 | **Portals (Angular)** | No token handling. The login page becomes a "Sign in" button to `/auth/login`. `/auth/session` returns who is signed in plus the CSRF token. Send `X-CSRF` on POST/PUT/DELETE. Handle 401 `login_required` / `step_up_required` by navigating or showing the step-up dialog. Logout goes to `/auth/logout`. |
 
 ## 8. Migration plan
@@ -205,8 +217,8 @@ Each step can be deployed and rolled back on its own. The old login keeps workin
 | Step | What | Rollback | Rough effort |
 |---|---|---|---|
 | **0. Harden the edge** | FAPI TLS settings on nginx (§10); `htu` from a trusted `X-Forwarded-Host`; IdP public issuer `auth.afriqpay.com` with its own certificate; remove the IdP dev seed users on the server | revert config | 0.5 day |
-| **1. IdP account model** | Extend the users table; admin provisioning API (mTLS); TPTS login page; per-account lockout; activation links; account notifications (needs the email/SMS provider) | IdP only, not yet used by MiPay | 3–4 days |
-| **2. Copy users into the IdP** | One-off job: for every MiPay user, create the IdP user with **the same id**, username, email, phone and status, and copy the bcrypt hash (strip Spring's `{bcrypt}` prefix; Go's bcrypt reads `$2a$`). PENDING users get a fresh IdP activation link. MiPay then keeps the IdP in sync on every create, update and disable. | IdP users unused until step 4 | 1 day |
+| **1. IdP as credential plugin** | Credential accounts with `uid`; enrolment API (mTLS); events to the core; `uid` claim; TPTS login page; per-account lockout; set-up/reset links returned to the core | IdP only, not yet used by MiPay | 4–5 days |
+| **2. Bind users to orgs, then enrol them** | First, bind every user with no org to its org (or Platform Root), list the ones that match nothing for a manual decision, and make `users.org_id NOT NULL`. Then, for every MiPay user, enrol a credential account with `uid` = the user id, copy the bcrypt hash (strip Spring's `{bcrypt}` prefix; Go's bcrypt reads `$2a$`), and write the `identity_links` row. PENDING users get a fresh set-up link. From then on, the core drives the IdP through `UserLifecycleService` and the reconcile. | IdP accounts unused until step 4 | 2 days |
 | **2b. RBAC model** | The permission grid (Appendix G: rows, fixed verb columns, bitmask role grids, cell registry, SoD as cell pairs). Add `subtree` scope, `role_inheritance`, `ssd_sets` / `dsd_sets`, session activation, delegation ceilings and review APIs to trustplane RBAC; seed the MiPay permission catalogue and roles (§9.2–9.4). | RBAC only, not yet consulted | 4–5 days |
 | **2c. Copy authorizations into RBAC** | One-off job: each org → tenant (with closure for `subtree`); each user's ADMIN/STAFF → `org_admin` / `org_staff` assignment; `user_platform_functions` → platform role assignments; `org_rights` DIRECT/CEILING → delegated grants. Run the SSD check over the result and resolve conflicts before go-live (e.g. today `ops-admin-mindlabs` must hold no review role). MiPay then writes every change to RBAC. | RBAC unused until step 3 | 1–2 days |
 | **3. Gateway BFF + dual-stack** | Build §4 behind a per-host flag (`bff: true`). MiPay accepts **either** its old token **or** the gateway's signed context (`GatewayContextFilter` first). Switch `admin.` on the server; test; then the three org portals. | flip the flag back per host | 4–5 days |
@@ -247,7 +259,7 @@ Each step can be deployed and rolled back on its own. The old login keeps workin
 
 | RBAC concept | MiPay meaning |
 |---|---|
-| **User** | IdP `sub` (= MiPay user id) |
+| **User** | the core user id (the `uid` claim; the IdP's own `sub` is mapped to it through `identity_links`). Every user has one home org (I9) |
 | **Tenant** | an organization in the tree (Platform Root, manufacturers, distributors, suppliers, merchants). A scope is `own` (that org), `subtree` (that org and everything below it, from `org_closures`) or `all` (platform staff) |
 | **Permission** | one cell of the **2-D grid** (Appendix G): `<service>.<resource>.<verb>`, with the verb from a fixed list of 10 (`read · create · modify · delete · submit · authorize · execute · export · administer · simulate`). It is the only thing code checks. For example: `kyc.application.view`, `kyc.application.edit`, `kyc.application.submit`, `kyc.task.decide.ops_review`, `kyc.task.decide.compliance_review`, `kyc.task.decide.senior_approval`, `org.child.onboard`, `org.rights.narrow`, `org.suspend`, `org.user.create`, `org.user.deactivate`, `rbac.role.assign`, `payout.initiate`, `payout.approve`, `audit.read` |
 | **Role** | a named bundle of permissions. Org roles: `org_admin`, `org_staff`, `org_viewer`. Platform roles: `platform_ops_reviewer`, `platform_compliance_officer`, `platform_mlro`, `platform_senior_approver`, `platform_user_admin`, `platform_auditor`, `platform_break_glass` |

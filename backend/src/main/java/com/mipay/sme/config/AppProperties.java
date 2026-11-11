@@ -20,6 +20,22 @@ public class AppProperties {
     private String devOtp = "123456";        // fixed OTP in sandbox for the UAT demos
     private String rbacUrl = "https://trustplane-rbac:8443";  // trustplane RBAC service
 
+    /**
+     * Identity mode (idp-rbac-cutover-plan.md §3): legacy → dual → gateway.
+     * legacy = own JWT only; dual = gateway context or own JWT; gateway = gateway context only.
+     * Read by GatewayIdentityFilter (cut-over P3.8); no effect until then.
+     */
+    private String identityMode = "legacy";
+
+    /**
+     * Credential provider for the AuthProvider contract: none | trustplane.
+     * When set, user lifecycle changes queue provider commands and enrolment replaces activation (P3).
+     */
+    private String authProvider = "none";
+
+    /** When true, role and org changes are also written to RBAC assignments and grants (P3.11). */
+    private boolean rbacSync = false;
+
     private Advance advance = new Advance();
 
     private Recon recon = new Recon();
