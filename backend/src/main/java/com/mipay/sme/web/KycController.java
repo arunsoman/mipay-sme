@@ -31,6 +31,7 @@ public class KycController {
 
     private final KycApplicationService kyc;
     private final KycSchemaFacade schema;
+    private final com.mipay.sme.service.OrgTreeService tree;
     private final OrgCallerService callerService;
 
     // ---------------------------------------------------------------- legacy aliases (still used by the portals)
@@ -89,6 +90,8 @@ public class KycController {
     @GetMapping("/api/kyc/schema/{orgId}")
     public Map<String, Object> schemaForOrg(@PathVariable String orgId,
                                             @RequestParam(name = "entityType", required = false) String entityType) {
+        // object-level check: only orgs in the caller's own subtree (uniform 404 otherwise, no enumeration)
+        tree.visible(Current.get(), orgId);
         return schema.schemaFor(orgId, entityType);
     }
 

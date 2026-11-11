@@ -1,6 +1,21 @@
 # Two-factor authentication: push with number matching, authenticator app, passkeys and step-up
 
-Status: **draft for review** · 2026-11-11
+Status: **draft for review** · 2026-11-11 · **revised 2026-11-11 by `fapi2-design.md`**
+
+> **Revision: the trustplane IdP owns every login.** This design was first written for 2FA inside the
+> MiPay backend's `AuthService`. Per `fapi2-design.md` (I1–I8), every login, second factor, recovery and
+> account lifecycle now lives in the **trustplane IdP**, browsers reach it through the **gateway acting as a
+> FAPI 2.0 BFF**, and permissions come from **trustplane RBAC**. The factors, policies, recovery rules and
+> invariants below are unchanged; only *where* they run moves:
+>
+> | Part of this design | Now implemented in |
+> |---|---|
+> | Factors (§3), policy master (§4), sign-in second step (§5), approver app and push (§6), enrolment and recovery (§8), merchant OTP (§9) | **IdP**: its login and account pages at `auth.afriqpay.com` |
+> | `mfaToken` / `/api/auth/mfa/*` (§5, §10) | IdP-internal login steps; the browser only ever talks to `/authorize` and the IdP's pages |
+> | Step-up (§7) | **RFC 9470** step-up through the gateway (`acr_values`, `max_age`); transaction binding through **RAR** (`authorization_details`), see `fapi2-design.md` §4.3 |
+> | Token claims `amr` / `acr` / `auth_time` | IdP ID and access tokens; forwarded to upstreams in the gateway's signed context |
+> | "Who decides" recovery and platform functions (§8.4) | RBAC roles and permissions (`fapi2-design.md` §9): e.g. deciding an `ACCOUNT_RECOVERY` needs `org.user.recover` on the user's org |
+> | Phases (§16) | run after migration step 5 of `fapi2-design.md` §8, as its step 6 |
 
 ## 1. Context and proposed decisions
 
@@ -14,7 +29,7 @@ Status: **draft for review** · 2026-11-11
 
 | # | Decision |
 |---|---|
-| D1 | **Portal 2FA is enforced in core's `AuthService`**, the only issuer of portal tokens. The trustplane IdP keeps its own flow for API clients and gets the same factors later (§14). |
+| D1 | ~~Portal 2FA is enforced in core's `AuthService`.~~ **Revised:** 2FA is enforced in the **trustplane IdP**, the only place anyone logs in (`fapi2-design.md` I1). Portals reach it through the gateway BFF; API clients reach it directly. |
 | D2 | **Factors, in order of preference:** push approval with number matching, passkey (WebAuthn), authenticator app (TOTP), SMS OTP (fallback only), recovery codes (recovery only). |
 | D3 | **Mandatory for MiPay staff** (TPTS_OPS, MINDLABS_ADMIN and every holder of a platform function) **and for every org ADMIN.** Optional for other org members unless their org switches it on. Legacy OTP merchants keep phone OTP as their login factor (§9). |
 | D4 | **Push is delivered through an installable web app (PWA) first**, using Web Push, with a WebAuthn passkey as the device key. A native app (Firebase / Apple push, hardware-backed key) comes later and uses the same server API (§6.6). |
@@ -29,7 +44,7 @@ Status: **draft for review** · 2026-11-11
                    ┌──────────────── mfa master (developer-maintained) ────────────────┐
                    │ mfa_policies (role/org-role → required, methods, remember, step-up)│
                    └──────────────────────────────┬─────────────────────────────────────┘
- browser ── password ──▶ AuthService ──▶ MfaPolicyResolver ──▶ needs MFA?
+ browser ── password ──▶ IdP login ───▶ MfaPolicyResolver ──▶ needs MFA?     (was: MiPay AuthService)
                               │                                   │ no → token (amr=pwd)
                               ▼                                   ▼ yes
                          MfaService ── challenge ──▶ ┌──────────── factor plugins ───────────┐
@@ -225,6 +240,12 @@ These limits are why push is never the only factor (§3).
 
 ## 7. Step-up for sensitive actions
 
+> **Revised:** the rules below (which actions, how fresh, which are bound to the action) still hold.
+> The mechanism is standard: the gateway or MiPay answers with an **RFC 9470** challenge
+> (`acr_values=aal2`, `max_age`), the gateway BFF re-runs the FAPI flow, and for bound actions the PAR
+> carries **RAR `authorization_details`** describing the action, so the token is good only for it
+> (`fapi2-design.md` §4.3). The `X-Step-Up` replay header below is superseded by that flow.
+
 A step-up guard runs on the endpoint before the handler. Each step-up rule names the actions it covers, the maximum age of the user's last second factor, and whether the approval must be bound to the exact request:
 
 | rule key | covers | max age | bound to the action |
@@ -374,6 +395,10 @@ The phone OTP *is* their possession factor, so their login stays one step, with 
 
 ## 10. API
 
+> **Revised:** the `/api/auth/*`, `/api/me/security*` and `/api/approver/*` endpoints below move to the IdP
+> (`https://auth.afriqpay.com/...`, reached through the gateway's IdP vhost); `/api/orgs/.../recovery`
+> stays in MiPay but checks RBAC and calls the IdP admin API. Paths are otherwise as listed.
+
 | endpoint | purpose |
 |---|---|
 | `POST /api/auth/login` | as today, plus the MFA outcomes of §5 |
@@ -460,9 +485,9 @@ The gateway gets matching per-IP limits for `/api/auth/**` and `/api/approver/**
 - **Cooling-off banner** on every page: "Access was recovered on 11 Nov at 10:42. Payouts and admin changes unlock on 14 Nov at 10:42."
 - **Step-up dialog:** the same component as login step 2, showing the action summary ("Approve KYC: Okahandja Fresh Market").
 
-## 14. Trustplane IdP (FAPI clients)
+## 14. Trustplane IdP
 
-This is out of scope for phase 1. Later, the IdP's `/login` gets the same factors through a shared `mfa` package. Its tokens then carry `amr` values per RFC 8176 and `acr_values_supported = ["aal1","aal2"]`, so FAPI clients can ask for `acr_values=aal2`.
+**Revised:** this is no longer a later add-on. The IdP is where all of the above is built (see the revision note at the top, and `fapi2-design.md`). Its tokens carry `amr` (RFC 8176), `acr` (`aal1` / `aal2`) and `auth_time`, and it advertises `acr_values_supported = ["aal1","aal2"]` so FAPI clients and the gateway BFF can ask for `aal2`.
 
 ## 15. Test plan (`TUat21MfaTests` + portal headless E2E)
 
@@ -508,6 +533,11 @@ This is out of scope for phase 1. Later, the IdP's `/login` gets the same factor
 - **Regression:** existing UAT packs pass with policies switched off (`mfa.enforce=false` in the test profile), plus a run with them switched on.
 
 ## 16. Implementation phases
+
+> **Revised:** these phases run **in the IdP**, after the identity migration in `fapi2-design.md` §8
+> (they are its step 6). "Two-step login (`mfaToken`)" becomes the IdP's own login steps, and "the portal
+> interceptor and dialog" for step-up becomes the gateway's RFC 9470 handling plus the portals' reaction to
+> `step_up_required`.
 
 1. **Foundations:**
    - the `V12__mfa.sql` tables;

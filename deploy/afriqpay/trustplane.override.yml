@@ -1,0 +1,17 @@
+# Trust plane on the afriqpay host, layered over ../../trustplane/docker-compose.yml:
+#   docker compose -p trustplane -f ../../trustplane/docker-compose.yml -f trustplane.override.yml up -d --build
+# The gateway is the single policy point for every /api call (route allowlist, per-IP rate
+# limits with the real client IP via limits.trusted_proxies, body limits, request ids).
+# It is published on loopback only; the host nginx terminates public TLS and forwards
+# /api/* to it with Host: portal.fapi.local. IdP and RBAC stay on internal networks.
+services:
+  gateway:
+    ports: !override
+      - "127.0.0.1:19120:8443"
+    restart: unless-stopped
+  idp:
+    restart: unless-stopped
+  rbac:
+    restart: unless-stopped
+  pg:
+    restart: unless-stopped

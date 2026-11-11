@@ -1,9 +1,9 @@
 # MiPay SME on the shared afriqpay host (13.61.207.80), behind the host's nginx + Let's Encrypt.
 # Everything binds to 127.0.0.1 only; nginx publishes:
-#   admin.afriqpay.com        -> admin-portal  (19111)   + /api -> backend (19110)
-#   manufacturer.afriqpay.com -> manufacturer  (19112)   + /api -> backend
-#   distributor.afriqpay.com  -> distributor   (19113)   + /api -> backend
-#   supplier.afriqpay.com     -> supplier      (19114)   + /api -> backend
+#   admin.afriqpay.com        -> admin-portal  (19111)   + /api -> trustplane gateway (19120) -> backend
+#   manufacturer.afriqpay.com -> manufacturer  (19112)   + /api -> gateway -> backend
+#   distributor.afriqpay.com  -> distributor   (19113)   + /api -> gateway -> backend
+#   supplier.afriqpay.com     -> supplier      (19114)   + /api -> gateway -> backend
 #   mipay.afriqpay.com        -> 301 to admin.afriqpay.com
 # Secrets come from ./.env (chmod 600, never committed): POSTGRES_PASSWORD, APP_JWT_SECRET,
 # APP_KYC_ENCRYPTION_KEY. Run from this directory:  docker compose up -d --build
@@ -42,7 +42,11 @@ services:
       POSTGRES_URL: jdbc:postgresql://db:5432/mipay
       POSTGRES_USER: mipay
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
-    ports: ["127.0.0.1:19110:8080"]
+    ports: ["127.0.0.1:19110:8080"]      # loopback only, for health checks; traffic arrives via the gateway
+    networks:
+      default:
+      sme-mesh:
+        aliases: [backend]               # the trustplane gateway's "mipay" upstream (http://backend:8080)
     mem_limit: 768m
     cpus: 1.0
     healthcheck:
@@ -101,3 +105,7 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  sme-mesh:
+    external: true                       # shared with the trustplane gateway (docker network create sme-mesh)

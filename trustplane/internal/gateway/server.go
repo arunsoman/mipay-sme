@@ -64,6 +64,9 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 	if err != nil {
 		return fmt.Errorf("gateway: context secret: %w", err)
 	}
+	if err := setTrustedProxies(cfg.Limits.TrustedProxies); err != nil {
+		return err
+	}
 	g := &Gateway{
 		cfg:     cfg,
 		up:      map[string]*upstream{},
@@ -292,10 +295,41 @@ func requestID(r *http.Request) string {
 	return fmt.Sprintf("req-%d", time.Now().UnixNano())
 }
 
+// trustedProxies holds limits.trusted_proxies, parsed once at start-up.
+var trustedProxies []*net.IPNet
+
+func setTrustedProxies(cidrs []string) error {
+	trustedProxies = nil
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(strings.TrimSpace(c))
+		if err != nil {
+			return fmt.Errorf("gateway: limits.trusted_proxies %q: %w", c, err)
+		}
+		trustedProxies = append(trustedProxies, n)
+	}
+	return nil
+}
+
+func isTrustedProxy(ip net.IP) bool {
+	for _, n := range trustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteIPKey is the caller's address: the TCP peer, or - when the peer is a trusted
+// proxy - the X-Real-IP that proxy set. Untrusted peers can never choose their own key.
 func remoteIPKey(r *http.Request) string {
 	h, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		h = r.RemoteAddr
+	}
+	if peer := net.ParseIP(h); peer != nil && isTrustedProxy(peer) {
+		if v := strings.TrimSpace(r.Header.Get("X-Real-IP")); v != "" && net.ParseIP(v) != nil {
+			return v
+		}
 	}
 	return h
 }

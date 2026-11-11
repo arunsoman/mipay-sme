@@ -49,6 +49,10 @@ introspection:
 limits:
   global_concurrency: 512
   upstream_concurrency: 128
+  # reverse proxies in front of the gateway whose X-Real-IP is believed (host nginx /
+  # docker bridge). The gateway port is never published beyond loopback, so only these
+  # can reach it; everyone else's X-Real-IP is ignored.
+  trusted_proxies: ["127.0.0.0/8", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"]
 
 # Deny-by-default route table. Every route MUST have a policy; unknown
 # hosts/paths/methods are rejected by the gateway (404).

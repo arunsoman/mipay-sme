@@ -65,6 +65,11 @@ type IntrospectionCfg struct {
 type LimitsCfg struct {
 	GlobalConcurrency   int `yaml:"global_concurrency"`
 	UpstreamConcurrency int `yaml:"upstream_concurrency"`
+	// TrustedProxies are CIDRs of reverse proxies in front of the gateway (e.g. a host
+	// nginx terminating public TLS). For a request whose peer is one of them, the client
+	// address is taken from X-Real-IP, so per-IP rate limits and X-Forwarded-For see the
+	// real caller instead of the proxy. Any other peer's X-Real-IP is ignored.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 type Route struct {
