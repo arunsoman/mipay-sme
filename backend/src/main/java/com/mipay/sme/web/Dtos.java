@@ -665,4 +665,22 @@ public final class Dtos {
 
     /** §12 POST /api/kyc/tasks/{id}/decision {outcome, note}. */
     public record KycDecisionRequestV2(@jakarta.validation.constraints.NotNull String outcome, String note) { }
+
+    // ------------------------------------------------------------------ RBAC (§16: trustplane RBAC proxy)
+
+    /** A role with its permissions, from trustplane RBAC. */
+    public record RbacRoleView(String name, String description, List<String> permissions) { }
+
+    /** Request to update a role's permissions. */
+    public record RbacRoleUpdate(List<String> permissions) { }
+
+    /** A user in the RBAC store. */
+    public record RbacUserView(String id, String displayName, String supplier, String kind, String status) { }
+
+    /** A role assignment (subject → role). */
+    public record RbacAssignmentView(String id, String subject, String role, String tenant, String scope,
+                                     String status) { }
+
+    /** One cell of the permission matrix: resource × verb for one role. */
+    public record RbacMatrixCell(String resource, String verb, String permission, boolean granted) { }
 }

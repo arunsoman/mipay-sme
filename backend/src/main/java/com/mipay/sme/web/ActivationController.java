@@ -1,6 +1,9 @@
 package com.mipay.sme.web;
 
 import com.mipay.sme.security.Current;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.ActivationService;
 import com.mipay.sme.web.Dtos;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,8 @@ public class ActivationController {
     private final ActivationService activation;
 
     /** Resend (new invalidating token) — org admin or platform staff only. */
+    @Perm(resource = "org.user", verb = Verb.ADMINISTER, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Resend activation for a user (PATH tenant)")
     @PostMapping("/api/orgs/users/{id}/resend-activation")
     public Dtos.Message resend(@PathVariable String id) {
         String outboxId = activation.resend(id, Current.get());
@@ -31,6 +36,8 @@ public class ActivationController {
     }
 
     /** Sandbox-only outbox ([M8]) — never in production environments. */
+    @Perm(resource = "admin.platform_ops", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "View simulated activation outbox")
     @GetMapping("/api/admin/sim/outbox")
     public List<Dtos.OutboxRow> outbox() {
         return activation.outbox(Current.get());

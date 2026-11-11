@@ -11,6 +11,9 @@ import com.mipay.sme.repository.CreditAssessmentRepository;
 import com.mipay.sme.repository.CreditConsentRepository;
 import com.mipay.sme.repository.LenderCreditLedgerRepository;
 import com.mipay.sme.security.Current;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.AdvanceService;
 import com.mipay.sme.service.PaymentService;
 import com.mipay.sme.web.Dtos;
@@ -63,12 +66,16 @@ public class LenderController {
     }
 
     /** L02: consent queue (merchants sharing records with this lender). */
+    @Perm(resource = "lender.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List active consents for this lender")
     @GetMapping("/consents")
     public List<Dtos.ConsentRow> consents() {
         return consentRepo.consentsForLender(lid(), Enums.ConsentStatus.ACTIVE);
     }
 
     /** L03: verified records view - consent-gated (TC-REC-02/03, BC p.12). */
+    @Perm(resource = "lender.assessment", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View consent-gated merchant records for this lender")
     @GetMapping("/records/{merchantId}")
     public Dtos.MerchantRecordsView records(@PathVariable String merchantId) {
         boolean consented = consentRepo.existsByMerchantIdAndLenderIdAndStatus(
@@ -119,18 +126,24 @@ public class LenderController {
     }
 
     /** L04: assessment run (lender decision API is simulated in the sandbox). */
+    @Perm(resource = "lender.assessment", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Run a credit assessment for a merchant")
     @PostMapping("/assess")
     public Dtos.AssessmentView assess(@Valid @RequestBody Dtos.AssessRequest req) {
         return advanceService.requestAssessment(req.merchantId(), lid(), null);
     }
 
     /** Assessments history for the lender. */
+    @Perm(resource = "lender.assessment", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List credit assessments for this lender")
     @GetMapping("/assessments")
     public List<com.mipay.sme.domain.credit.CreditAssessment> assessments() {
         return assessmentRepo.findByLenderIdOrderByCreatedAtDesc(lid());
     }
 
     /** L04: explicit decision override on the pending assessment/offer. */
+    @Perm(resource = "lender.advance", verb = Verb.AUTHORIZE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Decline an offered advance")
     @PostMapping("/advances/{id}/decline")
     public Dtos.Message declineOffer(@PathVariable String id) {
         Advance advance = advanceRepo.findById(id).orElseThrow(() -> new NotFoundException("Advance not found"));
@@ -148,6 +161,8 @@ public class LenderController {
     }
 
     /** L05: disbursement - lender transfers capital; issuer confirms (TC-ADV-02). */
+    @Perm(resource = "lender.advance", verb = Verb.AUTHORIZE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Fund (disburse) an accepted advance")
     @PostMapping("/advances/{id}/fund")
     public Dtos.Message fund(@PathVariable String id) {
         com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
@@ -160,29 +175,39 @@ public class LenderController {
     }
 
     /** L10: portfolio with merchant names, outstanding and arrears. */
+    @Perm(resource = "lender.portfolio", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View lender's portfolio with merchant names, outstanding and arrears")
     @GetMapping("/portfolio")
     public Dtos.PortfolioView portfolio() {
         return advanceService.portfolio(lid());
     }
 
+    @Perm(resource = "lender.portfolio", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Take a portfolio snapshot")
     @PostMapping("/portfolio/snapshot")
     public Dtos.SnapshotRow snapshot() {
         return advanceService.snapshot(lid());
     }
 
     /** L13: disbursement history. */
+    @Perm(resource = "lender.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List advances for this lender")
     @GetMapping("/advances")
     public List<Dtos.LenderAdvanceRow> advances() {
         return advanceRepo.findForLender(lid());
     }
 
     /** L06: collections view. */
+    @Perm(resource = "lender.collection", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List collections for this lender")
     @GetMapping("/collections")
     public List<Dtos.CollectionRow> collections() {
         return repayRepo.findForLender(lid());
     }
 
     /** L06: run the daily sweep for a date (collections engine). */
+    @Perm(resource = "lender.collection", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Run the daily collections sweep")
     @PostMapping("/sweep")
     public List<Dtos.StepResult> sweep(@RequestBody(required = false) Dtos.SweepRequest req) {
         com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());

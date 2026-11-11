@@ -26,6 +26,7 @@ import { MeView } from '../../core/api';
           <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">KYC</a>
           <a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>
           <a routerLink="/permissions" routerLinkActive="active" (click)="closeNav()">Permissions</a>
+          <a routerLink="/rbac" routerLinkActive="active" (click)="closeNav()">RBAC Matrix</a>
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">

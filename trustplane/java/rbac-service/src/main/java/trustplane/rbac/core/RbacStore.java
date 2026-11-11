@@ -70,6 +70,38 @@ public class RbacStore {
         watch.publish(tenant == null ? "" : tenant, version, subjects);
     }
 
+    /**
+     * Bumps the tenant version AND all its org-tree descendants' versions,
+     * publishing invalidation events for each. Used when an assignment in a
+     * parent org changes: descendants inherit the change through org_closure.
+     */
+    public void touchWithDescendants(String tenant, List<String> subjects) {
+        if (subjects == null) subjects = List.of();
+        long version = 0;
+        if (tenant != null && !tenant.isBlank()) {
+            try {
+                Map<String, Object> r = db.queryForMap(
+                        "UPDATE tenants SET version = version + 1 WHERE id = ? RETURNING version", tenant);
+                version = ((Number) r.get("version")).longValue();
+            } catch (Exception ignore) { /* unknown tenant: version 0 */ }
+            watch.publish(tenant, version, subjects);
+            // Bump all descendants so the gateway purges their cached decisions too
+            List<String> descendants = db.queryForList(
+                    "SELECT descendant_id FROM org_closure WHERE ancestor_id=? AND descendant_id<>?",
+                    String.class, tenant, tenant);
+            for (String desc : descendants) {
+                try {
+                    Map<String, Object> rv = db.queryForMap(
+                            "UPDATE tenants SET version = version + 1 WHERE id = ? RETURNING version", desc);
+                    long dv = ((Number) rv.get("version")).longValue();
+                    watch.publish(desc, dv, subjects);
+                } catch (Exception ignore) { /* unknown descendant */ }
+            }
+        } else {
+            watch.publish("", version, subjects);
+        }
+    }
+
     public void audit(String actor, String tenant, String action, Map<String, Object> details) {
         try {
             String json = AUDIT_MAPPER.writeValueAsString(details);
@@ -92,15 +124,16 @@ public class RbacStore {
                     JOIN users u ON u.id=a.subject
                     LEFT JOIN suppliers sp ON sp.id=u.supplier_id
                     LEFT JOIN grants g ON g.id=a.grant_id
+                    LEFT JOIN org_closure oc ON oc.descendant_id=? AND oc.ancestor_id=a.tenant_id
                     WHERE a.subject=? AND a.status='active'
-                      AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=?)
+                      AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=? OR oc.ancestor_id=a.tenant_id)
                       AND u.status='active'
                       AND (u.supplier_id IS NULL OR sp.status='active')
                       AND (a.grant_id IS NULL OR (g.status='active' AND (g.expires_at IS NULL OR g.expires_at > now())))
                     LIMIT 1), FALSE) AS allowed,
                 COALESCE((SELECT version FROM tenants WHERE id=? AND ?<>''), 0) AS version,
                 COALESCE((SELECT supplier_id FROM users WHERE id=?), '') AS supplier""";
-        List<Map<String, Object>> rows = db.queryForList(q, op, subject, tenant, tenant, tenant, tenant, subject);
+        List<Map<String, Object>> rows = db.queryForList(q, tenant, op, subject, tenant, tenant, tenant, tenant, subject);
         Map<String, Object> r = rows.get(0);
         boolean allowed = Boolean.TRUE.equals(r.get("allowed"));
         long version = ((Number) r.getOrDefault("version", 0)).longValue();
@@ -119,13 +152,14 @@ public class RbacStore {
                 JOIN users u ON u.id=a.subject
                 LEFT JOIN suppliers sp ON sp.id=u.supplier_id
                 LEFT JOIN grants g ON g.id=a.grant_id
+                LEFT JOIN org_closure oc ON oc.descendant_id=? AND oc.ancestor_id=a.tenant_id
                 WHERE a.subject=? AND a.status='active'
-                  AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=?)
+                  AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=? OR oc.ancestor_id=a.tenant_id)
                   AND u.status='active'
                   AND (u.supplier_id IS NULL OR sp.status='active')
                   AND (a.grant_id IS NULL OR (g.status='active' AND (g.expires_at IS NULL OR g.expires_at > now())))""";
         List<String> ops = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList(q, subject, tenant, tenant)) {
+        for (Map<String, Object> r : db.queryForList(q, tenant, subject, tenant, tenant)) {
             ops.add(String.valueOf(r.get("permission_id")));
         }
         final String vq = """
@@ -797,6 +831,35 @@ public class RbacStore {
         audit(service, null, "permission_register", Map.of("service", service,
                 "count", perms.size(), "permissions", perms.stream().map(p -> p.get("id")).toList()));
         return n;
+    }
+
+    // ------------------------------------------------------------------
+    // Org-tree sync (MiPay backend pushes org closure for permission inheritance)
+    // ------------------------------------------------------------------
+
+    /** Replace the entire org_closure table atomically. */
+    public void replaceOrgClosure(List<Map<String, Object>> rows) {
+        db.update("DELETE FROM org_closure");
+        for (Map<String, Object> r : rows) {
+            db.update("INSERT INTO org_closure (ancestor_id, descendant_id, depth) VALUES (?, ?, ?)",
+                    r.get("ancestor"), r.get("descendant"), r.get("depth"));
+        }
+        audit("system", null, "org_closure_replace", Map.of("rows", rows.size()));
+    }
+
+    /** Replace the entire org_tenant_mapping table atomically. */
+    public void replaceOrgTenantMapping(List<Map<String, Object>> rows) {
+        db.update("DELETE FROM org_tenant_mapping");
+        for (Map<String, Object> r : rows) {
+            // the tenant must exist before it is mapped (FK); MiPay orgs become RBAC tenants here
+            Object tenant = r.get("tenant");
+            Object name = r.get("name") == null ? tenant : r.get("name");
+            db.update("INSERT INTO tenants (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING",
+                    tenant, name);
+            db.update("INSERT INTO org_tenant_mapping (org_id, tenant_id) VALUES (?, ?)",
+                    r.get("org"), tenant);
+        }
+        audit("system", null, "org_tenant_mapping_replace", Map.of("rows", rows.size()));
     }
 
     // ------------------------------------------------------------------

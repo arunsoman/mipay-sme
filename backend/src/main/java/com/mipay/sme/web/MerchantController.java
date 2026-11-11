@@ -9,6 +9,9 @@ import com.mipay.sme.domain.ops.KhataAccount;
 import com.mipay.sme.domain.ops.KhataEntry;
 import com.mipay.sme.domain.ops.Tab;
 import com.mipay.sme.domain.ops.TabEntry;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.repository.DeviceSessionRepository;
 import com.mipay.sme.repository.KhataAccountRepository;
 import com.mipay.sme.repository.KhataEntryRepository;
@@ -108,33 +111,45 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ dashboard / balance
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant dashboard")
     @GetMapping("/dashboard")
     public Dtos.DashboardView dashboard() {
         return viewsService.dashboard(mid());
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant balance")
     @GetMapping("/balance")
     public Dtos.BalanceView balance() {
         return ledgerService.balanceView(mid());
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant ledger entries")
     @GetMapping("/balance/entries")
     public List<Dtos.LedgerRow> ledger(@RequestParam(defaultValue = "0") int page,
                                        @RequestParam(defaultValue = "100") int size) {
         return viewsService.ledgerPage(mid(), page, size);
     }
 
+    @Perm(resource = "merchant.withdrawal", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Execute a withdrawal")
     @PostMapping("/withdrawals")
     public Dtos.WithdrawalRow withdraw(@Valid @RequestBody Dtos.WithdrawalRequest req) {
         com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         return withdrawalService.withdraw(mid(), req.amount(), actorId(), actorRole());
     }
 
+    @Perm(resource = "merchant.withdrawal", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List merchant withdrawals")
     @GetMapping("/withdrawals")
     public List<Dtos.WithdrawalRow> withdrawals() {
         return withdrawalService.list(mid());
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View billing preview")
     @GetMapping("/billing-preview")
     public Dtos.FeePreview billingPreview(@RequestParam(defaultValue = "60") BigDecimal amount) {
         return feeService.preview(amount);
@@ -142,6 +157,8 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ accept payment (M06-M12)
 
+    @Perm(resource = "merchant.payment", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Accept a customer payment")
     @PostMapping("/payments")
     public Dtos.PaymentPending accept(@Valid @RequestBody Dtos.AcceptPaymentRequest req,
                                       @RequestHeader(value = "X-Sim-Scenario", required = false) String scenarioHeader) {
@@ -157,12 +174,16 @@ public class MerchantController {
         return new Dtos.PaymentPending(p.getId(), p.getAmount(), "Awaiting customer payment");
     }
 
+    @Perm(resource = "merchant.payment", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List merchant payments")
     @GetMapping("/payments")
     public List<Dtos.PaymentRow> payments(@RequestParam(defaultValue = "0") int page,
                                           @RequestParam(defaultValue = "20") int size) {
         return paymentService.history(mid(), page, size);
     }
 
+    @Perm(resource = "merchant.payment", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View a payment detail")
     @GetMapping("/payments/{id}")
     public Dtos.PaymentDetailRow paymentDetail(@PathVariable String id) {
         com.mipay.sme.domain.payments.Payment p = paymentRepo.findDetailWithMerchant(id, mid())
@@ -175,22 +196,30 @@ public class MerchantController {
                 p.getPayerRef(), p.getCreatedAt(), p.getConfirmedAt(), events);
     }
 
+    @Perm(resource = "merchant.payment", verb = Verb.SIMULATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Simulate a payment outcome")
     @PostMapping("/payments/{id}/simulate")
     public Dtos.PaymentOpResult simulate(@PathVariable String id, @Valid @RequestBody Dtos.SimTrigger req) {
         return paymentService.simulate(mid(), id, req.action());
     }
 
+    @Perm(resource = "merchant.payment", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Refund a payment")
     @PostMapping("/payments/{id}/refund")
     public Dtos.RefundRow refund(@PathVariable String id, @Valid @RequestBody Dtos.RefundRequest req) {
         com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         return paymentService.refund(mid(), id, req);
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View speaker log")
     @GetMapping("/speaker-log")
     public List<Dtos.SpeakerLogRow> speakerLog() {
         return paymentService.speakerLog(mid());
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View payment accept info")
     @GetMapping("/accept-info")
     public Dtos.PayInfo payInfo() {
         return viewsService.payInfo(mid());
@@ -198,12 +227,16 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ invoices / pay supplier (M13-M19)
 
+    @Perm(resource = "merchant.invoice", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List merchant invoices")
     @GetMapping("/invoices")
     public List<Dtos.InvoiceListRow> invoices() {
         return invoiceRepo.findForMerchant(mid(),
                 List.of(Enums.InvoiceStatus.ISSUED, Enums.InvoiceStatus.PARTIALLY_PAID));
     }
 
+    @Perm(resource = "merchant.invoice", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View an invoice detail")
     @GetMapping("/invoices/{id}")
     public Dtos.InvoiceDetailRow invoiceDetail(@PathVariable String id) {
         var invoice = invoiceRepo.findById(id).orElseThrow(() -> new NotFoundException("Invoice not found"));
@@ -213,6 +246,8 @@ public class MerchantController {
         return b2bService.invoiceDetail(id);
     }
 
+    @Perm(resource = "merchant.invoice", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Pay an invoice")
     @PostMapping("/invoices/{id}/pay")
     public Dtos.InvoicePayResult payInvoice(@PathVariable String id,
                                             @RequestBody(required = false) Dtos.PayInvoiceRequest req,
@@ -233,6 +268,8 @@ public class MerchantController {
         return b2bService.payInvoice(mid(), id, route, outcome);
     }
 
+    @Perm(resource = "merchant.invoice", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Retry a timed-out invoice payment")
     @PostMapping("/invoices/{id}/retry-timeout")
     public Dtos.InvoicePayResult retryTimeout(@PathVariable String id,
                                               @RequestBody(required = false) Dtos.PayInvoiceRequest req) {
@@ -241,21 +278,29 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ catalogue / orders (M13-M15)
 
+    @Perm(resource = "merchant.inventory", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier catalogue for merchants")
     @GetMapping("/catalogue")
     public List<Dtos.CatalogueRow> catalogue() {
         return catalogItemRepo.catalogueForMerchants(Enums.ItemStatus.APPROVED);
     }
 
+    @Perm(resource = "merchant.order", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Place an order with a supplier")
     @PostMapping("/orders")
     public Dtos.OrderDetailRow placeOrder(@Valid @RequestBody Dtos.CreateOrderRequest req) {
         return b2bService.placeOrder(mid(), req);
     }
 
+    @Perm(resource = "merchant.order", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List merchant orders")
     @GetMapping("/orders")
     public List<Dtos.OrderRow> orders() {
         return orderRepo.findForMerchant(mid());
     }
 
+    @Perm(resource = "merchant.order", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View an order detail")
     @GetMapping("/orders/{id}")
     public Dtos.OrderDetailRow orderDetail(@PathVariable String id) {
         return b2bService.orderDetail(id);
@@ -263,21 +308,29 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ advance (M20-M25)
 
+    @Perm(resource = "merchant.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List available lenders")
     @GetMapping("/lenders")
     public List<Dtos.LenderRow> lenders() {
         return viewsService.lenders();
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Grant consent to a lender")
     @PostMapping("/advance/consent")
     public Dtos.ConsentRow consent(@Valid @RequestBody Dtos.ConsentRequest req) {
         return advanceService.grantConsent(mid(), req.lenderId());
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.SUBMIT, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Request an advance assessment")
     @PostMapping("/advance/request")
     public Dtos.AssessmentView requestAdvance(@Valid @RequestBody Dtos.RequestAdvanceRequest req) {
         return advanceService.requestAssessment(mid(), req.lenderId(), req.amount());
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.AUTHORIZE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Accept an advance offer")
     @PostMapping("/advance/{id}/accept")
     public Dtos.Message acceptAdvance(@PathVariable String id) {
         com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
@@ -285,6 +338,8 @@ public class MerchantController {
     }
 
     /** Sandbox-only: simulate the lender disbursement for demo purposes (labelled). */
+    @Perm(resource = "merchant.advance", verb = Verb.SIMULATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Simulate lender disbursement")
     @PostMapping("/advance/{id}/simulate-fund")
     public Dtos.Message simulateFund(@PathVariable String id) {
         var advance = advanceRepo.findByIdAndMerchantId(id, mid())
@@ -292,21 +347,29 @@ public class MerchantController {
         return advanceService.fund(advance.getId(), actorId(), actorRole());
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View current advance")
     @GetMapping("/advance")
     public Dtos.AdvanceDetailView currentAdvance() {
         return advanceService.currentAdvance(mid());
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View advance eligibility")
     @GetMapping("/advance/eligibility")
     public Dtos.EligibilityView eligibility() {
         return advanceService.eligibility(mid());
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List advance consents")
     @GetMapping("/advance/consents")
     public List<Dtos.ConsentRow> consents() {
         return consentRepo.rowsForMerchant(mid()); // single projection query, no N+1, no proxy reads
     }
 
+    @Perm(resource = "merchant.advance", verb = Verb.DELETE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Withdraw an advance consent")
     @PostMapping("/advance/consents/{id}/withdraw")
     public Dtos.Message withdrawConsent(@PathVariable String id) {
         return advanceService.withdrawConsent(mid(), id);
@@ -314,6 +377,8 @@ public class MerchantController {
 
     // ------------------------------------------------------------------ inventory / khata / tabs / statements / settings
 
+    @Perm(resource = "merchant.inventory", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant inventory items")
     @GetMapping("/inventory")
     public List<Dtos.InventoryRow> inventory() {
         List<com.mipay.sme.domain.ops.InventoryItem> items = inventoryItemRepo.findByMerchantIdAndStatus(
@@ -332,6 +397,8 @@ public class MerchantController {
                 ? "LOW_STOCK" : "OK";
     }
 
+    @Perm(resource = "merchant.inventory", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Add an inventory item")
     @PostMapping("/inventory")
     public Dtos.InventoryRow addItem(@RequestBody Map<String, Object> body) {
         String name = String.valueOf(body.get("name"));
@@ -341,11 +408,15 @@ public class MerchantController {
         return inventoryService.addItem(mid(), name, unit, level, stock);
     }
 
+    @Perm(resource = "merchant.inventory", verb = Verb.MODIFY, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Adjust inventory stock")
     @PostMapping("/inventory/adjust")
     public Dtos.InventoryRow adjust(@Valid @RequestBody Dtos.StockAdjustRequest req) {
         return inventoryService.adjust(mid(), req.itemId(), req.movementType(), req.quantity(), req.reference());
     }
 
+    @Perm(resource = "merchant.inventory", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View inventory stock alerts")
     @GetMapping("/inventory/alerts")
     public List<Dtos.StockAlertRow> alerts() {
         var items = inventoryItemRepo.findByMerchantId(mid()).stream()
@@ -357,6 +428,8 @@ public class MerchantController {
                 .toList();
     }
 
+    @Perm(resource = "merchant.inventory", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View inventory reorder rules")
     @GetMapping("/inventory/rules")
     public List<Dtos.ReorderRow> reorderRules() {
         var rules = reorderRuleRepo.findByMerchantId(mid());
@@ -375,6 +448,8 @@ public class MerchantController {
                 .map(com.mipay.sme.domain.core.Supplier::getBusinessName).orElse(null);
     }
 
+    @Perm(resource = "merchant.inventory", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Place a one-tap reorder")
     @PostMapping("/inventory/{itemId}/reorder")
     public Dtos.Message reorder(@PathVariable String itemId) {
         String orderId = inventoryService.reorder(mid(), itemId);
@@ -383,6 +458,8 @@ public class MerchantController {
 
     // khata
 
+    @Perm(resource = "merchant.khata", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant khata accounts")
     @GetMapping("/khata")
     public List<Dtos.KhataRow> khata() {
         var accounts = khataRepo.findByMerchantIdOrderByCreatedAtDesc(mid());
@@ -394,6 +471,8 @@ public class MerchantController {
                 .toList();
     }
 
+    @Perm(resource = "merchant.khata", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Create a khata account")
     @PostMapping("/khata")
     public Dtos.KhataRow createKhata(@Valid @RequestBody Dtos.KhataAccountRequest req) {
         KhataAccount account = new KhataAccount();
@@ -405,6 +484,8 @@ public class MerchantController {
                 BigDecimal.ZERO, account.getStatus().name());
     }
 
+    @Perm(resource = "merchant.khata", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View khata entries")
     @GetMapping("/khata/{id}/entries")
     public List<Dtos.KhataEntryRow> khataEntries(@PathVariable String id) {
         return khataEntryRepo.findByKhataIdOrderByCreatedAtDesc(id).stream()
@@ -413,6 +494,8 @@ public class MerchantController {
                 .toList();
     }
 
+    @Perm(resource = "merchant.khata", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Add a khata entry")
     @PostMapping("/khata/{id}/entries")
     public Dtos.KhataEntryRow addKhataEntry(@PathVariable String id, @Valid @RequestBody Dtos.KhataEntryRequest req) {
         KhataAccount account = khataRepo.findById(id).orElseThrow(() -> new NotFoundException("Khata not found"));
@@ -444,6 +527,8 @@ public class MerchantController {
         }
     }
 
+    @Perm(resource = "merchant.khata", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Remind a khata customer")
     @PostMapping("/khata/{id}/remind")
     public Dtos.RemindResult remindKhata(@PathVariable String id) {
         KhataAccount account = khataRepo.findById(id).orElseThrow(() -> new NotFoundException("Khata not found"));
@@ -459,6 +544,8 @@ public class MerchantController {
 
     // tabs
 
+    @Perm(resource = "merchant.tab", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant tabs")
     @GetMapping("/tabs")
     public List<Dtos.TabRow> tabs() {
         return tabRepo.findByMerchantIdOrderByCreatedAtDesc(mid()).stream()
@@ -468,6 +555,8 @@ public class MerchantController {
     }
 
     /** Two-tap tab creation (M36): name + amount; one more tap for the due date. */
+    @Perm(resource = "merchant.tab", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Create a tab")
     @PostMapping("/tabs")
     public Dtos.TabRow createTab(@Valid @RequestBody Dtos.TabCreateRequest req) {
         Tab tab = new Tab();
@@ -487,6 +576,8 @@ public class MerchantController {
                 tab.getTotalAmount(), tab.getStatus().name(), tab.getDueDate());
     }
 
+    @Perm(resource = "merchant.tab", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View tab entries")
     @GetMapping("/tabs/{id}/entries")
     public List<Dtos.TabEntryRow> tabEntries(@PathVariable String id) {
         return tabEntryRepo.findByTabIdOrderByCreatedAtDesc(id).stream()
@@ -494,6 +585,8 @@ public class MerchantController {
                 .toList();
     }
 
+    @Perm(resource = "merchant.tab", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Add a tab entry")
     @PostMapping("/tabs/{id}/entries")
     public Dtos.TabEntryRow addTabEntry(@PathVariable String id, @Valid @RequestBody Dtos.TabAddEntryRequest req) {
         Tab tab = tabRepo.findById(id).orElseThrow(() -> new NotFoundException("Tab not found"));
@@ -510,6 +603,8 @@ public class MerchantController {
         return new Dtos.TabEntryRow(entry.getId(), entry.getAmount(), entry.getDescription(), entry.getCreatedAt());
     }
 
+    @Perm(resource = "merchant.tab", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Settle a tab")
     @PostMapping("/tabs/{id}/settle")
     public Dtos.TabRow settleTab(@PathVariable String id) {
         Tab tab = tabRepo.findById(id).orElseThrow(() -> new NotFoundException("Tab not found"));
@@ -525,6 +620,8 @@ public class MerchantController {
                 tab.getTotalAmount(), tab.getStatus().name(), tab.getDueDate());
     }
 
+    @Perm(resource = "merchant.tab", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Remind a tab customer")
     @PostMapping("/tabs/{id}/remind")
     public Dtos.RemindResult remindTab(@PathVariable String id) {
         Tab tab = tabRepo.findById(id).orElseThrow(() -> new NotFoundException("Tab not found"));
@@ -555,16 +652,22 @@ public class MerchantController {
 
     // statements
 
+    @Perm(resource = "merchant.statement", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant statements")
     @GetMapping("/statements")
     public List<Dtos.StatementRow> statements() {
         return statementService.list("merchant", mid());
     }
 
+    @Perm(resource = "merchant.statement", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Generate a merchant statement")
     @PostMapping("/statements")
     public Dtos.StatementRow generateStatement(@Valid @RequestBody Dtos.GenerateStatementRequest req) {
         return statementService.generate("merchant", mid(), req.from(), req.to(), actorId());
     }
 
+    @Perm(resource = "merchant.statement", verb = Verb.EXPORT, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Download a statement")
     @GetMapping(value = "/statements/{id}/download", produces = MediaType.TEXT_PLAIN_VALUE)
     public String downloadStatement(@PathVariable String id) {
         var s = statementService.statementFile(id, "merchant", mid());
@@ -573,11 +676,15 @@ public class MerchantController {
 
     // settings (M27)
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant settings")
     @GetMapping("/settings")
     public Dtos.SettingsView settings() {
         return viewsService.settings(mid());
     }
 
+    @Perm(resource = "merchant.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View merchant devices")
     @GetMapping("/devices")
     public List<Dtos.DeviceRow> devices() {
         Merchant m = merchantRepo.findById(mid()).orElseThrow(() -> new NotFoundException("Merchant not found"));

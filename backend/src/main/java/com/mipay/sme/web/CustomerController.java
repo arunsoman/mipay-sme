@@ -3,6 +3,7 @@ package com.mipay.sme.web;
 import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.domain.payments.ShortCode;
+import com.mipay.sme.security.rbac.PublicEndpoint;
 import com.mipay.sme.service.AuditService;
 import com.mipay.sme.service.PaymentService;
 import com.mipay.sme.repository.MerchantRepository;
@@ -35,6 +36,7 @@ public class CustomerController {
 
     public record CustomerLookup(String merchantId, String merchantName, String shortCode) { }
 
+    @PublicEndpoint(reason = "customer touchpoint lookup - merchant by short code or QR payload")
     @GetMapping("/lookup")
     public CustomerLookup lookup(@RequestParam(required = false) String shortCode,
                                  @RequestParam(required = false) String qrPayload) {
@@ -54,6 +56,7 @@ public class CustomerController {
         throw new NotFoundException("Provide shortCode or qrPayload");
     }
 
+    @PublicEndpoint(reason = "customer touchpoint payment - customer bank pays via short code or QR")
     @PostMapping("/pay")
     public Dtos.PaymentOpResult pay(@Valid @RequestBody Dtos.CustomerPayRequest req) {
         String merchantId;

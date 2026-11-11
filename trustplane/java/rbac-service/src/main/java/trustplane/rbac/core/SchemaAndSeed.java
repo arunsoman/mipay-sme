@@ -97,7 +97,17 @@ public class SchemaAndSeed implements ApplicationRunner {
                 actor TEXT NOT NULL,
                 tenant_id TEXT,
                 action TEXT NOT NULL,
-                details JSONB NOT NULL DEFAULT '{}'::jsonb)""");
+                details JSONB NOT NULL DEFAULT '{}'::jsonb)""", """
+            CREATE TABLE IF NOT EXISTS org_closure(
+                ancestor_id TEXT NOT NULL,
+                descendant_id TEXT NOT NULL,
+                depth INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(ancestor_id, descendant_id))""", """
+            CREATE INDEX IF NOT EXISTS org_closure_descendant_idx ON org_closure(descendant_id)""", """
+            CREATE INDEX IF NOT EXISTS org_closure_ancestor_idx ON org_closure(ancestor_id)""", """
+            CREATE TABLE IF NOT EXISTS org_tenant_mapping(
+                org_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL REFERENCES tenants(id))""");
 
     @SuppressWarnings("unchecked")
     public static class Seed {
@@ -106,6 +116,7 @@ public class SchemaAndSeed implements ApplicationRunner {
         public List<Map<String, Object>> users;
         public List<Map<String, Object>> permissions;
         public List<Map<String, Object>> roles;
+        public List<Map<String, Object>> orgClosure;
         public List<Map<String, Object>> assignments;
     }
 
@@ -162,6 +173,14 @@ public class SchemaAndSeed implements ApplicationRunner {
                         VALUES (?, ?, COALESCE(?::text, NULL), ?, ?, 'system') ON CONFLICT DO NOTHING""",
                         id, a.get("subject"), nul(a.get("tenant")), a.get("role"),
                         a.get("scope") == null ? "all" : a.get("scope"));
+            }
+            for (Map<String, Object> oc : mapList(raw.get("orgClosure"))) {
+                n += db.update("INSERT INTO org_closure (ancestor_id, descendant_id, depth) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                        oc.get("ancestor"), oc.get("descendant"), oc.get("depth"));
+            }
+            for (Map<String, Object> otm : mapList(raw.get("orgTenantMapping"))) {
+                n += db.update("INSERT INTO org_tenant_mapping (org_id, tenant_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                        otm.get("org"), otm.get("tenant"));
             }
             return n;
         }

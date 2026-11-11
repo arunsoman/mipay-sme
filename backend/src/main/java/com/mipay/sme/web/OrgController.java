@@ -8,6 +8,9 @@ import com.mipay.sme.repository.OnboardingRequestRepository;
 import com.mipay.sme.repository.OrganizationRepository;
 import com.mipay.sme.repository.OrgClosureRepository;
 import com.mipay.sme.security.Current;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.OrgOnboardingService;
 import com.mipay.sme.service.OrgTreeService;
 import com.mipay.sme.service.OrgUserService;
@@ -46,12 +49,16 @@ public class OrgController {
 
     // ---------------- me-scoped views [D4] ----------------
 
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's own org")
     @GetMapping("/me")
     public Dtos.OrgView me() {
         return onboarding.toView(tree.ownOrg(Current.get()));
     }
 
     /** Whole subtree in one closure query, nested in memory [D4]. */
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's org subtree")
     @GetMapping("/me/tree")
     public Dtos.OrgNodeRow meTree(@RequestParam(required = false) Integer maxDepth,
                                   @RequestParam(required = false) String status) {
@@ -60,6 +67,8 @@ public class OrgController {
     }
 
     /** Flat, paged descendants ([D4] fallback for big subtrees). */
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's org descendants")
     @GetMapping("/me/descendants")
     public Page<Dtos.OrgDescendantRow> meDescendants(@RequestParam(required = false) String type,
                                                      @RequestParam(required = false) String status,
@@ -70,6 +79,8 @@ public class OrgController {
     }
 
     /** Ancestor chain, root first; platform staff may query anyone visible. */
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's org ancestor path")
     @GetMapping("/me/path")
     public List<Dtos.OrgPathRow> mePath() {
         String orgId = tree.ownOrg(Current.get()).getId();
@@ -78,6 +89,8 @@ public class OrgController {
 
     // ---------------- generic submitOrg [M10] ----------------
 
+    @Perm(resource = "org.onboarding", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Onboard a child organization")
     @PostMapping("/me/children")
     public Dtos.OrgDecisionResult submitChild(@RequestBody Dtos.SubmitOrgRequest req) {
         Enums.OrgType childType;
@@ -97,6 +110,8 @@ public class OrgController {
 
     // ---------------- staff [C3/H9] ----------------
 
+    @Perm(resource = "org.user", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's org users")
     @GetMapping("/me/users")
     public List<Dtos.OrgUserRow> meUsers() {
         String orgId = tree.ownOrg(Current.get()).getId();
@@ -107,12 +122,16 @@ public class OrgController {
                 .toList();
     }
 
+    @Perm(resource = "org.user", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Add staff to caller's org")
     @PostMapping("/me/users")
     public Dtos.OrgStaffView addStaff(@RequestBody Dtos.StaffRequest req) {
         return onboarding.addStaff(Current.get(), req);
     }
 
     /** Spec path [H9]: any ancestor admin (or platform) deactivates a user. */
+    @Perm(resource = "org.user", verb = Verb.DELETE, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Deactivate a user (PATH tenant)")
     @PostMapping("/users/{id}/deactivate")
     public Dtos.Message deactivate(@PathVariable String id) {
         return onboarding.deactivateUser(Current.get(), id);
@@ -120,6 +139,8 @@ public class OrgController {
 
     // ---------------- org-scoped queries ----------------
 
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "View an org (PATH tenant)")
     @GetMapping("/{id}")
     public Dtos.OrgView org(@PathVariable String id) {
         Current.Principal caller = Current.get();
@@ -128,6 +149,8 @@ public class OrgController {
                 .orElseThrow(() -> new NotFoundException("Organization not found")));
     }
 
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "View an org's descendants (PATH tenant)")
     @GetMapping("/{id}/descendants")
     public Page<Dtos.OrgDescendantRow> descendants(@PathVariable String id,
                                                    @RequestParam(required = false) String type,
@@ -137,6 +160,8 @@ public class OrgController {
         return tree.descendants(Current.get(), id, type, status, page, size);
     }
 
+    @Perm(resource = "org.tree", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "View an org's ancestor path (PATH tenant)")
     @GetMapping("/{id}/path")
     public List<Dtos.OrgPathRow> path(@PathVariable String id) {
         return tree.path(Current.get(), id);
@@ -144,6 +169,8 @@ public class OrgController {
 
     // ---------------- admin recovery (ADMIN_RECOVERY request) ----------------
 
+    @Perm(resource = "org.onboarding", verb = Verb.AUTHORIZE, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Request admin recovery for an org (PATH tenant)")
     @PostMapping("/{id}/admins")
     public Dtos.OrgDecisionResult requestAdminRecovery(@PathVariable String id,
                                                        @RequestBody Dtos.AdminRecoveryRequest req) {
@@ -152,12 +179,16 @@ public class OrgController {
 
     // ---------------- rights ([D1/H7]) ----------------
 
+    @Perm(resource = "org.rights", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View grantable child types for caller's org")
     @GetMapping("/me/grantable")
     public Dtos.GrantableView grantable(@RequestParam(required = false) String childType) {
         String orgId = tree.ownOrg(Current.get()).getId();
         return orgRights.grantable(Current.get(), orgId);
     }
 
+    @Perm(resource = "org.rights", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "View an org's rights (PATH tenant)")
     @GetMapping("/{id}/rights")
     public Dtos.OrgRightsView rights(@PathVariable String id) {
         Current.Principal caller = Current.get();
@@ -166,6 +197,8 @@ public class OrgController {
     }
 
     /** Narrow only ([D1]); an ancestor's ADMIN or platform staff. */
+    @Perm(resource = "org.rights", verb = Verb.ADMINISTER, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Narrow an org's rights (PATH tenant)")
     @PutMapping("/{id}/rights")
     public Dtos.OrgRightsView narrowRights(@PathVariable String id,
                                            @RequestBody Dtos.RightsPutRequest body) {
@@ -192,6 +225,8 @@ public class OrgController {
     // ---------------- decisions ----------------
 
     /** Pending requests relevant to the caller (own-org parent queue, platform sees all). */
+    @Perm(resource = "org.onboarding", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View onboarding request queue for caller's org")
     @GetMapping("/onboarding")
     public List<Dtos.OnboardingRequestRow> queue(
             @RequestParam(defaultValue = "PENDING_REVIEW") String status) {
@@ -209,6 +244,8 @@ public class OrgController {
                 .toList();
     }
 
+    @Perm(resource = "org.onboarding", verb = Verb.AUTHORIZE, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Decide an onboarding request (PATH tenant)")
     @PostMapping("/onboarding/{id}/decide")
     public Dtos.OrgDecisionResult decide(@PathVariable String id, @RequestBody Dtos.OrgDecideRequest req) {
         return onboarding.decide(id, Current.get(), Boolean.TRUE.equals(req.approve()),
@@ -240,6 +277,8 @@ public class OrgController {
 
     // ---------------- suspension (ancestor ADMIN or platform) ----------------
 
+    @Perm(resource = "org.suspension", verb = Verb.ADMINISTER, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Suspend an org (PATH tenant)")
     @PostMapping("/{id}/suspend")
     public Dtos.SuspensionRow suspend(@PathVariable String id,
                                       @RequestBody(required = false) Dtos.HoldRequest body) {
@@ -247,6 +286,8 @@ public class OrgController {
         return suspension.suspend(id, reason, Current.get());
     }
 
+    @Perm(resource = "org.suspension", verb = Verb.ADMINISTER, tenantSource = TenantSource.PATH, tenant = "#sid",
+          description = "Lift a suspension (PATH tenant)")
     @PostMapping("/suspensions/{sid}/lift")
     public List<Dtos.SuspensionRow> lift(@PathVariable String sid) {
         return suspension.lift(sid, Current.get());

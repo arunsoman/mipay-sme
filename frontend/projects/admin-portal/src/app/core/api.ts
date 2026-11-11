@@ -232,3 +232,62 @@ export interface KycApplicationView {
   decidedBy: string | null; decidedAt: string | null; decisionNote: string | null;
   version: number; masked: boolean; canEdit: boolean; canSubmit: boolean; canDecide: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// RBAC permission matrix (§16: trustplane RBAC proxy)
+// Mirrors com.mipay.sme.web.Dtos.RbacRoleView, RbacRoleUpdate, RbacUserView,
+// RbacAssignmentView, RbacMatrixCell
+// ---------------------------------------------------------------------------
+
+export interface RbacRoleView {
+  name: string;
+  description: string;
+  permissions: string[];
+}
+
+export interface RbacRoleUpdate {
+  permissions: string[];
+}
+
+export interface RbacUserView {
+  id: string;
+  displayName: string;
+  supplier: string;
+  kind: string;
+  status: string;
+}
+
+export interface RbacAssignmentView {
+  id: string;
+  subject: string;
+  role: string;
+  tenant: string;
+  scope: string;
+  status: string;
+}
+
+export interface RbacMatrixCell {
+  resource: string;
+  verb: string;
+  permission: string;
+  granted: boolean;
+}
+
+export type RbacVerb =
+  | 'read' | 'create' | 'modify' | 'delete' | 'submit'
+  | 'authorize' | 'execute' | 'export' | 'administer' | 'simulate';
+
+export const RBAC_VERBS: RbacVerb[] = [
+  'read', 'create', 'modify', 'delete', 'submit',
+  'authorize', 'execute', 'export', 'administer', 'simulate',
+];
+
+export interface RbacMatrixRow {
+  resource: string;
+  cells: Record<RbacVerb, 'granted' | 'not-granted' | 'n/a'>;
+}
+
+export interface RbacMatrixData {
+  rows: RbacMatrixRow[];
+  verbs: RbacVerb[];
+}

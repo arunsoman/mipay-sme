@@ -38,6 +38,23 @@ clients:
       - /pki/clients/cert-b.pem
     token_ttl_seconds: 300
 
+
+  - id: gateway-bff
+    display_name: "API Gateway BFF (portal sign-in, private_key_jwt + DPoP)"
+    auth_method: private_key_jwt
+    token_alg: ES256
+    redirect_uris:
+      - "https://fapi.local/auth/callback"
+      - "https://admin.fapi.local/auth/callback"
+      - "https://manufacturer.fapi.local/auth/callback"
+      - "https://distributor.fapi.local/auth/callback"
+      - "https://supplier.fapi.local/auth/callback"
+    scopes: [openid, offline_access]
+    jwks_files:
+      - /pki/clients/gateway-bff.pem
+    token_ttl_seconds: 300
+    refresh_ttl_seconds: 28800
+    require_consent: false
   - id: gw-resource-server
     display_name: "API Gateway (resource server for introspection)"
     auth_method: private_key_jwt

@@ -102,7 +102,11 @@ services:
       timeout: 3s
       retries: 20
       start_period: 60s
-    networks: [internal, data]
+    networks:
+      internal:
+      data:
+      sme-mesh:
+        aliases: [rbac]   # the mipay backend registers its permission catalogue over mTLS
     restart: unless-stopped
 
   gateway:
@@ -122,6 +126,8 @@ services:
     environment:
       GATEWAY_CONFIG: /config/gateway/routes.yaml
       GATEWAY_LISTEN: ":8443"
+      GATEWAY_DB_URL: postgres://platform:platform-dev@pg:5432/gateway?sslmode=disable
+      GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:-}
     ports:
       - "8443:8443"   # the ONLY published port: gateway is the single public entry
     volumes:
@@ -138,6 +144,7 @@ services:
         aliases: [gateway, idp.fapi.local, rbac.fapi.local]
       internal:
       sme-mesh:
+      data:
         aliases: [gateway]
     restart: unless-stopped
 

@@ -15,6 +15,7 @@ type Config struct {
 	Introspection IntrospectionCfg    `yaml:"introspection"`
 	Limits        LimitsCfg           `yaml:"limits"`
 	Routes        []Route             `yaml:"routes"`
+	BFF           BFFCfg              `yaml:"bff"`          // Lane A: browser BFF session layer
 }
 
 type ServerCfg struct {
@@ -110,6 +111,24 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if v := os.Getenv("GATEWAY_DB_URL"); v != "" {
+		c.BFF.DBURL = v
+	}
+	if c.BFF.AbsLifeSec == 0 {
+		c.BFF.AbsLifeSec = 12 * 3600 // 12 h org users
+	}
+	if c.BFF.IdleLifeSec == 0 {
+		c.BFF.IdleLifeSec = 30 * 60   // 30 min idle
+	}
+	if c.BFF.IDPBase == "" {
+		c.BFF.IDPBase = "https://idp:8443"
+	}
+	if c.BFF.IDPPublicBase == "" {
+		c.BFF.IDPPublicBase = c.BFF.IDPBase
+	}
+	if c.BFF.IDPPublicBase == "" {
+		c.BFF.IDPPublicBase = c.BFF.IDPBase
+	}
 	if c.Server.Issuer == "" || c.Server.ClientCA == "" || c.Server.ContextSecret == "" {
 		return fmt.Errorf("server.issuer/client_ca/context_secret are required")
 	}
@@ -158,4 +177,17 @@ func (c *Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// BFFCfg holds the gateway's confidential FAPI client configuration
+// (docs/plans/fapi2-design.md §4.2).
+type BFFCfg struct {
+	ClientID       string `yaml:"client_id"`      // gateway-bff OAuth client id
+	ClientKey      string `yaml:"client_key"`     // path to gateway-bff private key PEM
+	ClientKid      string `yaml:"client_kid"`     // key id for client_assertion
+	IDPBase        string `yaml:"idp_base"`       // https://idp:8443 (mesh, server-to-server)
+	IDPPublicBase  string `yaml:"idp_public_base"` // https://idp.fapi.local:8443 (browser redirect)
+	DBURL          string `yaml:"db_url"`         // Postgres for gw_sessions (env GATEWAY_DB_URL overrides)
+	AbsLifeSec     int    `yaml:"abs_life_seconds"`
+	IdleLifeSec    int    `yaml:"idle_life_seconds"`
 }

@@ -18,6 +18,7 @@ public class AppProperties {
 
     private String environment = "sandbox";  // sandbox | uat | production
     private String devOtp = "123456";        // fixed OTP in sandbox for the UAT demos
+    private String rbacUrl = "https://trustplane-rbac:8443";  // trustplane RBAC service
 
     private Advance advance = new Advance();
 

@@ -19,6 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 @Configuration
+@org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -49,6 +50,12 @@ public class SecurityConfig {
 
     @Value("${app.cors.allowed-origins:http://localhost:4200,http://localhost:4201,http://localhost:4202,http://localhost:4203,http://localhost:4204}")
     private List<String> corsAllowedOrigins;
+
+    /** Lets {@code @Perm} fill its {@code @PreAuthorize} template ({resource}, {verb}, ...). */
+    @Bean
+    static org.springframework.security.core.annotation.AnnotationTemplateExpressionDefaults permTemplateDefaults() {
+        return new org.springframework.security.core.annotation.AnnotationTemplateExpressionDefaults();
+    }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {

@@ -6,6 +6,7 @@ import { Onboarding } from './features/onboarding/onboarding';
 import { Users } from './features/users/users';
 import { Permissions } from './features/permissions/permissions';
 import { Kyc } from './features/kyc/kyc';
+import { PermissionMatrix } from './features/permission-matrix/permission-matrix';
 
 /**
  * Admin portal surface (deliberately minimal): Onboarding, KYC, User
@@ -23,6 +24,7 @@ export const routes: Routes = [
       { path: 'kyc', component: Kyc, canActivate: [adminGuard] },
       { path: 'users', component: Users, canActivate: [adminGuard] },
       { path: 'permissions', component: Permissions, canActivate: [adminGuard] },
+      { path: 'rbac', component: PermissionMatrix, canActivate: [adminGuard] },
     ],
   },
   { path: '**', redirectTo: 'login' },

@@ -1,6 +1,10 @@
 package com.mipay.sme.web;
 
 import com.mipay.sme.security.Current;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.PublicEndpoint;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.KycApplicationService;
 import com.mipay.sme.service.OrgTreeService;
 import com.mipay.sme.service.kyc.KycSchemaFacade;
@@ -36,24 +40,32 @@ public class KycController {
 
     // ---------------------------------------------------------------- legacy aliases (still used by the portals)
 
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List KYC applications for caller's org")
     @GetMapping("/api/orgs/kyc")
     public List<Dtos.KycSummaryRow> list(@RequestParam(required = false) String status,
                                          @RequestParam(required = false) Boolean suspended) {
         return kyc.list(Current.get(), status, suspended);
     }
 
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's own org KYC application")
     @GetMapping("/api/orgs/me/kyc")
     public Dtos.KycApplicationView mine() {
         return kyc.view(Current.get(), ownOrgId());
     }
 
     /** §12 GET /api/kyc/orgs/{id} — full view incl. profile, stage, tasks and verifications. */
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "View a specific org's KYC application (PATH tenant)")
     @GetMapping({"/api/orgs/{id}/kyc", "/api/kyc/orgs/{id}"})
     public Dtos.KycApplicationView get(@PathVariable String id) {
         return kyc.view(Current.get(), id);
     }
 
     /** §12 PUT /api/kyc/orgs/{id}?expectedVersion= — the body is the schema-shaped JSON. */
+    @Perm(resource = "kyc.application", verb = Verb.MODIFY, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Save KYC draft for an org (PATH tenant)")
     @PutMapping({"/api/orgs/{id}/kyc", "/api/kyc/orgs/{id}"})
     public Dtos.KycApplicationView save(@PathVariable String id, @RequestBody Map<String, Object> body,
                                         @RequestParam(required = false) Long expectedVersion) {
@@ -61,6 +73,8 @@ public class KycController {
     }
 
     /** §12 POST /api/kyc/orgs/{id}/submit {sendToChecker?} */
+    @Perm(resource = "kyc.application", verb = Verb.SUBMIT, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Submit KYC application for review (PATH tenant)")
     @PostMapping({"/api/orgs/{id}/kyc/submit", "/api/kyc/orgs/{id}/submit"})
     public Dtos.KycApplicationView submit(@PathVariable String id,
                                           @RequestBody(required = false) Map<String, Object> body) {
@@ -70,11 +84,15 @@ public class KycController {
 
     // ---------------------------------------------------------------- §12 surface
 
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View caller's own org KYC application (v2)")
     @GetMapping("/api/kyc/orgs/me")
     public Dtos.KycApplicationView mineV2() {
         return kyc.view(Current.get(), ownOrgId());
     }
 
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List KYC applications (v2, caller's org)")
     @GetMapping("/api/kyc/orgs")
     public List<Dtos.KycSummaryRow> listV2(@RequestParam(required = false) String status,
                                            @RequestParam(required = false) Boolean suspended) {
@@ -82,11 +100,15 @@ public class KycController {
     }
 
     /** Resolves the profile and returns sections, fields, conditions and rules for client hints. */
+    @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Get KYC schema for caller's org")
     @GetMapping("/api/kyc/schema")
     public Map<String, Object> schemaForOwnOrg(@RequestParam(name = "entityType", required = false) String entityType) {
         return schema.schemaFor(ownOrgId(), entityType);
     }
 
+    @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#orgId",
+          description = "Get KYC schema for a specific org (PATH tenant)")
     @GetMapping("/api/kyc/schema/{orgId}")
     public Map<String, Object> schemaForOrg(@PathVariable String orgId,
                                             @RequestParam(name = "entityType", required = false) String entityType) {
@@ -96,6 +118,8 @@ public class KycController {
     }
 
     /** Large lists (MCC, branches) with parent filtering, search and paging. */
+    @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Read KYC reference lists (MCC, branches, etc.)")
     @GetMapping("/api/kyc/lists/{code}")
     public Map<String, Object> list(@PathVariable String code,
                                     @RequestParam(name = "parent", required = false) String parent,
@@ -106,24 +130,31 @@ public class KycController {
     }
 
     /** §12 POST /api/kyc/orgs/{id}/upgrade — move a DRAFT to the profile's current schema version. */
+    @Perm(resource = "kyc.application", verb = Verb.MODIFY, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Upgrade KYC application schema version (PATH tenant)")
     @PostMapping("/api/kyc/orgs/{id}/upgrade")
     public Dtos.KycApplicationView upgrade(@PathVariable String id) {
         return kyc.upgrade(Current.get(), id);
     }
 
     /** Withdraw a DRAFT or ENTRY_CHECK application (§6.4). */
+    @Perm(resource = "kyc.application", verb = Verb.DELETE, tenantSource = TenantSource.PATH, tenant = "#id",
+          description = "Withdraw a KYC application (PATH tenant)")
     @PostMapping("/api/kyc/orgs/{id}/withdraw")
     public Dtos.KycApplicationView withdraw(@PathVariable String id) {
         return kyc.withdraw(Current.get(), id);
     }
 
     /** Approval inbox: every open task the caller may act on (§12). */
+    @Perm(resource = "kyc.task", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "List open KYC review tasks for caller")
     @GetMapping("/api/kyc/tasks")
     public List<Dtos.KycTaskRow> inbox() {
         return kyc.inbox(Current.get());
     }
 
     /** §7 provider callbacks — signature verified, deduped by provider_ref. */
+    @PublicEndpoint(reason = "provider webhook callback - service identity (signature verified)")
     @PostMapping("/api/kyc/providers/{key}/events")
     public Map<String, Object> providerEvent(@PathVariable String key,
                                              @RequestBody Map<String, Object> body) {
@@ -131,6 +162,8 @@ public class KycController {
     }
 
     /** Task decisions: APPROVE / RETURN / REJECT / BLOCK (§12). */
+    @Perm(resource = "kyc.task", verb = Verb.AUTHORIZE, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Decide a KYC review task (platform staff)")
     @PostMapping("/api/kyc/tasks/{taskId}/decision")
     public Dtos.KycApplicationView decide(@PathVariable String taskId,
                                           @Valid @RequestBody Dtos.KycDecisionRequestV2 body) {

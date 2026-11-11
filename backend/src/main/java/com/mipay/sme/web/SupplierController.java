@@ -30,6 +30,39 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import com.mipay.sme.service.AuditService;
 
+import com.mipay.sme.common.NotFoundException;
+import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.Enums.OrgType;
+import com.mipay.sme.domain.core.Supplier;
+import com.mipay.sme.domain.org.OrgBankAccount;
+import com.mipay.sme.security.rbac.Perm;
+import com.mipay.sme.security.rbac.TenantSource;
+import com.mipay.sme.security.rbac.Verb;
+import com.mipay.sme.repository.OrderRepository;
+import com.mipay.sme.repository.OrgBankAccountRepository;
+import com.mipay.sme.repository.OrganizationRepository;
+import com.mipay.sme.repository.SupplierCatalogueItemRepository;
+import com.mipay.sme.repository.SupplierRepository;
+import com.mipay.sme.repository.InvoiceRepository;
+import com.mipay.sme.repository.InvoicePaymentRepository;
+import com.mipay.sme.security.Current;
+import com.mipay.sme.service.B2BPaymentService;
+import com.mipay.sme.service.StatementService;
+import com.mipay.sme.web.Dtos;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import com.mipay.sme.service.AuditService;
+
 /** Supplier / wholesaler portal API (S01-S08, BC p.9). */
 @RestController
 @RequestMapping("/api/supplier")
@@ -61,12 +94,16 @@ public class SupplierController {
                 s.getBusinessName(), s.getUserId()).getId();
     }
 
+    @Perm(resource = "supplier.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier profile")
     @GetMapping("/profile")
     public Dtos.SupplierProfile profile() {
         Supplier s = supplierRepo.findById(sid()).orElseThrow(() -> new NotFoundException("Supplier not found"));
         return new Dtos.SupplierProfile(s.getId(), s.getBusinessName(), s.getOwnerPhone(), s.getApprovalStatus());
     }
 
+    @Perm(resource = "supplier.bank_account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier bank accounts")
     @GetMapping("/bank-accounts")
     public List<Dtos.BankAccountRow> bankAccounts() {
         return bankAccountRepo.findByOrgIdOrderByCreatedAtDesc(ownOrgId()).stream()
@@ -76,11 +113,15 @@ public class SupplierController {
     }
 
     /** Change receiving account -> PENDING_APPROVAL, independent approval required (S03, TC-ONB-03). */
+    @Perm(resource = "supplier.bank_account", verb = Verb.MODIFY, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Change supplier bank account")
     @PostMapping("/bank-accounts/change")
     public Dtos.ApprovalResult changeBankAccount(@Valid @RequestBody Dtos.BankAccountChangeRequest req) {
         return onboardingService.changeOrgBankAccount(ownOrgId(), req, Current.get().userId());
     }
 
+    @Perm(resource = "supplier.bank_account", verb = Verb.DELETE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Revoke a supplier bank account")
     @PostMapping("/bank-accounts/{id}/revoke")
     public void revokeBankAccount(@PathVariable String id) {
         OrgBankAccount b = bankAccountRepo.findById(id)
@@ -94,6 +135,8 @@ public class SupplierController {
                 "org_bank_account", b.getId(), b.getStatus().name(), "REVOKED", null, false, null);
     }
 
+    @Perm(resource = "supplier.catalogue", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier catalogue items")
     @GetMapping("/catalogue")
     public List<Dtos.CatalogueRow> catalogue() {
         String id = sid();
@@ -104,6 +147,8 @@ public class SupplierController {
     }
 
     /** Add catalogue item (S04); goes live when the supplier is approved. */
+    @Perm(resource = "supplier.catalogue", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Add a catalogue item")
     @PostMapping("/catalogue")
     public Dtos.CatalogueRow addToCatalogue(@Valid @RequestBody Dtos.CatalogueUpsert req) {
         Supplier supplier = supplierRepo.findById(sid()).orElseThrow(() -> new NotFoundException("Supplier not found"));
@@ -120,6 +165,8 @@ public class SupplierController {
                 item.getProductName(), item.getUnit(), item.getUnitPrice(), item.getStatus());
     }
 
+    @Perm(resource = "supplier.catalogue", verb = Verb.DELETE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Retire a catalogue item")
     @PostMapping("/catalogue/{id}/retire")
     public void retireItem(@PathVariable String id) {
         var item = catalogueRepo.findById(id).orElseThrow(() -> new NotFoundException("Item not found"));
@@ -130,27 +177,37 @@ public class SupplierController {
         catalogueRepo.save(item);
     }
 
+    @Perm(resource = "supplier.order", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier orders")
     @GetMapping("/orders")
     public List<Dtos.OrderRow> orders() {
         return orderRepo.findForSupplier(sid());
     }
 
+    @Perm(resource = "supplier.order", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View an order detail")
     @GetMapping("/orders/{id}")
     public Dtos.OrderDetailRow orderDetail(@PathVariable String id) {
         return b2bService.orderDetail(id);
     }
 
     /** S06: issue invoice with the unique reference (TC-B2B-01). */
+    @Perm(resource = "supplier.invoice", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Issue an invoice for an order")
     @PostMapping("/orders/{id}/invoice")
     public Dtos.InvoiceDetailRow issueInvoice(@PathVariable String id) {
         return b2bService.issueInvoice(sid(), id);
     }
 
+    @Perm(resource = "supplier.invoice", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier invoices")
     @GetMapping("/invoices")
     public List<Dtos.InvoiceListRow> invoices() {
         return invoiceRepo.findForSupplier(sid(), java.util.List.of(Enums.InvoiceStatus.values()));
     }
 
+    @Perm(resource = "supplier.invoice", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View an invoice detail")
     @GetMapping("/invoices/{id}")
     public Dtos.InvoiceDetailRow invoiceDetail(@PathVariable String id) {
         var invoice = invoiceRepo.findById(id).orElseThrow(() -> new NotFoundException("Invoice not found"));
@@ -161,6 +218,8 @@ public class SupplierController {
     }
 
     /** Payments received (S07): supplier credits, batched from all invoices (no N+1). */
+    @Perm(resource = "supplier.account", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View payments received by supplier")
     @GetMapping("/payments")
     public List<Dtos.InvoicePaymentRow> paymentsReceived() {
         return invoicePaymentRepo.findBySupplierIdOrderByCreatedAtDesc(sid(), PageRequest.of(0, 50)).stream()
@@ -169,16 +228,22 @@ public class SupplierController {
                 .toList();
     }
 
+    @Perm(resource = "supplier.statement", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "View supplier statements")
     @GetMapping("/statements")
     public List<Dtos.StatementRow> statements() {
         return statementService.list("supplier", sid());
     }
 
+    @Perm(resource = "supplier.statement", verb = Verb.EXECUTE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Generate a supplier statement")
     @PostMapping("/statements")
     public Dtos.StatementRow generateStatement(@Valid @RequestBody Dtos.GenerateStatementRequest req) {
         return statementService.generate("supplier", sid(), req.from(), req.to(), Current.get().userId());
     }
 
+    @Perm(resource = "supplier.statement", verb = Verb.EXPORT, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Download a supplier statement")
     @GetMapping(value = "/statements/{id}/download", produces = MediaType.TEXT_PLAIN_VALUE)
     public String download(@PathVariable String id) {
         var s = statementService.statementFile(id, "supplier", sid());

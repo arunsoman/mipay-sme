@@ -1,6 +1,7 @@
 package com.mipay.sme.web;
 
 import com.mipay.sme.config.AppProperties;
+import com.mipay.sme.security.rbac.PublicEndpoint;
 import com.mipay.sme.web.Dtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +14,7 @@ public class EnvironmentController {
 
     private final AppProperties props;
 
+    @PublicEndpoint(reason = "public environment banner feed - labels every screen with SIMULATED rule")
     @GetMapping("/api/env")
     public Dtos.EnvView env() {
         boolean simulated = props.isSimulatedEnvironment();

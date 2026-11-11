@@ -40,6 +40,9 @@ services:
       POSTGRES_URL: jdbc:postgresql://db:5432/mipay
       POSTGRES_USER: mipay
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mipay}
+      APP_RBAC_REGISTRY_URL: https://rbac:8443/rbac/internal/permissions/register
+    volumes:
+      - trustplane-pki:/pki:ro            # mipay-mesh client cert + platform CA (trustplane pki-init)
     ports: ["8080:8080"]
     depends_on:
       db:
@@ -117,3 +120,8 @@ services:
 networks:
   sme-mesh:
     external: true
+
+volumes:
+  trustplane-pki:
+    external: true
+    name: trustplane_pki                 # created by the trustplane stack (pki-init)

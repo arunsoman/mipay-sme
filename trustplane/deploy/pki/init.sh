@@ -50,6 +50,23 @@ if [ ! -f "$PKI/gateway-mesh.pem" ]; then
     -extfile /tmp/mesh.ext -out "$PKI/gateway-mesh.pem"
 fi
 
+# mipay backend mesh CLIENT cert (mTLS to RBAC's /rbac/internal/* registry).
+# CN sme-mipay-mesh normalizes to "mipay", the X-Mesh-Service the backend sends.
+if [ ! -f "$PKI/mipay-mesh.pem" ]; then
+  openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+    -keyout "$PKI/mipay-mesh-key.pem" -out /tmp/mipay-mesh.csr -subj "/CN=sme-mipay-mesh"
+  printf "extendedKeyUsage=clientAuth\nkeyUsage=critical,digitalSignature\n" > /tmp/mipay-mesh.ext
+  openssl x509 -req -in /tmp/mipay-mesh.csr -CA "$PKI/platform-ca.pem" \
+    -CAkey "$PKI/platform-ca-key.pem" -CAcreateserial -days 825 \
+    -extfile /tmp/mipay-mesh.ext -out "$PKI/mipay-mesh.pem"
+fi
+
+# ---- gateway-bff OAuth client key (private_key_jwt) -------------------------
+if [ ! -f "$PKI/clients/gateway-bff.pem" ]; then
+  openssl ecparam -name prime256v1 -genkey -noout -out "$PKI/clients/gateway-bff.pem"
+  chmod 600 "$PKI/clients/gateway-bff.pem"
+fi
+
 # ---- IdP signing keys (PS256 / ES256 / EdDSA) -------------------------------
 if [ ! -f "$PKI/signing/ps256.pem" ]; then
   openssl genrsa -out "$PKI/signing/ps256.pem" 2048

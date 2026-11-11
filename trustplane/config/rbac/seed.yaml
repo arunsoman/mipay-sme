@@ -37,7 +37,7 @@ roles:
        rbac.assignment:create, rbac.assignment:read, rbac.assignment:delete,
        rbac.role:create, rbac.role:read, rbac.role:update, rbac.role:delete,
        rbac.group:create, rbac.group:read, rbac.group:update, rbac.group:delete,
-       rbac.audit:read]
+       rbac.audit:read, rbac.org:sync]
   - name: supplier_admin
     description: "Supplier administrator: own users + assignments within root grants"
     permissions:
@@ -60,3 +60,6 @@ assignments:
   - {subject: bob,   role: supplier_operator, tenant: acme, scope: all}  # direct platform assignment (no grant needed)
 # alice, carol, dave intentionally start with NO assignments — the suite
 # proves that a valid token without a root-backed assignment is powerless.
+
+# The org tree (org_closure + org_tenant_mapping) is not seeded: the MiPay backend
+# pushes its real closure table to /rbac/internal/orgs/sync at boot (§9.2).

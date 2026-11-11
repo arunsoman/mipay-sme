@@ -46,6 +46,17 @@ introspection:
   cache_ttl_seconds: 3
   timeout_ms: 2000
 
+
+
+bff:
+  client_id: gateway-bff
+  client_key: /pki/clients/gateway-bff.pem
+  client_kid: gateway-bff
+  idp_base: https://idp:8443
+  idp_public_base: https://idp.fapi.local:8443
+  db_url: postgres://platform:platform-dev@pg:5432/gateway?sslmode=disable
+  abs_life_seconds: 43200   # 12 h
+  idle_life_seconds: 1800   # 30 min
 limits:
   global_concurrency: 512
   upstream_concurrency: 128

@@ -5,6 +5,7 @@ import com.mipay.sme.domain.core.Merchant;
 import com.mipay.sme.domain.core.Supplier;
 import com.mipay.sme.domain.credit.Lender;
 import com.mipay.sme.domain.core.User;
+import com.mipay.sme.security.rbac.PublicEndpoint;
 import com.mipay.sme.repository.LenderRepository;
 import com.mipay.sme.repository.MerchantRepository;
 import com.mipay.sme.repository.SupplierRepository;
@@ -28,6 +29,7 @@ public class MeController {
     private final com.mipay.sme.config.AppProperties props;
     private final com.mipay.sme.repository.OrganizationRepository orgRepo;
 
+    @PublicEndpoint(reason = "current user profile - available to any signed-in user")
     @GetMapping("/api/me")
     public Dtos.MeView me() {
         Current.Principal p = Current.get();

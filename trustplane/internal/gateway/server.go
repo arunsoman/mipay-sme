@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -20,7 +21,9 @@ import (
 	"trustplane/internal/breaker"
 	"trustplane/internal/ctxauth"
 	"trustplane/internal/mtlsx"
+	"trustplane/internal/jwtx"
 	"trustplane/internal/ratelimit"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // compiledRoute is a route plus its matcher segments.
@@ -49,6 +52,16 @@ type Gateway struct {
 	reqID   uint64
 	reqMu   sync.Mutex
 	secret  []byte
+
+	// Lane A: browser BFF
+	store    *SessionStore
+	bffID    string      // gateway-bff OAuth client id
+	bffKey   crypto.Signer // gateway-bff private key
+	bffKid   string
+	bffIDP     string      // https://idp:8443 (mesh, server-to-server)
+	bffIDPPublic string    // https://idp.fapi.local:8443 (browser redirect)
+	bffAbs   time.Duration // session absolute lifetime
+	bffIdle  time.Duration // session idle timeout
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +142,45 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		}
 		go g.rbac.WatchLoop(ctx)
 	}
+
+	// ---- Lane A: browser BFF session store + client credentials ----
+	dbURL := cfg.BFF.DBURL
+	if dbURL == "" {
+		dbURL = os.Getenv("GATEWAY_DB_URL")
+	}
+	if dbURL != "" {
+		pool, err := pgxpool.New(ctx, dbURL)
+		if err != nil {
+			return fmt.Errorf("gateway: session db pool: %w", err)
+		}
+		defer pool.Close()
+		encKey, err := ensureSessionKey(os.Getenv("GATEWAY_SESSION_KEY"), secret)
+		if err != nil {
+			return fmt.Errorf("gateway: session key: %w", err)
+		}
+		s, err := NewSessionStore(pool, encKey)
+		if err != nil {
+			return fmt.Errorf("gateway: session store: %w", err)
+		}
+		g.store = s
+	}
+	if cfg.BFF.ClientID != "" && cfg.BFF.ClientKey != "" {
+		signKey, err := jwtx.LoadPrivateKeyFile(cfg.BFF.ClientKey)
+		if err != nil {
+			return fmt.Errorf("gateway: bff client key: %w", err)
+		}
+		g.bffID = cfg.BFF.ClientID
+		g.bffKey = signKey
+		g.bffKid = cfg.BFF.ClientKid
+		g.bffIDP = cfg.BFF.IDPBase
+		g.bffIDPPublic = cfg.BFF.IDPPublicBase
+		g.bffAbs = time.Duration(cfg.BFF.AbsLifeSec) * time.Second
+		g.bffIdle = time.Duration(cfg.BFF.IdleLifeSec) * time.Second
+		log.Printf("[gateway] bff: client=%s idp=%s absLife=%v idleLife=%v",
+			g.bffID, g.bffIDP, g.bffAbs, g.bffIdle)
+	}
+
+
 	for i := range cfg.Routes {
 		cr, err := compile(&cfg.Routes[i], i)
 		if err != nil {
@@ -359,6 +411,23 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
+	// Lane A: browser BFF handles /auth/* directly (login, callback, session, logout).
+	// These are "auth: none" routes; hardening + rate limiting still apply.
+	if strings.HasPrefix(r.URL.Path, "/auth/") {
+		if status, msg := g.harden(r); status != 0 {
+			writeErr(w, status, msg)
+			return
+		}
+		rip := remoteIPKey(r)
+		if !g.limiter.Allow("bff|ip|"+rip, 600, 600) {
+			w.Header().Set("Retry-After", "10")
+			writeErr(w, 429, "rate_limited_ip")
+			return
+		}
+		g.bff(w, r)
+		return
+	}
+
 	route, params, pathOK, methodOK := g.match(host, r.Method, r.URL.EscapedPath())
 	ctxauth.StripSpoofed(r.Header) // callers may never forge internal context
 	if !pathOK {
