@@ -13,3 +13,6 @@ tools/uat-evidence/venv/
 tools/uat-evidence/rec/out/
 tools/uat-evidence/rec/add_out/
 __pycache__/
+
+# compiled Go test client (build output)
+/trustplane/fapi-client

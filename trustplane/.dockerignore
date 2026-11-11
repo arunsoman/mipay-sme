@@ -1,0 +1,14 @@
+.git
+bin
+docs
+frontend
+backend
+tools
+e2e
+*.md
+!README.md
+!PLAN.md
+# java build outputs (rebuilt inside the gradle build stage)
+java/**/build
+java/.gradle
+java/build

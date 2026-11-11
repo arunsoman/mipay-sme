@@ -38,6 +38,11 @@ public class Lender {
     @Column(nullable = false)
     private LenderStatus status;
 
+    /** Ops approval mirror (null = APPROVED, [H3]); ACTIVE/SUSPENDED status stays. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "approval_status")
+    private com.mipay.sme.domain.Enums.ApprovalStatus approvalStatus;
+
     /** Share of eligible daily receipts collected as repayment (BC p.11, E15). */
     @Column(name = "collection_rate", precision = 5, scale = 4)
     private BigDecimal collectionRate = new BigDecimal("0.10");

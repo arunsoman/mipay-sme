@@ -7,9 +7,40 @@ public final class Enums {
 
     private Enums() { }
 
+    /** Max depth a node may reach by org type: PLATFORM ∞, MANUFACTURER 4, DISTRIBUTOR 3, SUPPLIER 2, MERCHANT 1. */
+    public static int maxDepthOf(OrgType type) {
+        return switch (type) {
+            case PLATFORM -> Integer.MAX_VALUE;
+            case MANUFACTURER -> 4;
+            case DISTRIBUTOR -> 3;
+            case SUPPLIER -> 2;
+            case MERCHANT -> 1;
+            case LENDER -> 0;
+        };
+    }
+
     // ---------- identity ----------
-    public enum UserRole { MERCHANT, SUPPLIER, LENDER, TPTS_OPS, MINDLABS_ADMIN }
+    public enum UserRole { MERCHANT, SUPPLIER, LENDER, MANUFACTURER, DISTRIBUTOR, TPTS_OPS, MINDLABS_ADMIN }
     public enum UserStatus { PENDING, ACTIVE, SUSPENDED }
+
+    // ---------- org hierarchy ----------
+    public enum OrgType { PLATFORM, MANUFACTURER, DISTRIBUTOR, SUPPLIER, MERCHANT, LENDER }
+
+    /** Org lifecycle. Suspensions are derived from active holds (own / ancestor). */
+    public enum OrgStatus { PENDING, ACTIVE, REJECTED, BLOCKED }
+
+    public enum OnboardingKind { ORG_ONBOARDING, ADMIN_RECOVERY }
+
+    public enum OnboardingDecision { APPROVE, REJECT }
+
+    /** Review status of an onboarding request [M4]. */
+    public enum OnboardingStatus { PENDING_REVIEW, APPROVED, REJECTED, BLOCKED }
+
+    /** org_rights rows: DIRECT = may onboard itself; CEILING = subtree-wide upper bound. */
+    public enum OrgRightKind { DIRECT, CEILING }
+
+    /** Role of a user inside their org: ADMIN may onboard/staff/decide; STAFF is operational. */
+    public enum OrgMemberRole { ADMIN, STAFF }
     public enum TenantType { TPTS, MINDLABS, ISSUER, LENDER, SUPPLIER }
     public enum TenantStatus { ACTIVE, SUSPENDED }
 
@@ -17,7 +48,7 @@ public final class Enums {
     public enum KycStatus { PENDING, VERIFIED, REJECTED }
     /** Risk-based review cycle (KYC spec §5): LOW 36m / MEDIUM 24m / HIGH 12m review month. */
     public enum KycRiskRating { LOW, MEDIUM, HIGH }
-    public enum ApprovalStatus { PENDING, APPROVED, SUSPENDED }
+    public enum ApprovalStatus { PENDING, APPROVED, SUSPENDED, REJECTED }
     public enum BankAccountStatus { PENDING_APPROVAL, APPROVED, REJECTED, REVOKED }
     public enum ItemStatus { PENDING_APPROVAL, APPROVED, RETIRED }
 
@@ -68,7 +99,7 @@ public final class Enums {
     public enum SettlementStatus { PENDING, SETTLED }
     public enum IncidentSeverity { CRITICAL, HIGH, MEDIUM, LOW }
     public enum IncidentStatus { OPEN, MITIGATED, RESOLVED }
-    public enum SuspensionEntityType { MERCHANT, SUPPLIER }
+    public enum SuspensionEntityType { MERCHANT, SUPPLIER, LENDER, ORG }
 
     // ---------- merchant tools ----------
     public enum StockMovementType { SALE, DELIVERY, ADJUSTMENT, WASTE }

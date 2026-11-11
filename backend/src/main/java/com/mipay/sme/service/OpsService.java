@@ -13,6 +13,7 @@ import com.mipay.sme.repository.AuditLogRepository;
 import com.mipay.sme.repository.ComplaintRepository;
 import com.mipay.sme.repository.DisputeRepository;
 import com.mipay.sme.repository.IncidentRepository;
+import com.mipay.sme.repository.LenderRepository;
 import com.mipay.sme.repository.MerchantRepository;
 import com.mipay.sme.repository.PaymentRepository;
 import com.mipay.sme.repository.SupplierRepository;
@@ -46,9 +47,16 @@ public class OpsService {
     private final SuspensionRepository suspensionRepo;
     private final MerchantRepository merchantRepo;
     private final SupplierRepository supplierRepo;
+    private final LenderRepository lenderRepo;
     private final PaymentRepository paymentRepo;
     private final AuditLogRepository auditRepo;
     private final AuditService auditService;
+    private final com.mipay.sme.repository.UserRepository userRepository;
+    private final com.mipay.sme.repository.DeviceSessionRepository sessionRepo;
+    private final com.mipay.sme.repository.OrgClosureRepository orgClosureRepo;
+    private final com.mipay.sme.service.OrgProvisioningService orgProvisioningService;
+    private final com.mipay.sme.service.OrgSuspensionService orgSuspension;
+    private final KycApplicationService kycApplications;
     private final ReportingService reportingService;
 
     // ------------------------------------------------------------------ incidents
@@ -194,11 +202,25 @@ public class OpsService {
 
     // ------------------------------------------------------------------ suspensions
 
+    /**
+     * Legacy suspend keeps its API and DTO and delegates to the org service ([plan]).
+     * A legacy suspend writes org_id/entity_*, mirrors the entity and now cascades.
+     */
     @Transactional
     public Dtos.SuspensionRow suspend(Dtos.SuspendRequest req, String actorId, String actorRole) {
+        Enums.SuspensionEntityType type =
+                Enums.SuspensionEntityType.valueOf(req.entityType().toUpperCase());
+        if (type == Enums.SuspensionEntityType.ORG) {
+            return orgSuspension.suspend(req.entityId(), req.reason(),
+                    new com.mipay.sme.security.Current.Principal(actorId, actorRole, actorId, null,
+                            null, null, null));
+        }
+        // entity-level legacy path: resolve the org and cascade through it
         Suspension s = new Suspension();
-        s.setEntityType(Enums.SuspensionEntityType.valueOf(req.entityType().toUpperCase()));
+        s.setEntityType(type);
         s.setEntityId(req.entityId());
+        String resolvedOrg = orgIdOf(type, req.entityId());
+        s.setOrgId(resolvedOrg);
         s.setReason(req.reason());
         s.setSuspendedBy(actorId);
         suspensionRepo.save(s);
@@ -208,11 +230,21 @@ public class OpsService {
                     .orElseThrow(() -> new NotFoundException("Merchant not found"));
             m.setApprovalStatus(Enums.ApprovalStatus.SUSPENDED);
             merchantRepo.save(m);
+        } else if (s.getEntityType() == Enums.SuspensionEntityType.LENDER) {
+            lenderRepo.findById(req.entityId()).ifPresent(l -> {
+                l.setStatus(Enums.LenderStatus.SUSPENDED);
+                lenderRepo.save(l);
+            });
         } else {
             Supplier sup = supplierRepo.findById(req.entityId())
                     .orElseThrow(() -> new NotFoundException("Supplier not found"));
             sup.setApprovalStatus(Enums.ApprovalStatus.SUSPENDED);
             supplierRepo.save(sup);
+        }
+        // cascade: sessions of the org subtree die too
+        if (resolvedOrg != null) {
+            orgSuspensionCascade(resolvedOrg);
+            kycApplications.syncSuspension(resolvedOrg);
         }
         auditService.record(actorId, actorRole, "suspended", s.getEntityType().name().toLowerCase(),
                 s.getEntityId(), "APPROVED", "SUSPENDED", "reason=" + req.reason(), false, null);
@@ -220,28 +252,46 @@ public class OpsService {
                 s.getSuspendedAt(), s.getLiftedAt());
     }
 
+    private void orgSuspensionCascade(String orgId) {
+        List<String> userIds = userRepository.findByOrgIdIn(javaxSubtree(orgId)).stream()
+                .map(u -> String.valueOf(u.getId())).toList();
+        if (!userIds.isEmpty()) {
+            sessionRepo.deleteAll(sessionRepo.findByUserIdIn(userIds));
+        }
+    }
+
+    private List<String> javaxSubtree(String orgId) {
+        return orgClosureRepo.findSubtree(orgId).stream().map(r -> r.getOrg().getId()).toList();
+    }
+
+
+    private String orgIdOf(Enums.SuspensionEntityType type, String entityId) {
+        return switch (type) {
+            case MERCHANT -> merchantRepo.findById(entityId)
+                    .flatMap(m -> orgProvisioningService.ensureEntityOrg(Enums.OrgType.MERCHANT, m.getId(),
+                            m.getBusinessName(), m.getUserId()).getEntityId() == null
+                            ? java.util.Optional.empty()
+                            : java.util.Optional.of(orgProvisioningService.ensureEntityOrg(Enums.OrgType.MERCHANT,
+                            m.getId(), m.getBusinessName(), m.getUserId()).getId()))
+                    .orElse(null);
+            case SUPPLIER -> supplierRepo.findById(entityId)
+                    .map(sp -> orgProvisioningService.ensureEntityOrg(Enums.OrgType.SUPPLIER, sp.getId(),
+                            sp.getBusinessName(), sp.getUserId()).getId())
+                    .orElse(null);
+            case LENDER -> lenderRepo.findById(entityId)
+                    .map(l -> orgProvisioningService.ensureEntityOrg(Enums.OrgType.LENDER, l.getId(),
+                            l.getName(), l.getUserId()).getId())
+                    .orElse(null);
+            default -> null;
+        };
+    }
+
+    /** Legacy lift keeps its API and delegates the level rules to the org service ([H4]). */
     @Transactional
     public List<Dtos.SuspensionRow> lift(String suspensionId, String actorId) {
-        Suspension s = suspensionRepo.findById(suspensionId)
-                .orElseThrow(() -> new NotFoundException("Suspension not found"));
-        if (s.isActive()) {
-            s.setLiftedAt(Instant.now());
-            suspensionRepo.save(s);
-            if (s.getEntityType() == Enums.SuspensionEntityType.MERCHANT) {
-                merchantRepo.findById(s.getEntityId()).ifPresent(m -> {
-                    m.setApprovalStatus(Enums.ApprovalStatus.APPROVED);
-                    merchantRepo.save(m);
-                });
-            } else {
-                supplierRepo.findById(s.getEntityId()).ifPresent(sup -> {
-                    sup.setApprovalStatus(Enums.ApprovalStatus.APPROVED);
-                    supplierRepo.save(sup);
-                });
-            }
-            auditService.record(actorId, "TPTS_OPS", "suspension_lifted", "suspension", s.getId(),
-                    "SUSPENDED", "APPROVED", null, false, null);
-        }
-        return suspensions();
+        return orgSuspension.lift(suspensionId,
+                new com.mipay.sme.security.Current.Principal(actorId, "TPTS_OPS", actorId, null,
+                        null, null, null));
     }
 
     @Transactional(readOnly = true)

@@ -9,6 +9,7 @@ import com.mipay.sme.repository.DeviceSessionRepository;
 import com.mipay.sme.repository.MerchantRepository;
 import com.mipay.sme.repository.SupplierRepository;
 import com.mipay.sme.repository.LenderRepository;
+import com.mipay.sme.repository.OrganizationRepository;
 import com.mipay.sme.security.JwtService;
 import com.mipay.sme.web.Dtos;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,9 @@ public class AuthService {
     private final MerchantRepository merchantRepo;
     private final SupplierRepository supplierRepo;
     private final LenderRepository lenderRepo;
+    private final OrganizationRepository organizationRepo;
     private final JwtService jwtService;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final PasswordEncoder passwordEncoder;
     private final com.mipay.sme.config.AppProperties props;
 
@@ -79,6 +82,10 @@ public class AuthService {
         if (user.getStatus() == Enums.UserStatus.SUSPENDED) {
             throw new ForbiddenException("Account suspended");
         }
+        // org-tree users must complete activation before any login ([C4/H8]); PENDED users are out ([H5])
+        if (user.getStatus() == Enums.UserStatus.PENDING) {
+            throw new ForbiddenException("ACTIVATION_REQUIRED", "Complete activation to sign in");
+        }
         if (user.getRole() == Enums.UserRole.MERCHANT) {
             merchantRepo.findByUserId(user.getId()).ifPresent(m -> {
                 if (m.getApprovalStatus() != Enums.ApprovalStatus.APPROVED) {
@@ -93,12 +100,28 @@ public class AuthService {
                 }
             });
         }
+        // suspended org cuts logins for the whole subtree ([H4])
+        if (user.getOrgId() != null && !orgAccess.isOperational(user.getOrgId())) {
+            throw new ForbiddenException("Account suspended", "Organization suspended");
+        }
     }
 
+    /**
+     * [H6] login keeps the phone field and adds an optional username; a lookup
+     * must match exactly one user. Existing fixtures keep sending phone+password.
+     */
     @Transactional
     public Dtos.TokenView loginWithPassword(String phone, String password) {
-        User user = userByPhone(phone);
-        if (user.getRole() == Enums.UserRole.MERCHANT) {
+        java.util.List<User> matched = userRepo.findAllByIdentifier(java.util.Objects
+                .requireNonNullElse(phone, ""));
+        if (matched.size() > 1) {
+            throw new ConflictException("AMBIGUOUS_IDENTIFIER",
+                    "Identifier matches more than one account; use phone");
+        }
+        User user = matched.isEmpty()
+                ? throwInvalid() : matched.get(0);
+        // legacy OTP-only merchants keep the OTP path; org-tree users activate with passwords ([H6])
+        if (user.getRole() == Enums.UserRole.MERCHANT && user.getOrgRole() == null) {
             throw new ForbiddenException("Merchants log in with phone + OTP");
         }
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
@@ -112,8 +135,24 @@ public class AuthService {
         String merchantId = merchantRepo.findByUserId(user.getId()).map(m -> m.getId()).orElse(null);
         String supplierId = supplierRepo.findByUserId(user.getId()).map(s -> s.getId()).orElse(null);
         String lenderId = lenderRepo.findByUserId(user.getId()).map(l -> l.getId()).orElse(null);
+        // [H3/M9] org binding claims; fall back to the entity-derived org (V4 backfill)
+        String orgId = user.getOrgId();
+        String orgType = null;
+        if (orgId == null) {
+            java.util.Optional<com.mipay.sme.domain.org.Organization> byEntity =
+                    merchantId != null ? organizationRepo.findByOrgTypeAndEntityId(Enums.OrgType.MERCHANT, merchantId)
+                    : supplierId != null ? organizationRepo.findByOrgTypeAndEntityId(Enums.OrgType.SUPPLIER, supplierId)
+                    : lenderId != null ? organizationRepo.findByOrgTypeAndEntityId(Enums.OrgType.LENDER, lenderId)
+                    : java.util.Optional.empty();
+            orgId = byEntity.map(org -> org.getId()).orElse(null);
+        }
+        if (orgId != null) {
+            orgType = organizationRepo.findById(orgId).map(o -> o.getOrgType().name()).orElse(null);
+        }
+        String orgRole = user.getOrgRole() == null ? null : user.getOrgRole().name();
 
-        JwtService.IssuedToken issued = jwtService.issue(user, merchantId, supplierId, lenderId);
+        JwtService.IssuedToken issued = jwtService.issue(user, merchantId, supplierId, lenderId,
+                orgId, orgType, orgRole);
 
         DeviceSession session = new DeviceSession();
         session.setUserId(user.getId());
@@ -125,6 +164,10 @@ public class AuthService {
         sessionRepo.save(session);
 
         return new Dtos.TokenView(issued.token(), "Bearer", JwtService.TTL.toSeconds(), user.getRole().name());
+    }
+
+    private User throwInvalid() {
+        throw new ForbiddenException("Invalid credentials");
     }
 
     private User userByPhone(String phone) {

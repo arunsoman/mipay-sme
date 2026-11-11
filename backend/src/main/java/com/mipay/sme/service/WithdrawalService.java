@@ -3,6 +3,7 @@ package com.mipay.sme.service;
 import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.common.SimException;
 import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.Enums.OrgType;
 import com.mipay.sme.domain.ledger.BalanceAccount;
 import com.mipay.sme.domain.ledger.Withdrawal;
 import com.mipay.sme.repository.BalanceAccountRepository;
@@ -32,6 +33,7 @@ import java.util.List;
 public class WithdrawalService {
 
     private final WithdrawalRepository withdrawalRepo;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final BalanceAccountRepository accountRepo;
     private final LimitProfileRepository limitProfileRepo;
     private final LedgerService ledgerService;
@@ -42,6 +44,7 @@ public class WithdrawalService {
     @Transactional
     public Dtos.WithdrawalRow withdraw(String merchantId, BigDecimal amount, String actorId, String actorRole) {
         reconciliationService.assertNoOpenBreaks();   // unexplained differences block release (BC p.18)
+        orgAccess.requireOperationalForEntity(Enums.OrgType.MERCHANT, merchantId);   // [H1]: money movement [plan]
 
         // Pessimistic row lock serialises concurrent withdrawals so the
         // availability check + debit are atomic (TC-RACE-04: no overdraft, BC p.9).

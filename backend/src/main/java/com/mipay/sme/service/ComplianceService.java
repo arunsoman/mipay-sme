@@ -199,4 +199,24 @@ public class ComplianceService {
                         d.getRequestedAt(), d.getCompletedAt()))
                 .toList();
     }
+
+
+    /**
+     * Risk rating + review cycle (KYC spec §5): shared by the legacy approval and
+     * the tree decision flow (moved here per the hierarchy plan).
+     */
+    @Transactional
+    public void applyRiskRating(com.mipay.sme.domain.core.Merchant m, Enums.KycResult sanctions,
+                                String actorId, String actorRole) {
+        boolean manualSanctions = sanctions == Enums.KycResult.MANUAL_REVIEW;
+        String type = (m.getBusinessType() == null ? "" : m.getBusinessType().toLowerCase());
+        boolean cashHeavy = type.contains("cash") || type.contains("gambling") || type.contains("forex");
+        Enums.KycRiskRating rating = manualSanctions || cashHeavy ? Enums.KycRiskRating.HIGH
+                : type.isBlank() ? Enums.KycRiskRating.MEDIUM : Enums.KycRiskRating.LOW;
+        m.setKycRiskRating(rating);
+        int cycleMonths = rating == Enums.KycRiskRating.HIGH ? 12 : rating == Enums.KycRiskRating.MEDIUM ? 24 : 36;
+        m.setKycNextReviewDate(java.time.LocalDate.now().plusMonths(cycleMonths));
+        auditService.record(actorId, actorRole, "kyc_risk_rated", "merchant", m.getId(),
+                null, rating.name(), "review cycle " + cycleMonths + "m (KYC spec §5)", false, null);
+    }
 }

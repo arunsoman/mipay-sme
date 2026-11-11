@@ -61,6 +61,7 @@ public class B2BPaymentService {
     private final LedgerService ledgerService;
     private final InventoryService inventoryService;
     private final AuditService auditService;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final AppProperties props;
 
     private final SecureRandom random = new SecureRandom();
@@ -81,6 +82,7 @@ public class B2BPaymentService {
         if (supplier.getApprovalStatus() != Enums.ApprovalStatus.APPROVED) {
             throw new SimException("SUPPLIER_NOT_APPROVED", "Supplier is not approved (UAT SB p.8)");
         }
+        orgAccess.requireOperationalForEntity(Enums.OrgType.SUPPLIER, supplier.getId());   // [H1] payee org
 
         Order order = new Order();
         order.setMerchant(merchantRepo.getReferenceById(merchantId));

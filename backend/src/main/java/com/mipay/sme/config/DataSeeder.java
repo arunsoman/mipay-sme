@@ -68,6 +68,8 @@ public class DataSeeder implements ApplicationRunner {
     private final InventoryService inventoryService;
     private final AdvanceService advanceService;
     private final com.mipay.sme.repository.ConnectorRepository connectorRepo;
+    private final com.mipay.sme.service.OrgProvisioningService orgProvisioning;
+    private final com.mipay.sme.repository.UserPlatformFunctionRepository platformFunctions;
 
     private static final String SEED_ACTOR = "seed-runner";
     private static final String OPS = "TPTS_OPS";
@@ -113,6 +115,63 @@ public class DataSeeder implements ApplicationRunner {
         admin.setRole(Enums.UserRole.MINDLABS_ADMIN);
         admin.setStatus(Enums.UserStatus.ACTIVE);
         userRepo.save(admin);
+
+        // [H6] staff usernames for IdP username login; platform staff bind to the
+        // platform root as ADMIN (mirrors the V4 postgres backfill)
+        com.mipay.sme.domain.org.Organization root = orgProvisioning.ensurePlatformRoot();
+        ops.setUsername("ops-admin-ops");
+        ops.setOrgId(root.getId());
+        ops.setOrgRole(Enums.OrgMemberRole.ADMIN);
+        userRepo.save(ops);
+        admin.setUsername("ops-admin-mindlabs");
+        admin.setOrgId(root.getId());
+        admin.setOrgRole(Enums.OrgMemberRole.ADMIN);
+        userRepo.save(admin);
+
+        // §9 platform functions: reviewers act on staging tasks through user_platform_functions.
+        // MINDLABS_ADMIN intentionally holds no review function (the design's invariant).
+        com.mipay.sme.domain.kyc.UserPlatformFunction f = new com.mipay.sme.domain.kyc.UserPlatformFunction();
+        f.setUserId(ops.getId());
+        f.setFunction("OPS_REVIEWER");
+        platformFunctions.save(f);
+
+        // §6.6: one compliance user holds COMPLIANCE_OFFICER + MLRO; MINDLABS_ADMIN
+        // intentionally holds no review function (the design's invariant).
+        User comp = new User();
+        comp.setName("Compliance Officer (sandbox)");
+        comp.setPhone("0834444444");
+        comp.setEmail("compliance@mipay.na");
+        comp.setPasswordHash(passwordEncoder.encode("compliance123"));
+        comp.setRole(Enums.UserRole.TPTS_OPS);
+        comp.setStatus(Enums.UserStatus.ACTIVE);
+        comp.setUsername("compliance-admin");
+        comp.setOrgId(root.getId());
+        comp.setOrgRole(Enums.OrgMemberRole.ADMIN);
+        userRepo.save(comp);
+        com.mipay.sme.domain.kyc.UserPlatformFunction cf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
+        cf.setUserId(comp.getId());
+        cf.setFunction("COMPLIANCE_OFFICER");
+        platformFunctions.save(cf);
+        com.mipay.sme.domain.kyc.UserPlatformFunction mf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
+        mf.setUserId(comp.getId());
+        mf.setFunction("MLRO");
+        platformFunctions.save(mf);
+
+        User senior = new User();
+        senior.setName("Senior Approver (sandbox)");
+        senior.setPhone("0835555555");
+        senior.setEmail("senior@mipay.na");
+        senior.setPasswordHash(passwordEncoder.encode("senior123"));
+        senior.setRole(Enums.UserRole.TPTS_OPS);
+        senior.setStatus(Enums.UserStatus.ACTIVE);
+        senior.setUsername("senior-admin");
+        senior.setOrgId(root.getId());
+        senior.setOrgRole(Enums.OrgMemberRole.ADMIN);
+        userRepo.save(senior);
+        com.mipay.sme.domain.kyc.UserPlatformFunction sf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
+        sf.setUserId(senior.getId());
+        sf.setFunction("SENIOR_APPROVER");
+        platformFunctions.save(sf);
 
         // ---------------------------------------------------------------- lender (L01)
         User lenderUser = new User();

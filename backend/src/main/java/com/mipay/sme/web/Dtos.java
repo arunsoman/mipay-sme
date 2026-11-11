@@ -33,13 +33,16 @@ public final class Dtos {
 
     public record MeView(String userId, String name, String role, String phone,
                          String merchantId, String supplierId, String lenderId,
-                         String environment, boolean simulated) { }
+                         String environment, boolean simulated,
+                         String username, String orgId, String orgType, String orgRole) { }
 
     public record OtpRequest(@NotBlank String phone) { }
 
     public record OtpVerify(@NotBlank String phone, @NotBlank String code) { }
 
-    public record PasswordLogin(@NotBlank String phone, @NotBlank String password) { }
+    public record ActivateRequest(String token, String password) { }
+
+    public record PasswordLogin(@NotBlank String phone, @NotBlank String password, String username) { }
 
     public record OtpResult(String phone, String hint, boolean simulated) { }
 
@@ -498,6 +501,9 @@ public final class Dtos {
     public record AmlAlertRow(String id, String alertType, String entityType, String entityId,
                               String details, String status, Instant createdAt) { }
 
+    /** Request to record a KYC check on an entity (manual ops review). */
+    public record KycCheckRequest(String checkType, String result, String details) { }
+
     public record KycCheckRow(String id, String entityType, String entityId, String checkType,
                               String result, String details, Instant checkedAt) { }
 
@@ -535,4 +541,128 @@ public final class Dtos {
 
     public record LenderAdvanceRow(String id, String merchantName, String merchantId, BigDecimal principal,
                                    BigDecimal outstanding, String status, Instant fundedAt, String cohort) { }
+
+    // ------------------------------------------------------------------
+    // Org hierarchy (tree/onboarding/activation)
+    // ------------------------------------------------------------------
+    public record OrgUserRow(String id, String name, String username, String role, String orgRole,
+                             String status, String phone, String email) { }
+
+    /** Suspension impact preview for a subtree [D4]. */
+    public record OrgSubtreeCounts(long descendants, long activeDescendants, long users, long activeUsers) { }
+
+    public record OrgHoldRow(String id, String reason, java.time.Instant createdAt,
+                             String createdBy, java.time.Instant releasedAt) { }
+
+    /** Effective rights view ([H7/D1]): own rows + derived effective sets. */
+    public record OrgRightsView(String direct, String ceiling, String effDirect, String effCeiling) { }
+
+    public record RightsPutRequest(List<String> rightsDirect, List<String> rightsCeiling) { }
+
+    public record GrantableChild(String type, List<String> allowedCeiling, List<String> defaultDirect) { }
+
+    public record GrantableView(List<String> effDirect, List<GrantableChild> children) { }
+
+    public record OrgNodeRow(String id, String type, String name, String lifecycle, String effectiveStatus,
+                             long activeHolds, List<OrgHoldRow> holds, String onboardedBy,
+                             java.time.Instant onboardedAt, List<String> effectiveRights,
+                             List<OrgUserRow> users, long userCount, OrgSubtreeCounts subtree,
+                             OrgRightsView rights, List<OrgNodeRow> children) { }
+
+    public record OrgDescendantRow(String id, String type, String name, String status,
+                                   String effectiveStatus, int depth) { }
+
+    public record OrgPathRow(String id, String type, String name, int depth) { }
+
+    public record OrgView(String id, String type, String name, String status,
+                          String effectiveStatus, String parentOrgId, String entityId,
+                          String registrationNumber, java.time.Instant createdAt,
+                          String kycStatus, String kycRiskRating, java.time.Instant kycNextReviewDate) { }
+
+    /** Generic submitOrg body (POST /api/orgs/me/children): type selects the profile.
+     *  rights.direct/ceiling are optional; defaults are the standard chain step / below(type). */
+    public record SubmitOrgRequest(@NotBlank String type, String name, String businessName,
+                                   String businessType, String registrationNumber, String ownerName,
+                                   @NotBlank String phone, String username, String email,
+                                   String bankName, String accountNumber, String accountHolder,
+                                   String licenceRef, String supplierType, String ownerIdNumber,
+                                   List<String> rightsDirect, List<String> rightsCeiling) { }
+
+    // ---- per-type onboarding request bodies (one controller per org type) ----
+    public record OnboardManufacturerRequest(@NotBlank String name, @NotBlank String registrationNumber,
+                                             @NotBlank String adminName, @NotBlank String phone,
+                                             String username, String email) { }
+
+    public record OnboardDistributorRequest(@NotBlank String name, @NotBlank String registrationNumber,
+                                            @NotBlank String adminName, @NotBlank String phone,
+                                            String username, String email) { }
+
+    public record OnboardSupplierRequest(@NotBlank String businessName, String registrationNumber,
+                                         @NotBlank String ownerName, @NotBlank String phone,
+                                         String username, String email,
+                                         @NotBlank String bankName, @NotBlank String accountNumber,
+                                         @NotBlank String accountHolder) { }
+
+    public record OnboardMerchantRequest(@NotBlank String businessName, String businessType,
+                                         String registrationNumber, @NotBlank String ownerName,
+                                         @NotBlank String phone, String username, String email) { }
+
+    public record OnboardLenderRequest(@NotBlank String name, @NotBlank String licenceRef,
+                                       @NotBlank String adminName, @NotBlank String phone,
+                                       String username, String email) { }
+
+    public record StaffRequest(@NotBlank String name, @NotBlank String phone, String username,
+                               @NotBlank String email, Enums.OrgMemberRole orgRole, String password) { }
+
+    public record AdminRecoveryRequest(@NotBlank String adminName, @NotBlank String phone,
+                                       String username, @NotBlank String email, String note) { }
+
+    public record OrgDecideRequest(@NotNull Boolean approve, String note, String sanctionsResult) { }
+
+    public record HoldRequest(@NotBlank String reason) { }
+
+    public record OrgDecisionResult(String requestId, String orgId, String status, String message) { }
+
+    public record OnboardingRequestRow(String id, String kind, String status, String orgId,
+                                       String orgName, String orgType, String parentOrgId,
+                                       String requestedBy, String requestedByRole, String requestedByOrgId,
+                                       String reviewedBy, String decision,
+                                       String rightsDirect, String rightsCeiling,
+                                       String note, String meta,
+                                       java.time.Instant createdAt, java.time.Instant reviewedAt) { }
+
+    public record OrgStaffView(String id, String name, String username, String phone, String email,
+                               String role, String orgRole, String status,
+                               java.time.Instant activatedAt) { }
+
+    public record OutboxRow(String id, String eventCode, String channel, String recipient, String status,
+                            java.time.Instant createdAt, String activationLink) { }
+
+    // ---- KYC applications (JSON document + tree details + isSuspended) ----
+
+    /** GET/PUT /api/orgs/{id}/kyc. status NOT_STARTED when nothing has been saved yet. */
+    public record KycApplicationView(String id, String orgId, String orgType, String orgName,
+                                     String parentOrgId, List<OrgPathRow> treePath, int depth,
+                                     boolean isSuspended, String status,
+                                     com.fasterxml.jackson.databind.JsonNode application,
+                                     com.fasterxml.jackson.databind.JsonNode submittedApplication,
+                                     String submittedBy, Instant submittedAt,
+                                     String decidedBy, Instant decidedAt, String decisionNote,
+                                     long version, boolean masked,
+                                     boolean canEdit, boolean canSubmit, boolean canDecide,
+                                     Instant createdAt, Instant updatedAt) { }
+
+    public record KycSummaryRow(String id, String orgId, String orgType, String orgName, String parentOrgId,
+                                String treePath, int depth, boolean isSuspended, String status,
+                                Instant submittedAt, Instant decidedAt, Instant updatedAt) { }
+
+    public record KycDecisionRequest(@NotNull Boolean approve, String note) { }
+
+    /** One open workflow task in the inbox (§12). */
+    public record KycTaskRow(String id, String orgId, String orgName, String kind, String stageKey,
+                             int stageSeq, String actorRule, String applicationStatus,
+                             Instant createdAt, String openNote) { }
+
+    /** §12 POST /api/kyc/tasks/{id}/decision {outcome, note}. */
+    public record KycDecisionRequestV2(@jakarta.validation.constraints.NotNull String outcome, String note) { }
 }

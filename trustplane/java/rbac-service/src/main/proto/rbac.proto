@@ -1,0 +1,52 @@
+syntax = "proto3";
+package rbac.v1;
+option go_package = "trustplane/internal/pb;pb";
+option java_package = "trustplane.rbac.grpc.v1";
+option java_multiple_files = true;
+
+// Rbac is the low-latency decision API consumed by the API gateway (PEP).
+// Transport: gRPC over HTTP/2 with mutual TLS, gzip compression, keepalives.
+service Rbac {
+  // Check decides whether `subject` may perform `operation` in `tenant`.
+  // fresh=true bypasses any caching on the caller side (sensitive writes).
+  rpc Check(CheckRequest) returns (CheckResponse);
+  // ListPermissions returns every operation the subject currently holds.
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
+  // Watch streams invalidation events whenever tenant permissions change,
+  // letting the gateway purge its decision cache in near-real-time.
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message CheckRequest {
+  string subject = 1;
+  string tenant = 2;
+  string operation = 3;
+  bool fresh = 4;
+}
+message CheckResponse {
+  bool allowed = 1;
+  string reason = 2;
+  uint64 tenant_version = 3;
+  string decision_id = 4;
+  // supplier org of the subject ("" for platform staff) — used for record isolation
+  string supplier_id = 5;
+}
+message ListPermissionsRequest {
+  string subject = 1;
+  string tenant = 2;
+}
+message ListPermissionsResponse {
+  uint64 tenant_version = 1;
+  repeated string operations = 2;
+  string supplier_id = 3;
+}
+message WatchRequest {}
+message WatchEvent {
+  string tenant = 1;
+  uint64 version = 2;
+  // specific subjects affected; empty => whole tenant version bump
+  repeated string subjects = 3;
+}
+message PingRequest {}
+message PingResponse { string version = 1; }

@@ -26,6 +26,7 @@ public class MeController {
     private final SupplierRepository supplierRepo;
     private final LenderRepository lenderRepo;
     private final com.mipay.sme.config.AppProperties props;
+    private final com.mipay.sme.repository.OrganizationRepository orgRepo;
 
     @GetMapping("/api/me")
     public Dtos.MeView me() {
@@ -43,8 +44,15 @@ public class MeController {
         String lenderId = lenderRepo.findByUserId(user.getId()).map(Lender::getId).orElse(null);
 
         boolean simulated = props.isSimulatedEnvironment();
-        return new Dtos.MeView(user.getId(), displayName(user, merchantName), user.getRole().name(), user.getPhone(),
-                merchantId, supplierId, lenderId, props.getEnvironment(), simulated);
+        // org binding for the admin portal shell (null for unbound legacy users)
+        String orgType = null;
+        if (user.getOrgId() != null) {
+            orgType = orgRepo.findById(user.getOrgId()).map(o -> o.getOrgType().name()).orElse(null);
+        }
+        return new Dtos.MeView(user.getId(), displayName(user, merchantName), user.getRole().name(),
+                user.getPhone(), merchantId, supplierId, lenderId, props.getEnvironment(), simulated,
+                user.getUsername(), user.getOrgId(), orgType,
+                user.getOrgRole() == null ? null : user.getOrgRole().name());
     }
 
     private String displayName(User user, String merchantName) {

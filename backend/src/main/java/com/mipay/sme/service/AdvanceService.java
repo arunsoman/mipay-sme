@@ -4,6 +4,7 @@ import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.common.SimException;
 import com.mipay.sme.config.AppProperties;
 import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.Enums.OrgType;
 import com.mipay.sme.domain.ledger.BalanceAccount;
 import com.mipay.sme.domain.credit.Advance;
 import com.mipay.sme.domain.credit.AdvanceRepayment;
@@ -79,6 +80,7 @@ public class AdvanceService {
             List.of(Enums.AdvanceStatus.FUNDED, Enums.AdvanceStatus.REPAYING);
 
     private final AdvanceRepository advanceRepo;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final AdvanceRepaymentRepository repayRepo;
     private final LenderCreditLedgerRepository creditLedgerRepo;
     private final IssuerBalanceLedgerRepository issuerRepo;
@@ -384,6 +386,8 @@ public class AdvanceService {
         // single ledger credit are atomic (TC-RACE-03, exactly-once funding).
         Advance advance = advanceRepo.findWithLockById(advanceId)
                 .orElseThrow(() -> new NotFoundException("Advance not found"));
+        orgAccess.requireOperationalForEntity(Enums.OrgType.LENDER, advance.getLender().getId());  // [H1]
+        orgAccess.requireOperationalForEntity(Enums.OrgType.MERCHANT, advance.getMerchant().getId());  // [H1]
         if (advance.getStatus() != Enums.AdvanceStatus.ACCEPTED) {
             // A re-delivered bank funding callback after a successful disbursement is
             // ABSORBED (single-effect guarantee, TC-ACC-04), not an error: manual

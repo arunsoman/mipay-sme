@@ -5,7 +5,8 @@ import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.domain.core.Merchant;
 import com.mipay.sme.domain.core.Supplier;
-import com.mipay.sme.domain.core.SupplierBankAccount;
+import com.mipay.sme.domain.org.OrgBankAccount;
+import com.mipay.sme.domain.org.Organization;
 import com.mipay.sme.domain.core.User;
 import com.mipay.sme.domain.ledger.AccountMapping;
 import com.mipay.sme.domain.ledger.BalanceAccount;
@@ -18,7 +19,9 @@ import com.mipay.sme.repository.ConnectorRepository;
 import com.mipay.sme.repository.MerchantRepository;
 import com.mipay.sme.repository.QrCodeRepository;
 import com.mipay.sme.repository.ShortCodeRepository;
-import com.mipay.sme.repository.SupplierBankAccountRepository;
+import com.mipay.sme.repository.OrgBankAccountRepository;
+import com.mipay.sme.repository.OrganizationRepository;
+import com.mipay.sme.repository.UserRepository;
 import com.mipay.sme.repository.SupplierRepository;
 import com.mipay.sme.repository.UserRepository;
 import com.mipay.sme.web.Dtos;
@@ -42,7 +45,12 @@ public class OnboardingService {
     private final UserRepository userRepo;
     private final MerchantRepository merchantRepo;
     private final SupplierRepository supplierRepo;
-    private final SupplierBankAccountRepository bankAccountRepo;
+    private final OrgBankAccountRepository bankAccountRepo;
+    private final OrganizationRepository organizationRepo;
+    private final com.mipay.sme.service.OrgProvisioningService orgProvisioning;
+    private final com.mipay.sme.service.ProvisioningService provisioningService;
+    private final com.mipay.sme.service.OrgLifecycleService lifecycle;
+    private final com.mipay.sme.repository.OnboardingRequestRepository onboardingRequestRepo;
     private final BalanceAccountRepository accountRepo;
     private final AccountMappingRepository mappingRepo;
     private final ConnectorRepository connectorRepo;
@@ -77,6 +85,8 @@ public class OnboardingService {
         m.setApprovalStatus(Enums.ApprovalStatus.PENDING);
         merchantRepo.save(m);
 
+        orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, m.getId(), m.getBusinessName(), user.getId());
+
         auditService.record(user.getId(), "MERCHANT", "merchant_registered", "merchant", m.getId(),
                 null, null, "self registration", false, null);
         return new Dtos.Message("Registration received - pending TPTS approval (UAT SB p.8)", null);
@@ -103,8 +113,10 @@ public class OnboardingService {
         s.setApprovalStatus(Enums.ApprovalStatus.PENDING);
         supplierRepo.save(s);
 
-        SupplierBankAccount account = new SupplierBankAccount();
-        account.setSupplier(s);
+        Organization sOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.SUPPLIER, s.getId(),
+                s.getBusinessName(), user.getId());
+        OrgBankAccount account = new OrgBankAccount();
+        account.setOrg(sOrg);
         account.setBankName(req.bankName());
         account.setAccountNumber(req.accountNumber());
         account.setAccountHolder(req.accountHolder());
@@ -122,6 +134,9 @@ public class OnboardingService {
     public Dtos.ApprovalResult approveMerchant(String merchantId, boolean approve, String sanctionsResult,
                                                String approverId, String approverRole) {
         Merchant m = merchantRepo.findById(merchantId).orElseThrow(() -> new NotFoundException("Merchant not found"));
+        refuseLegacyApprovalIfTreeOnboarded("merchant", m.getId());
+        Organization mOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, m.getId(),
+                m.getBusinessName(), m.getUserId());
         if (approve) {
             Enums.KycResult sanctions = "fail".equalsIgnoreCase(sanctionsResult)
                     ? Enums.KycResult.FAIL : Enums.KycResult.PASS;
@@ -132,6 +147,7 @@ public class OnboardingService {
             if (sanctions == Enums.KycResult.FAIL) {
                 m.setKycStatus(Enums.KycStatus.REJECTED);
                 merchantRepo.save(m);
+                lifecycle.transition(mOrg, Enums.OrgStatus.BLOCKED, approverId);
                 auditService.record(approverId, approverRole, "merchant_approval_blocked", "merchant", m.getId(),
                         m.getKycStatus().name(), m.getKycStatus().name(), "sanctions fail (TC-OPS-26)", false, null);
                 return new Dtos.ApprovalResult(m.getId(), "BLOCKED",
@@ -139,12 +155,13 @@ public class OnboardingService {
             }
             m.setKycStatus(Enums.KycStatus.VERIFIED);
             m.setApprovalStatus(Enums.ApprovalStatus.APPROVED);
-            m.setApprovedBy(approverId);
-            m.setApprovedAt(Instant.now());
-            applyRiskRating(m, sanctions, approverId, approverRole);
+            merchantRepo.save(m);
+            lifecycle.transition(mOrg, Enums.OrgStatus.ACTIVE, approverId);   // mirrors approvalStatus/kyc [C1]
+            m = merchantRepo.findById(m.getId()).orElseThrow();
+            complianceService.applyRiskRating(m, sanctions, approverId, approverRole);
             merchantRepo.save(m);
 
-            provision(m);
+            provisioningService.provision(m);
             auditService.record(approverId, approverRole, "merchant_approved", "merchant", m.getId(),
                     "PENDING", "APPROVED", null, false, null);
             return new Dtos.ApprovalResult(m.getId(), "APPROVED",
@@ -152,77 +169,11 @@ public class OnboardingService {
         } else {
             m.setKycStatus(Enums.KycStatus.REJECTED);
             merchantRepo.save(m);
+            lifecycle.transition(mOrg, Enums.OrgStatus.REJECTED, approverId);
             auditService.record(approverId, approverRole, "merchant_rejected", "merchant", m.getId(),
                     "PENDING", "REJECTED", null, false, null);
             return new Dtos.ApprovalResult(m.getId(), "REJECTED", "Registration rejected by TPTS ops");
         }
-    }
-
-    /** Risk-based review cycle (KYC spec §5): sanctions-review or cash-heavy trade → HIGH.
-     *  LOW 36m / MEDIUM 24m / HIGH 12m next-review date. */
-    private void applyRiskRating(Merchant m, Enums.KycResult sanctions, String approverId, String approverRole) {
-        boolean manualSanctions = sanctions == Enums.KycResult.MANUAL_REVIEW;
-        String type = (m.getBusinessType() == null ? "" : m.getBusinessType().toLowerCase());
-        boolean cashHeavy = type.contains("cash") || type.contains("gambling") || type.contains("forex");
-        Enums.KycRiskRating rating = manualSanctions || cashHeavy ? Enums.KycRiskRating.HIGH
-                : type.isBlank() ? Enums.KycRiskRating.MEDIUM : Enums.KycRiskRating.LOW;
-        m.setKycRiskRating(rating);
-        int cycleMonths = rating == Enums.KycRiskRating.HIGH ? 12 : rating == Enums.KycRiskRating.MEDIUM ? 24 : 36;
-        m.setKycNextReviewDate(java.time.LocalDate.now().plusMonths(cycleMonths));
-        auditService.record(approverId, approverRole, "kyc_risk_rated", "merchant", m.getId(),
-                null, rating.name(), "review cycle " + cycleMonths + "m (KYC spec §5)", false, null);
-    }
-
-    /** Balance account + issuer mapping + QR + short code (E04/E05, M07, M43). */
-    @Transactional
-    /** Supplier receiving account: credit side of the three-ledger rule (BC p.9, TC-B2B-05). */
-    public void provisionSupplier(Supplier s) {
-        BalanceAccount account = accountRepo.findByOwnerTypeAndOwnerId(Enums.OwnerType.SUPPLIER, s.getId())
-                .orElseGet(BalanceAccount::new);
-        account.setOwnerType(Enums.OwnerType.SUPPLIER);
-        account.setOwnerId(s.getId());
-        account.setCurrency("NAD");
-        account.setStatus(Enums.AccountStatus.ACTIVE);
-        account.setIssuerAccountRef("NDB-S-" + randomDigits(6));
-        account.setLegalHolder("issuer (bank holds float)");
-        accountRepo.save(account);
-    }
-
-    public void provision(Merchant m) {
-        BalanceAccount account = accountRepo.findByOwnerTypeAndOwnerId(Enums.OwnerType.MERCHANT, m.getId())
-                .orElseGet(BalanceAccount::new);
-        account.setOwnerType(Enums.OwnerType.MERCHANT);
-        account.setOwnerId(m.getId());
-        account.setCurrency("NAD");
-        account.setStatus(Enums.AccountStatus.ACTIVE);
-        account.setIssuerAccountRef("NDB-M-" + randomDigits(6));
-        account.setLegalHolder("issuer (bank holds float)");
-        accountRepo.save(account);
-
-        Connector bank = connectorRepo.findFirstByConnectorTypeAndStatusOrderByCreatedAtDesc(
-                Enums.ConnectorType.BANK_ISSUER, Enums.ConnectorStatus.ACTIVE).orElse(null);
-        AccountMapping mapping = new AccountMapping();
-        mapping.setMerchantId(m.getId());
-        mapping.setBalanceAccountId(account.getId());
-        mapping.setConnectorId(bank == null ? null : bank.getId());
-        mapping.setIssuerAccountRef(account.getIssuerAccountRef());
-        mapping.setLegalHolder(account.getLegalHolder());
-        mappingRepo.save(mapping);
-
-        QrCode qr = new QrCode();
-        qr.setMerchantId(m.getId());
-        qr.setQrPayload("mipay://qr/" + m.getId());
-        qr.setStatus(Enums.QrStatus.ACTIVE);
-        qrRepo.save(qr);
-
-        ShortCode code = new ShortCode();
-        code.setMerchantId(m.getId());
-        code.setShortCode("MP" + randomDigits(6));
-        while (shortCodeRepo.existsByShortCode(code.getShortCode())) {
-            code.setShortCode("MP" + randomDigits(6));
-        }
-        code.setStatus(Enums.QrStatus.ACTIVE);
-        shortCodeRepo.save(code);
     }
 
     @Transactional
@@ -236,10 +187,14 @@ public class OnboardingService {
             return new Dtos.ApprovalResult(s.getId(), "APPROVED",
                     "Supplier already approved - duplicate approval ignored");
         }
+        refuseLegacyApprovalIfTreeOnboarded("supplier", s.getId());
+        Organization sOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.SUPPLIER, s.getId(),
+                s.getBusinessName(), s.getUserId());
         if (approve) {
             s.setApprovalStatus(Enums.ApprovalStatus.APPROVED);
             supplierRepo.save(s);
-            provisionSupplier(s);
+            lifecycle.transition(sOrg, Enums.OrgStatus.ACTIVE, actorId);   // mirrors approvalStatus [C1]
+            provisioningService.provisionSupplier(s);
             complianceService.recordCheck("supplier", s.getId(), Enums.KycCheckType.IDENTITY,
                     Enums.KycResult.PASS, "simulated KYC provider");
             // risk rating + review cycle (KYC spec §5): suppliers are MEDIUM by default (bank risk)
@@ -253,25 +208,36 @@ public class OnboardingService {
             return new Dtos.ApprovalResult(s.getId(), "APPROVED",
                     "Supplier approved; bank account approval handled separately (UAT SB p.8)");
         }
-        s.setApprovalStatus(Enums.ApprovalStatus.SUSPENDED);
+        s.setApprovalStatus(Enums.ApprovalStatus.REJECTED);   // [C2]: rejecting no longer suspends
         supplierRepo.save(s);
+        lifecycle.transition(sOrg, Enums.OrgStatus.REJECTED, actorId);
         auditService.record(actorId, actorRole, "supplier_rejected", "supplier", s.getId(),
                 "PENDING", "REJECTED", null, false, null);
         return new Dtos.ApprovalResult(s.getId(), "REJECTED", "Supplier registration rejected");
+    }
+
+    /** [C1] legacy approve/reject refuse orgs that were onboarded through the tree. */
+    private void refuseLegacyApprovalIfTreeOnboarded(String type, String entityId) {
+        Organization org = orgProvisioning.ensureEntityOrg(
+                "merchant".equals(type) ? Enums.OrgType.MERCHANT : Enums.OrgType.SUPPLIER, entityId, null);
+        if (onboardingRequestRepo.existsByOrgId(org.getId())) {
+            throw new ConflictException("USE_ONBOARDING_REQUEST",
+                    "This business was onboarded through the org tree; decide the review request instead");
+        }
     }
 
     /** Second-person rule: approver must differ from requester (UAT SB p.8, TC-ONB-03). */
     @Transactional
     public Dtos.ApprovalResult approveBankAccount(String accountId, boolean approve,
                                                   String approverId, String approverRole) {
-        SupplierBankAccount b = bankAccountRepo.findById(accountId)
+        OrgBankAccount b = bankAccountRepo.findById(accountId)
                 .orElseThrow(() -> new NotFoundException("Bank account request not found"));
         if (approve) {
             if (b.getRequestedBy() != null && b.getRequestedBy().equals(approverId)) {
                 throw new ConflictException("INDEPENDENCE_RULE",
                         "Same user cannot request and approve a receiving account (second-person rule)");
             }
-            bankAccountRepo.findBySupplierIdAndStatus(b.getSupplier().getId(), Enums.BankAccountStatus.APPROVED)
+            bankAccountRepo.findByOrgIdAndStatus(b.getOrg().getId(), Enums.BankAccountStatus.APPROVED)
                     .ifPresent(current -> {
                         current.setStatus(Enums.BankAccountStatus.REVOKED);
                         bankAccountRepo.save(current);
@@ -281,11 +247,11 @@ public class OnboardingService {
             b.setApprovedAt(Instant.now());
             bankAccountRepo.save(b);
             // trigger-event re-screening (KYC spec §4): a receiving-account change re-opens sanctions screening
-            complianceService.recordCheck("supplier", b.getSupplier().getId(), Enums.KycCheckType.SANCTIONS,
+            complianceService.recordCheck("supplier", b.getOrg().getEntityId(), Enums.KycCheckType.SANCTIONS,
                     Enums.KycResult.PASS, "bank-change re-screening (trigger event, SIMULATED)");
             auditService.record(approverId, approverRole, "bank_account_approved", "supplier_bank_account", b.getId(),
                     "PENDING_APPROVAL", "APPROVED", "independent second-person approval", false, null);
-            auditService.record(approverId, approverRole, "kyc_rescreened", "supplier", b.getSupplier().getId(),
+            auditService.record(approverId, approverRole, "kyc_rescreened", "supplier", b.getOrg().getEntityId(),
                     null, "SANCTIONS/PASS", "trigger event: receiving-account change (KYC spec §4)", false, null);
             return new Dtos.ApprovalResult(b.getId(), "APPROVED", "Receiving account approved and activated");
         }
@@ -299,11 +265,12 @@ public class OnboardingService {
     }
 
     @Transactional
-    public Dtos.ApprovalResult changeSupplierBankAccount(String supplierId, Dtos.BankAccountChangeRequest req,
-                                                         String requesterId) {
-        Supplier s = supplierRepo.findById(supplierId).orElseThrow(() -> new NotFoundException("Supplier not found"));
-        SupplierBankAccount account = new SupplierBankAccount();
-        account.setSupplier(s);
+    public Dtos.ApprovalResult changeOrgBankAccount(String orgId, Dtos.BankAccountChangeRequest req,
+                                                    String requesterId) {
+        Organization sOrg = organizationRepo.findById(orgId)
+                .orElseThrow(() -> new NotFoundException("Organization not found"));
+        OrgBankAccount account = new OrgBankAccount();
+        account.setOrg(sOrg);
         account.setBankName(req.bankName());
         account.setAccountNumber(req.accountNumber());
         account.setAccountHolder(req.accountHolder());

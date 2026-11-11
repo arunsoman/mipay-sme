@@ -34,6 +34,14 @@ public class Suspension {
     @Column(nullable = false)
     private String reason;
 
+    /** The org the hold applies to (ORG rows: same as entity_id). Null for legacy rows. */
+    @Column(name = "org_id", length = 36)
+    private String orgId;
+
+    /** The org whose admin imposed the hold (null = platform). */
+    @Column(name = "suspended_by_org_id", length = 36)
+    private String suspendedByOrgId;
+
     @Column(name = "suspended_by", length = 36)
     private String suspendedBy;
 
@@ -42,6 +50,9 @@ public class Suspension {
 
     @Column(name = "lifted_at")
     private Instant liftedAt;
+
+    @Column(name = "lifted_by", length = 36)
+    private String liftedBy;
 
     @PrePersist
     void prePersist() {

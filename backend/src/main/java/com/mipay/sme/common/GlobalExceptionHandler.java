@@ -29,12 +29,31 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ForbiddenException.class)
     public ProblemDetail forbidden(ForbiddenException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+        pd.setProperty("code", e.getCode());   // [M8] machine-readable codes
+        return pd;
     }
 
     @ExceptionHandler(ConflictException.class)
     public ProblemDetail conflict(ConflictException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        pd.setProperty("code", e.getCode());   // [M8] machine-readable codes
+        return pd;
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ProblemDetail badRequest(BadRequestException e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+        pd.setProperty("code", e.getCode());
+        return pd;
+    }
+
+    /** Duplicate uniqueness violation -> 409 DUPLICATE, never leaking SQL ([M8]). */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ProblemDetail duplicate(org.springframework.dao.DataIntegrityViolationException e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Duplicate or conflicting data");
+        pd.setProperty("code", "DUPLICATE");
+        return pd;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

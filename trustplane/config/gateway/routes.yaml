@@ -1,0 +1,438 @@
+server:
+  cert: /pki/gateway-server.pem
+  key: /pki/gateway-server-key.pem
+  client_ca: /pki/client-ca.pem        # partner client certificates (optional at edge)
+  context_secret: /pki/ctx-secret
+  issuer: https://idp.fapi.local:8443
+  max_header_bytes: 32768
+
+upstreams:
+  idp:
+    base_url: https://idp:8443
+    client_cert: /pki/gateway-mesh.pem
+    client_key: /pki/gateway-mesh-key.pem
+    ca: /pki/platform-ca.pem
+    server_name: idp
+    forward_dpop: true
+  rbac:
+    base_url: https://rbac:8443
+    client_cert: /pki/gateway-mesh.pem
+    client_key: /pki/gateway-mesh-key.pem
+    ca: /pki/platform-ca.pem
+    server_name: rbac
+  # MiPay SME backend (Java): a plain-HTTP mesh member that acts as its own
+  # resource server - it validates the bearer tokens its own identity provider
+  # (AuthService) issues. The gateway remains the routing/rate-limit/observability
+  # policy point for portal traffic; authN/Z is delegated (forward_authorization
+  # passes the caller's bearer through untouched).
+  mipay:
+    base_url: http://backend:8080
+    plain_http: true
+    forward_authorization: true
+
+rbac_grpc:
+  endpoint: rbac:5051
+  client_cert: /pki/gateway-mesh.pem
+  client_key: /pki/gateway-mesh-key.pem
+  ca: /pki/platform-ca.pem
+  server_name: rbac
+  timeout_ms: 400
+
+introspection:
+  enabled: true
+  base_url: https://idp:8443
+  client_id: gw-resource-server
+  assertion_key: /pki/clients/gw-introspect.pem
+  cache_ttl_seconds: 3
+  timeout_ms: 2000
+
+limits:
+  global_concurrency: 512
+  upstream_concurrency: 128
+
+# Deny-by-default route table. Every route MUST have a policy; unknown
+# hosts/paths/methods are rejected by the gateway (404).
+routes:
+  # ---- IdP endpoints (only public route to the identity plane) ----
+  - host: idp.fapi.local
+    path: /.well-known/openid-configuration
+    methods: [GET]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 300}
+  - host: idp.fapi.local
+    path: /jwks.json
+    methods: [GET]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 300}
+  - host: idp.fapi.local
+    path: /healthz
+    methods: [GET]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 120}
+  - host: idp.fapi.local
+    path: /authorize
+    methods: [GET]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 240}
+  - host: idp.fapi.local
+    path: /login
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 40}
+    body_limit: 8192
+  - host: idp.fapi.local
+    path: /consent
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 60}
+    body_limit: 8192
+  - host: idp.fapi.local
+    path: /logout
+    methods: [GET, POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 60}
+  - host: idp.fapi.local
+    path: /par
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 60}
+    body_limit: 65536
+  - host: idp.fapi.local
+    path: /token
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 120}
+    body_limit: 65536
+  - host: idp.fapi.local
+    path: /introspect
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 120}
+  - host: idp.fapi.local
+    path: /revoke
+    methods: [POST]
+    upstream: idp
+    auth: none
+    rate: {ip_per_min: 60}
+    body_limit: 65536
+
+  # ---- RBAC admin API (delegated administration; CRUD per resource) ----
+  - host: rbac.fapi.local
+    path: /rbac/admin/suppliers
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.supplier:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/suppliers
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.supplier:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/suppliers/{id}
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.supplier:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/suppliers/{id}
+    methods: [PUT]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.supplier:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/suppliers/{id}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.supplier:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/users
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.user:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/users
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.user:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/users/{id}
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.user:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/users/{id}
+    methods: [PUT]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.user:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/users/{id}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.user:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/grants
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.grant:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/grants
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.grant:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/grants/{id}
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.grant:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/grants/{id}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.grant:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/assignments
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.assignment:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/assignments
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.assignment:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/assignments/{id}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.assignment:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/roles
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.role:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/roles
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.role:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/roles/{name}
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.role:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/roles/{name}
+    methods: [PUT]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.role:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/roles/{name}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.role:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:create
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups/{id}
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups/{id}
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:delete
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups/{id}/roles
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups/{id}/members
+    methods: [POST]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+  - host: rbac.fapi.local
+    path: /rbac/admin/groups/{id}/members
+    methods: [DELETE]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.group:update
+    fresh_decision: true
+    rate: {ip_per_min: 240, client_per_min: 60}
+
+  - host: rbac.fapi.local
+    path: /rbac/admin/audit
+    methods: [GET]
+    upstream: rbac
+    auth: token
+    scopes: [rbac:admin]
+    permission: rbac.audit:read
+    rate: {ip_per_min: 240, client_per_min: 120}
+
+  # ---- Admin portal (portal.fapi.local): onboarding / user mgmt / permissions.
+  # Auth policy is DELEGATED: the MiPay IdP issues + validates the credentials
+  # (username/password login, activation, session revocation) and the backend
+  # enforces role/authority gates on every endpoint. Specific public auth
+  # routes precede the wildcard so the matcher picks them first.
+  - host: portal.fapi.local
+    path: /api/auth/login
+    methods: [POST]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 60, client_per_min: 30}
+    body_limit: 16384
+  - host: portal.fapi.local
+    path: /api/auth/otp
+    methods: [POST]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 60}
+  - host: portal.fapi.local
+    path: /api/auth/otp/verify
+    methods: [POST]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 60}
+  - host: portal.fapi.local
+    path: /api/auth/activate
+    methods: [POST]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 60}
+    body_limit: 16384
+  - host: portal.fapi.local
+    path: /api/env
+    methods: [GET]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 60}
+  - host: portal.fapi.local
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: none
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000

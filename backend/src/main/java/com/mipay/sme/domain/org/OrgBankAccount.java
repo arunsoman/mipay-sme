@@ -1,4 +1,4 @@
-package com.mipay.sme.domain.core;
+package com.mipay.sme.domain.org;
 
 import com.mipay.sme.domain.Enums.BankAccountStatus;
 import jakarta.persistence.Column;
@@ -18,22 +18,24 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Receiving account. Change requests create a new row with status
- * PENDING_APPROVAL; approval requires an approver that differs from the
- * requester (UAT SB p.8, TC-ONB-03).
+ * Receiving bank account, org-scoped since V4 (the SUPPLIER entity's org, and
+ * later any org type that needs one). Change requests create a new row with
+ * status PENDING_APPROVAL; approval requires an approver that differs from the
+ * requester (UAT SB p.8, TC-ONB-03, chk_bank_approver_not_requester).
  */
 @Entity
-@Table(name = "supplier_bank_accounts")
-@Getter @Setter
-public class SupplierBankAccount {
+@Table(name = "org_bank_accounts")
+@Getter
+@Setter
+public class OrgBankAccount {
 
     @Id
     @Column(name = "id", length = 36, unique = true)
     private String id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "supplier_id", nullable = false)
-    private Supplier supplier;
+    @JoinColumn(name = "org_id", nullable = false)
+    private Organization org;
 
     @Column(name = "bank_name", nullable = false)
     private String bankName;

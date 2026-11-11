@@ -2,10 +2,12 @@ package com.mipay.sme.web;
 
 import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.Enums.OrgType;
 import com.mipay.sme.domain.core.Supplier;
-import com.mipay.sme.domain.core.SupplierBankAccount;
+import com.mipay.sme.domain.org.OrgBankAccount;
 import com.mipay.sme.repository.OrderRepository;
-import com.mipay.sme.repository.SupplierBankAccountRepository;
+import com.mipay.sme.repository.OrgBankAccountRepository;
+import com.mipay.sme.repository.OrganizationRepository;
 import com.mipay.sme.repository.SupplierCatalogueItemRepository;
 import com.mipay.sme.repository.SupplierRepository;
 import com.mipay.sme.repository.InvoiceRepository;
@@ -35,7 +37,10 @@ import com.mipay.sme.service.AuditService;
 public class SupplierController {
 
     private final SupplierRepository supplierRepo;
-    private final SupplierBankAccountRepository bankAccountRepo;
+    private final OrgBankAccountRepository bankAccountRepo;
+    private final OrganizationRepository organizationRepo;
+    private final com.mipay.sme.service.OrgProvisioningService orgProvisioning;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final SupplierCatalogueItemRepository catalogueRepo;
     private final OrderRepository orderRepo;
     private final InvoiceRepository invoiceRepo;
@@ -49,6 +54,13 @@ public class SupplierController {
         return Current.supplierId();
     }
 
+    /** Org of the caller's supplier (bank accounts are org-scoped since V4). */
+    private String ownOrgId() {
+        Supplier s = supplierRepo.findById(sid()).orElseThrow(() -> new NotFoundException("Supplier not found"));
+        return orgProvisioning.ensureEntityOrg(Enums.OrgType.SUPPLIER, s.getId(),
+                s.getBusinessName(), s.getUserId()).getId();
+    }
+
     @GetMapping("/profile")
     public Dtos.SupplierProfile profile() {
         Supplier s = supplierRepo.findById(sid()).orElseThrow(() -> new NotFoundException("Supplier not found"));
@@ -57,7 +69,7 @@ public class SupplierController {
 
     @GetMapping("/bank-accounts")
     public List<Dtos.BankAccountRow> bankAccounts() {
-        return bankAccountRepo.findBySupplierIdOrderByCreatedAtDesc(sid()).stream()
+        return bankAccountRepo.findByOrgIdOrderByCreatedAtDesc(ownOrgId()).stream()
                 .map(b -> new Dtos.BankAccountRow(b.getId(), b.getBankName(), b.getAccountNumber(),
                         b.getAccountHolder(), b.getStatus().name(), b.getCreatedAt()))
                 .toList();
@@ -66,20 +78,20 @@ public class SupplierController {
     /** Change receiving account -> PENDING_APPROVAL, independent approval required (S03, TC-ONB-03). */
     @PostMapping("/bank-accounts/change")
     public Dtos.ApprovalResult changeBankAccount(@Valid @RequestBody Dtos.BankAccountChangeRequest req) {
-        return onboardingService.changeSupplierBankAccount(sid(), req, Current.get().userId());
+        return onboardingService.changeOrgBankAccount(ownOrgId(), req, Current.get().userId());
     }
 
     @PostMapping("/bank-accounts/{id}/revoke")
     public void revokeBankAccount(@PathVariable String id) {
-        SupplierBankAccount b = bankAccountRepo.findById(id)
+        OrgBankAccount b = bankAccountRepo.findById(id)
                 .orElseThrow(() -> new NotFoundException("Not found"));
-        if (!b.getSupplier().getId().equals(sid())) {
+        if (!b.getOrg().getId().equals(ownOrgId())) {
             throw new NotFoundException("Not found");
         }
         b.setStatus(Enums.BankAccountStatus.REVOKED);
         bankAccountRepo.save(b);
         auditService.record(Current.get().userId(), "SUPPLIER", "bank_account_revoked",
-                "supplier_bank_account", b.getId(), b.getStatus().name(), "REVOKED", null, false, null);
+                "org_bank_account", b.getId(), b.getStatus().name(), "REVOKED", null, false, null);
     }
 
     @GetMapping("/catalogue")
@@ -95,6 +107,7 @@ public class SupplierController {
     @PostMapping("/catalogue")
     public Dtos.CatalogueRow addToCatalogue(@Valid @RequestBody Dtos.CatalogueUpsert req) {
         Supplier supplier = supplierRepo.findById(sid()).orElseThrow(() -> new NotFoundException("Supplier not found"));
+        orgAccess.requireOperationalForEntity(Enums.OrgType.SUPPLIER, supplier.getId());   // [H1] write action
         var item = new com.mipay.sme.domain.core.SupplierCatalogueItem();
         item.setSupplier(supplier);
         item.setProductName(req.productName());

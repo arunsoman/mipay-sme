@@ -1,0 +1,103 @@
+# MiPay SME on the shared afriqpay host (13.61.207.80), behind the host's nginx + Let's Encrypt.
+# Everything binds to 127.0.0.1 only; nginx publishes:
+#   admin.afriqpay.com        -> admin-portal  (19111)   + /api -> backend (19110)
+#   manufacturer.afriqpay.com -> manufacturer  (19112)   + /api -> backend
+#   distributor.afriqpay.com  -> distributor   (19113)   + /api -> backend
+#   supplier.afriqpay.com     -> supplier      (19114)   + /api -> backend
+#   mipay.afriqpay.com        -> 301 to admin.afriqpay.com
+# Secrets come from ./.env (chmod 600, never committed): POSTGRES_PASSWORD, APP_JWT_SECRET,
+# APP_KYC_ENCRYPTION_KEY. Run from this directory:  docker compose up -d --build
+name: mipay-sme
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mipay
+      POSTGRES_USER: mipay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40", "-c", "work_mem=2MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mipay -d mipay"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ../../backend
+    image: mipay-sme/backend
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=65 -XX:InitialRAMPercentage=20 -Xss512k -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m"
+      SPRING_PROFILES_ACTIVE: postgres
+      APP_ENVIRONMENT: sandbox            # all bank / lender / provider events stay SIMULATED
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?set in .env}
+      APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
+      APP_PUBLIC_BASE_URL: https://admin.afriqpay.com
+      APP_CORS_ALLOWED_ORIGINS: https://admin.afriqpay.com,https://manufacturer.afriqpay.com,https://distributor.afriqpay.com,https://supplier.afriqpay.com
+      POSTGRES_URL: jdbc:postgresql://db:5432/mipay
+      POSTGRES_USER: mipay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    ports: ["127.0.0.1:19110:8080"]
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- --timeout=3 http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 90s
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin-portal:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.admin
+    image: mipay-sme/admin-portal
+    ports: ["127.0.0.1:19111:80"]
+    mem_limit: 32m
+    cpus: 0.25
+    restart: unless-stopped
+
+  manufacturer-portal:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.portal
+      args: { PORTAL: manufacturer }
+    image: mipay-sme/manufacturer-portal
+    ports: ["127.0.0.1:19112:80"]
+    mem_limit: 32m
+    cpus: 0.25
+    restart: unless-stopped
+
+  distributor-portal:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.portal
+      args: { PORTAL: distributor }
+    image: mipay-sme/distributor-portal
+    ports: ["127.0.0.1:19113:80"]
+    mem_limit: 32m
+    cpus: 0.25
+    restart: unless-stopped
+
+  supplier-portal:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.portal
+      args: { PORTAL: supplier }
+    image: mipay-sme/supplier-portal
+    ports: ["127.0.0.1:19114:80"]
+    mem_limit: 32m
+    cpus: 0.25
+    restart: unless-stopped
+
+volumes:
+  pgdata:

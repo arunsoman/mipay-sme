@@ -82,12 +82,12 @@ class TUat16KycTests extends UatSupport {
         var s = newApprovedSupplier("Re-screen item", "10.00");
         int before = compliance.kycChecks("supplier", s.getId()).size();
         // owner requests a bank change (requester), another ops user approves (second-person rule)
-        Dtos.ApprovalResult change = onboarding.changeSupplierBankAccount(s.getId(),
+        Dtos.ApprovalResult change = onboarding.changeOrgBankAccount(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(),
                 new Dtos.BankAccountChangeRequest("FNB", "3000" + String.format("%05d", seq() % 100_000),
                         "UAT Supplier " + seq(), "switch requested"),
                 "uat-requester-" + seq());
         assertThat(change.status()).isEqualTo("PENDING_APPROVAL");
-        var pending = bankAccounts.findBySupplierIdAndStatus(s.getId(), Enums.BankAccountStatus.PENDING_APPROVAL)
+        var pending = bankAccounts.findByOrgIdAndStatus(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(), Enums.BankAccountStatus.PENDING_APPROVAL)
                 .orElseThrow();
         Dtos.ApprovalResult approved = onboarding.approveBankAccount(pending.getId(), true,
                 "uat-approver-" + seq(), "TPTS_OPS");

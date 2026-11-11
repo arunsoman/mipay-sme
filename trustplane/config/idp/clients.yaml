@@ -1,0 +1,48 @@
+# Confidential clients ONLY (FAPI 2.0 Security Profile).
+# jwks_files reference PRIVATE key pems inside the shared PKI volume; the IdP
+# derives the public JWKS from them at boot. cert_files are partner TLS client
+# certificates (thumbprints are registered automatically at boot).
+clients:
+  - id: web-private-key-jwt
+    display_name: "Partner Web App (private_key_jwt + DPoP)"
+    auth_method: private_key_jwt
+    token_alg: ES256
+    redirect_uris:
+      - "http://127.0.0.1:8090/cb"
+    scopes: [openid, rbac:admin, offline_access]
+    jwks_files:
+      - /pki/clients/web-es256.pem
+    token_ttl_seconds: 300
+    refresh_ttl_seconds: 86400
+    require_consent: true
+
+  - id: cert-mtls-auth-mtls
+    display_name: "Partner CLI (tls_client_auth + mTLS-bound tokens)"
+    auth_method: tls_client_auth
+    token_alg: PS256
+    redirect_uris:
+      - "http://127.0.0.1:8090/cb"
+    scopes: [openid, rbac:admin, offline_access]
+    cert_files:
+      - /pki/clients/cert-a.pem
+    token_ttl_seconds: 300
+
+  - id: cert-mtls-auth-dpop
+    display_name: "Partner CLI (tls_client_auth + DPoP)"
+    auth_method: tls_client_auth
+    token_alg: ES256
+    redirect_uris:
+      - "http://127.0.0.1:8090/cb"
+    scopes: [openid, rbac:admin, offline_access]
+    cert_files:
+      - /pki/clients/cert-b.pem
+    token_ttl_seconds: 300
+
+  - id: gw-resource-server
+    display_name: "API Gateway (resource server for introspection)"
+    auth_method: private_key_jwt
+    token_alg: ES256
+    redirect_uris: []
+    scopes: []
+    jwks_files:
+      - /pki/clients/gw-introspect.pem

@@ -55,6 +55,7 @@ public class PaymentService {
     private final ComplianceService complianceService;
     private final AuditService auditService;
     private final AppProperties props;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
 
     private static final String SIM_LABEL = "SIMULATED customer bank callback";
 
@@ -65,6 +66,8 @@ public class PaymentService {
             throw new SimException("MERCHANT_NOT_APPROVED",
                     "Merchant approval pending or suspended; payments refused (UAT SB p.8)");
         }
+        // suspending the merchant's org cuts this too ([H1]); no org (legacy) passes ([H3])
+        orgAccess.requireOperationalForEntity(Enums.OrgType.MERCHANT, m.getId());
         return m;
     }
 

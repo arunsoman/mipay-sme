@@ -15,4 +15,14 @@ public interface SuspensionRepository extends JpaRepository<Suspension, String> 
     List<Suspension> findByLiftedAtIsNull();
 
     List<Suspension> findByEntityTypeAndEntityIdAndLiftedAtIsNull(SuspensionEntityType entityType, String entityId);
+
+    List<Suspension> findByOrgIdAndLiftedAtIsNull(String orgId);
+
+    List<Suspension> findByOrgIdInAndLiftedAtIsNull(List<String> orgIds);
+
+    List<Suspension> findByOrgIdIn(List<String> orgIds);
+
+    List<Suspension> findByLiftedAtIsNullAndOrgIdIsNotNull();
+
+    List<Suspension> findByOrgIdOrderBySuspendedAtDesc(String orgId);
 }

@@ -53,6 +53,22 @@ review (BC), plus the two test packs (core pack + Addendum 1) that enumerate
 | TC-RCN-01..04, TC-SET-15/23, TC-OPS-13/14 | `TUat08ReconFeesStatementsTests` |
 | TC-SEC-01..04, 06 | `TUat09SecurityRecoveryTests` |
 | TC-PERF-01..03 | `TUat13PerformanceTests` |
+| TC-KYC-01..06 | `TUat16KycTests` (screening at approval, sanctions-block, review cycle, re-screening, ops read model) |
+
+### Addendum 2 — org hierarchy (hierarchical onboarding, rights, suspension)
+
+| ID | Test | Spec coverage |
+|---|---|---|
+| TC-HON-01 | `TUat17HierarchicalOnboardingTests#tcHon01_fullLifecycle` | submit → second-person decide → activation (72h, single-use) → username login + JWT org claims ([C4/H6/H8/M4]) |
+| TC-HON-02 | `TUat17#tcHon02_rankAndProfileRules` | rank table + USERNAME_TAKEN ([H6]) |
+| TC-HON-03 | `TUat17#tcHon03_sanctionsBlock` | sanctions FAIL → org BLOCKED + pending admin archived ([M7]) |
+| TC-RGT-01 | `TUat17#tcRgt01_rightsModel` | default proposal, effCeiling intersection, submit bounds, narrowing-only PUT ([D1/D2/H7]) |
+| TC-RGT-02 | `TUat17#tcRgt02_rightsStale` | RIGHTS_STALE re-check at decision ([H7] rule 5) |
+| TC-HON-04 | `TUat17#tcHon04_staffAndAdminGuards` | staff inheritance, LAST_ADMIN guard, ADMIN_RECOVERY two-person review ([C3/H9]) |
+| TC-ORG-01 | `TUat18OrgSuspensionTests#tcOrg01_cascadingSuspension` | subtree cascade, session kill, filter 401, login cut, subtree impact preview ([H4/D4]) |
+| TC-ORG-02 | `TUat18#tcOrg02_liftAuthority` | lift rules: suspending level or above; out-of-subtree 404 ([H4/M10]) |
+| TC-ORG-03 | `TUat18#tcOrg03_visibilityAndMasking` | 404-not-403 visibility, depth-1 contacts beyond are masked ([M10]) |
+| TC-ORG-04 | `TUat18#tcOrg04_parentOperationalAndLegacyBridge` | PARENT_NOT_OPERATIONAL on submit, legacy entity suspension cascades, lift restores ([H4/C1]) |
 
 ### Addendum 1 — TC-SET (sandbox setup & config)
 

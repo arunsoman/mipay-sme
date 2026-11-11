@@ -150,6 +150,7 @@ public class LenderController {
     /** L05: disbursement - lender transfers capital; issuer confirms (TC-ADV-02). */
     @PostMapping("/advances/{id}/fund")
     public Dtos.Message fund(@PathVariable String id) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         Advance advance = advanceRepo.findById(id).orElseThrow(() -> new NotFoundException("Advance not found"));
         if (!advance.getLender().getId().equals(lid())) {
             throw new NotFoundException("Advance not found");
@@ -184,6 +185,7 @@ public class LenderController {
     /** L06: run the daily sweep for a date (collections engine). */
     @PostMapping("/sweep")
     public List<Dtos.StepResult> sweep(@RequestBody(required = false) Dtos.SweepRequest req) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         LocalDate date = req == null || req.date() == null || req.date().isBlank()
                 ? LocalDate.now(ZoneOffset.UTC)
                 : LocalDate.parse(req.date());

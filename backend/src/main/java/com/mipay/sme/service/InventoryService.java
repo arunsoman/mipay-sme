@@ -3,6 +3,7 @@ package com.mipay.sme.service;
 import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.common.SimException;
 import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.Enums.OrgType;
 import com.mipay.sme.domain.b2b.Order;
 import com.mipay.sme.domain.b2b.OrderItem;
 import com.mipay.sme.domain.core.Supplier;
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
 public class InventoryService {
 
     private final InventoryItemRepository itemRepo;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
     private final StockMovementRepository movementRepo;
     private final StockAlertRepository alertRepo;
     private final ReorderRuleRepository ruleRepo;
@@ -148,6 +150,7 @@ public class InventoryService {
         if (supplier.getApprovalStatus() != Enums.ApprovalStatus.APPROVED) {
             throw new SimException("SUPPLIER_NOT_APPROVED", "Preferred supplier is not approved");
         }
+        orgAccess.requireOperationalForEntity(Enums.OrgType.SUPPLIER, supplier.getId());   // [H1]
         InventoryItem item = itemRepo.findById(itemId).orElseThrow(() -> new NotFoundException("Item not found"));
         List<SupplierCatalogueItem> catalogue = catalogueRepo
                 .findBySupplierIdOrderByProductName(supplier.getId());

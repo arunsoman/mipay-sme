@@ -1,0 +1,173 @@
+# Trust plane: gateway / FAPI IdP / RBAC — one container each (pg + pki-init helpers).
+# Networks are layered: edge (gateway only) -> internal (services) -> data (db).
+name: trustplane
+
+x-build: &build
+  context: .
+  dockerfile: docker/Dockerfile
+
+x-java-build: &java-build
+  context: .
+  dockerfile: docker/Dockerfile.java
+
+services:
+  pki-init:
+    image: alpine:3.20
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache openssl >/dev/null && sh /init.sh"]
+    volumes:
+      - ./deploy/pki/init.sh:/init.sh:ro
+      - pki:/pki
+    restart: "no"
+
+  pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform-dev
+    volumes:
+      - ./deploy/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [data]
+    restart: unless-stopped
+
+  idp:
+    build:
+      <<: *build
+      args: {SERVICE: idp}
+    image: trustplane/idp
+    mem_limit: 64m
+    cpus: 0.25
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      pg:
+        condition: service_healthy
+    environment:
+      IDP_ISSUER: https://idp.fapi.local:8443
+      IDP_TLS_CERT: /pki/idp-server.pem
+      IDP_TLS_KEY: /pki/idp-server-key.pem
+      IDP_INTERNAL_CA: /pki/platform-ca.pem
+      IDP_CLIENTS_FILE: /config/idp/clients.yaml
+      IDP_SIGNING_DIR: /pki/signing
+      DB_URL: postgres://platform:platform-dev@pg:5432/idp?sslmode=disable
+      IDP_SEED_USERS: "rootadmin:rootadmin-pw:openid,rbac:admin|alice:alice-pw:openid,rbac:admin,offline_access|bob:bob-pw:openid,rbac:admin,offline_access|carol:carol-pw:openid|dave:dave-pw:openid|saadmin:saadmin-pw:openid,rbac:admin|sbadmin:sbadmin-pw:openid,rbac:admin|priya:priya-pw:openid,rbac:admin"
+    volumes:
+      - pki:/pki:ro
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8081/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [internal, data]
+    restart: unless-stopped
+
+  rbac:
+    build:
+      <<: *java-build
+      args: {MODULE: rbac-service}
+    image: trustplane/rbac
+    mem_limit: 384m
+    cpus: 0.5
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      pg:
+        condition: service_healthy
+    environment:
+      RBAC_DSN: postgres://platform:platform-dev@pg:5432/rbac?sslmode=disable
+      RBAC_GRPC_LISTEN: ":5051"
+      RBAC_ADMIN_LISTEN: ":8443"
+      RBAC_TLS_CERT: /pki/rbac-server.pem
+      RBAC_TLS_KEY: /pki/rbac-server-key.pem
+      RBAC_INTERNAL_CA: /pki/platform-ca.pem
+      RBAC_CTX_SECRET: /pki/ctx-secret
+      RBAC_SEED_FILE: /config/rbac/seed.yaml
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
+    volumes:
+      - pki:/pki:ro
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSk --cert /pki/gateway-mesh.pem --key /pki/gateway-mesh-key.pem https://127.0.0.1:8443/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
+    networks: [internal, data]
+    restart: unless-stopped
+
+  gateway:
+    build:
+      <<: *build
+      args: {SERVICE: gateway}
+    image: trustplane/gateway
+    mem_limit: 64m
+    cpus: 0.5
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      idp:
+        condition: service_healthy
+      rbac:
+        condition: service_healthy
+    environment:
+      GATEWAY_CONFIG: /config/gateway/routes.yaml
+      GATEWAY_LISTEN: ":8443"
+    ports:
+      - "8443:8443"   # the ONLY published port: gateway is the single public entry
+    volumes:
+      - pki:/pki:ro
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSk --cacert /pki/platform-ca.pem -H 'Host: idp.fapi.local' https://127.0.0.1:8443/healthz -o /dev/null; curl -fsSk -H 'Host: idp.fapi.local' https://127.0.0.1:8443/.well-known/openid-configuration | grep -q idp.fapi.local"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    networks:
+      edge:
+        aliases: [gateway, idp.fapi.local, rbac.fapi.local]
+      internal:
+      sme-mesh:
+        aliases: [gateway]
+    restart: unless-stopped
+
+  fapi-client:
+    build:
+      <<: *build
+      args: {SERVICE: fapi-client}
+    image: trustplane/fapi-client
+    profiles: [e2e]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      TP_ISSUER: https://idp.fapi.local:8443
+      TP_API_BASE: https://api.fapi.local:8443
+      TP_RBAC_BASE: https://rbac.fapi.local:8443
+      TP_CA: /pki/platform-ca.pem
+      TP_CLIENTS_FILE: /config/idp/clients.yaml
+    volumes:
+      - pki:/pki:ro
+      - ./config:/config:ro
+    networks: [edge]
+
+networks:
+  edge:
+  internal:
+  data:
+  sme-mesh:
+    external: true
+
+volumes:
+  pki:
+  pgdata:

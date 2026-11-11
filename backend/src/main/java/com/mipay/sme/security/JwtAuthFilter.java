@@ -33,6 +33,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final DeviceSessionRepository sessionRepo;
+    private final com.mipay.sme.repository.UserRepository userRepo;
+    private final com.mipay.sme.repository.OrganizationRepository orgRepo;
+    private final com.mipay.sme.service.OrgAccess orgAccess;
 
     @Override
     @SuppressWarnings("NullableProblems")
@@ -49,6 +52,22 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     chain.doFilter(request, response);
                     return;
                 }
+                String orgId = c.get("orgId", String.class);
+                String orgType = c.get("orgType", String.class);
+                com.mipay.sme.domain.core.User user = userRepo.findById(c.getSubject()).orElse(null);
+                if (user != null) {
+                    // tokens issued before the org claims existed resolve from the DB ([M9])
+                    if (orgId == null && user.getOrgId() != null) {
+                        orgId = user.getOrgId();
+                        orgType = orgRepo.findById(orgId).map(o -> o.getOrgType().name()).orElse(null);
+                    }
+                    // per-request suspension gate ([M1]): a login racing a suspension dies here
+                    if (user.getOrgId() != null && !orgAccess.isOperational(user.getOrgId())) {
+                        SecurityContextHolder.clearContext();
+                        chain.doFilter(request, response);
+                        return;
+                    }
+                }
                 Current.Principal principal = new Current.Principal(
                         c.getSubject(),
                         c.get("role", String.class),
@@ -56,7 +75,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         c.get("phone", String.class),
                         c.get("merchantId", String.class),
                         c.get("supplierId", String.class),
-                        c.get("lenderId", String.class));
+                        c.get("lenderId", String.class),
+                        orgId, orgType,
+                        c.get("orgRole", String.class));
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + principal.role())));
                 SecurityContextHolder.getContext().setAuthentication(auth);

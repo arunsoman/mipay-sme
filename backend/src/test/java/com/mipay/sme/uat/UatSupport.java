@@ -3,11 +3,13 @@ package com.mipay.sme.uat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.mipay.sme.config.AppProperties;
+import com.mipay.sme.security.Current;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.domain.core.AuditLog;
 import com.mipay.sme.domain.core.Merchant;
 import com.mipay.sme.domain.core.Supplier;
-import com.mipay.sme.domain.core.SupplierBankAccount;
+import com.mipay.sme.domain.org.OrgBankAccount;
+import com.mipay.sme.domain.org.Organization;
 import com.mipay.sme.domain.core.SupplierCatalogueItem;
 import com.mipay.sme.domain.core.User;
 import com.mipay.sme.domain.credit.Advance;
@@ -57,7 +59,9 @@ import com.mipay.sme.repository.SimulationScenarioRepository;
 import com.mipay.sme.repository.StatementRepository;
 import com.mipay.sme.repository.StockAlertRepository;
 import com.mipay.sme.repository.StockMovementRepository;
-import com.mipay.sme.repository.SupplierBankAccountRepository;
+import com.mipay.sme.repository.OrgBankAccountRepository;
+import com.mipay.sme.repository.OrganizationRepository;
+import com.mipay.sme.repository.OnboardingRequestRepository;
 import com.mipay.sme.repository.SupplierCatalogueItemRepository;
 import com.mipay.sme.repository.SupplierRepository;
 import com.mipay.sme.repository.TabEntryRepository;
@@ -136,6 +140,11 @@ public abstract class UatSupport {
     @Autowired protected org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Autowired protected com.mipay.sme.config.DataSeeder seeder;
+    @Autowired protected com.mipay.sme.config.KycMasterSeed kycMasterSeed;
+    @Autowired protected com.mipay.sme.service.KycApplicationService kycApps;
+    @Autowired protected com.mipay.sme.service.kyc.KycWorkflowEngine kycEngine;
+    @Autowired protected com.mipay.sme.repository.KycApplicationRepository kycRepo;
+    @Autowired protected com.mipay.sme.repository.KycTaskRepository kycTasks;
 
     /**
      * Class isolation, ported from the reference implementation's UatBase (flyway.clean + migrate
@@ -157,6 +166,8 @@ public abstract class UatSupport {
         jdbc.execute("SET REFERENTIAL_INTEGRITY TRUE");
         // restore the sandbox seed so the next class boots from the same baseline
         seeder.run(new org.springframework.boot.DefaultApplicationArguments());
+        // the KYC master is wiped with everything else — re-seed (H2 runs migrations never)
+        kycMasterSeed.run(new org.springframework.boot.DefaultApplicationArguments());
     }
 
     @Autowired protected OnboardingService onboarding;
@@ -191,7 +202,21 @@ public abstract class UatSupport {
     @Autowired protected UserRepository users;
     @Autowired protected MerchantRepository merchants;
     @Autowired protected SupplierRepository suppliers;
-    @Autowired protected SupplierBankAccountRepository bankAccounts;
+    @Autowired protected OrgBankAccountRepository bankAccounts;
+    @Autowired protected OrganizationRepository orgs;
+    @Autowired protected com.mipay.sme.service.OrgOnboardingService orgOnboard;
+    @Autowired protected com.mipay.sme.service.OrgTreeService orgTree;
+    @Autowired protected com.mipay.sme.service.OrgProvisioningService orgProvisioning;
+    @Autowired protected com.mipay.sme.service.OrgSuspensionService orgSusp;
+    @Autowired protected com.mipay.sme.service.OrgRightsService orgRights;
+    @Autowired protected com.mipay.sme.service.OrgLifecycleService lifecycle;
+    @Autowired protected com.mipay.sme.service.OrgCallerService orgCaller;
+    @Autowired protected com.mipay.sme.service.ActivationService activation;
+    @Autowired protected OnboardingRequestRepository onboardingRequests;
+    @Autowired protected com.mipay.sme.repository.SuspensionRepository suspensionRepo;
+    @Autowired protected com.mipay.sme.repository.ActivationTokenRepository activationTokens;
+    @Autowired protected com.mipay.sme.repository.SimOutboxRepository simOutbox;
+    @Autowired protected com.mipay.sme.service.AuthService auth;
     @Autowired protected SupplierCatalogueItemRepository catalogue;
     @Autowired protected BalanceAccountRepository accounts;
     @Autowired protected AccountMappingRepository mappings;
@@ -285,8 +310,8 @@ public abstract class UatSupport {
                 "Bank Windhoek", "3000" + String.format("%05d", seq() % 100_000), "UAT Supplier " + seq()));
         Supplier s = suppliers.findByOwnerPhone(phone).orElseThrow();
 
-        SupplierBankAccount pending = bankAccounts
-                .findBySupplierIdAndStatus(s.getId(), Enums.BankAccountStatus.PENDING_APPROVAL)
+        OrgBankAccount pending = bankAccounts
+                .findByOrgIdAndStatus(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(), Enums.BankAccountStatus.PENDING_APPROVAL)
                 .orElseThrow(() -> new AssertionError("bank account request should be pending (TC-ONB-02)"));
         // approver must differ from requester (second-person rule, TC-ONB-03)
         Dtos.ApprovalResult bank = onboarding.approveBankAccount(pending.getId(), true,
@@ -579,5 +604,144 @@ public abstract class UatSupport {
     }
     protected Invoice invoiceEntity(String invoiceId) {
         return invoices.findById(invoiceId).orElseThrow(() -> new AssertionError("invoice missing"));
+    }
+
+    /**
+     * Org of a supplier/merchant/lender entity id. H2 tests skip Flyway so the
+     * V4 backfill never runs; provisioning is idempotent and self-healing.
+     */
+    protected Organization orgOfEntity(com.mipay.sme.domain.Enums.OrgType type, String entityId) {
+        return orgProvisioning.ensureEntityOrg(type, entityId,
+                type.name().toLowerCase() + "-entity-" + entityId);
+    }
+
+    // ------------------------------------------------------------------ org-hierarchy helpers
+
+    /** 10-arg principal for service calls (org fields resolved from the user row). */
+    protected com.mipay.sme.security.Current.Principal principalOf(User u) {
+        String orgType = u.getOrgId() == null ? null
+                : orgs.findById(u.getOrgId()).map(o -> o.getOrgType().name()).orElse(null);
+        return new com.mipay.sme.security.Current.Principal(u.getId(), u.getRole().name(),
+                u.getName(), u.getPhone(), null, null, null, u.getOrgId(), orgType,
+                u.getOrgRole() == null ? null : u.getOrgRole().name());
+    }
+
+    protected com.mipay.sme.service.OrgAccess orgAccess() {
+        return orgAccessSvc;
+    }
+
+    @Autowired protected com.mipay.sme.service.OrgAccess orgAccessSvc;
+
+    // ------------------------------------------------------------------ KYC (§6/§12)
+
+    /**
+     * §6.5/§12: a child org goes live through one gate — a valid KYC document
+     * is saved + submitted and platform review APPROVEs the ops-review task.
+     * With `outcome` non-null the same flow exercises REJECT/BLOCK/RETURN.
+     */
+    protected void kycGoLive(Current.Principal submitter, String orgId, Current.Principal reviewer,
+                             String outcome, String note) {
+        kycApps.saveDraft(submitter, orgId, kycDoc(orgId), null);
+        kycApps.submit(submitter, orgId, false);
+        approveOpenTasks(orgId, reviewer, outcome, note);
+    }
+
+    protected void kycGoLive(Current.Principal submitter, String orgId, Current.Principal reviewer) {
+        kycGoLive(submitter, orgId, reviewer, "APPROVE", null);
+    }
+
+    /** Approves (or rejects) every open task of the org's OPEN application. */
+    protected void approveOpenTasks(String orgId, Current.Principal reviewer, String outcome, String note) {
+        for (int round = 0; round < 5; round++) {
+            var app = kycRepo.findFirstByOrgIdAndStatusInOrderByCreatedAtDesc(orgId,
+                    com.mipay.sme.domain.kyc.KycApplication.OPEN_STATUSES).orElse(null);
+            if (app == null) return;
+            var open = kycTasks.findByApplicationIdAndSubmissionNoAndStatus(
+                    app.getId(), app.getSubmissionNo(), com.mipay.sme.domain.kyc.KycTask.Status.OPEN);
+            if (open.isEmpty()) return;
+            for (var task : open) {
+                kycApps.decideTask(reviewer, task.getId(), outcome == null ? "APPROVE" : outcome, note);
+            }
+        }
+    }
+
+    /** A schema-valid NA/PSP/BUSINESS document; values are unique per seq(). */
+    protected Map<String, Object> kycDoc(String orgId) {
+        String orgTypeName = orgs.findById(orgId).orElseThrow().getOrgType().name();
+        int n = seq();
+        boolean merchant = "MERCHANT".equals(orgTypeName);
+        boolean supplier = "SUPPLIER".equals(orgTypeName);
+        boolean trader = "MANUFACTURER".equals(orgTypeName) || "DISTRIBUTOR".equals(orgTypeName) || supplier;
+        String tin = "10" + String.format("%06d", n % 1_000_000);
+        Map<String, Object> doc = new java.util.LinkedHashMap<>();
+        Map<String, Object> businessProfile = new java.util.LinkedHashMap<>();
+        businessProfile.put("entityType", "PRIVATE_COMPANY");
+        businessProfile.put("legalBusinessName", "UAT KYC Entity " + n);
+        businessProfile.put("registrationNumber", "CC/2019/" + String.format("%06d", n % 1_000_000));
+        businessProfile.put("incorporationDate", "2019-03-14");
+        businessProfile.put("taxIdentificationNumber", tin);
+        businessProfile.put("countryOfRegistration", "NA");
+        doc.put("businessProfile", businessProfile);
+
+        Map<String, Object> operations = new java.util.LinkedHashMap<>();
+        operations.put("industryVertical", "WHOLESALE_DISTRIBUTION");
+        if (merchant) {
+            operations.put("mcc", "5411");
+            operations.put("expectedMonthlyVolume", "50K_250K");
+            operations.put("averageTicketSize", 1200);
+            operations.put("storefrontDetails", "Counter 3, Windhoek");
+        } else if (supplier) {
+            operations.put("expectedMonthlyVolume", "50K_250K");
+            operations.put("tradingRole", "WHOLESALER");
+        } else if (trader) {
+            operations.put("tradingRole", "DISTRIBUTOR");
+            operations.put("annualTurnover", "UNDER_1M");
+        }
+        if (!operations.isEmpty()) doc.put("operationalDetails", operations);
+
+        Map<String, Object> address = new java.util.LinkedHashMap<>();
+        address.put("addressType", "REGISTERED");
+        address.put("streetLine", "12 Sam Nujoma Drive");
+        address.put("town", "Windhoek");
+        address.put("region", "KHOMAS");
+        address.put("country", "NA");
+        doc.put("addresses", List.of(address));
+
+        Map<String, Object> ubo = new java.util.LinkedHashMap<>();
+        ubo.put("fullLegalName", "Owner Holder " + n);
+        ubo.put("roles", List.of("SHAREHOLDER", "DIRECTOR"));
+        ubo.put("dateOfBirth", "1985-04-12");
+        ubo.put("nationality", "NA");
+        ubo.put("identificationType", "NATIONAL_ID");
+        ubo.put("identificationNumber", "85041200123");
+        ubo.put("ownershipType", "DIRECT");
+        ubo.put("ownershipPercentage", 100);
+        ubo.put("politicallyExposedPerson", false);
+        doc.put("ubos", List.of(ubo));
+
+        Map<String, Object> bank = new java.util.LinkedHashMap<>();
+        bank.put("beneficiaryName", "UAT KYC Entity " + n);
+        bank.put("bankCode", "BANK_WINDHOEK");
+        bank.put("branch", "WINDHOEK");
+        bank.put("accountNumber", "8" + String.format("%09d", n % 1_000_000_000));
+        bank.put("accountType", "CURRENT");
+        bank.put("currency", "NAD");
+        doc.put("bankAccounts", List.of(bank));
+        return doc;
+    }
+
+    protected com.mipay.sme.security.Current.Principal opsPrincipal() {
+        return principalOf(users.findAll().stream()
+                .filter(u -> u.getRole() == Enums.UserRole.TPTS_OPS).findFirst().orElseThrow());
+    }
+
+    protected com.mipay.sme.security.Current.Principal platformAdminPrincipal() {
+        return principalOf(users.findAll().stream()
+                .filter(u -> u.getRole() == Enums.UserRole.MINDLABS_ADMIN).findFirst().orElseThrow());
+    }
+
+    /** Username/password login ([H6]). */
+    protected Dtos.TokenView loginWithPassword(String identifier, String password) {
+        return auth.loginWithPassword(identifier, password);
     }
 }

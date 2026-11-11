@@ -126,6 +126,7 @@ public class MerchantController {
 
     @PostMapping("/withdrawals")
     public Dtos.WithdrawalRow withdraw(@Valid @RequestBody Dtos.WithdrawalRequest req) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         return withdrawalService.withdraw(mid(), req.amount(), actorId(), actorRole());
     }
 
@@ -144,6 +145,7 @@ public class MerchantController {
     @PostMapping("/payments")
     public Dtos.PaymentPending accept(@Valid @RequestBody Dtos.AcceptPaymentRequest req,
                                       @RequestHeader(value = "X-Sim-Scenario", required = false) String scenarioHeader) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         var p = paymentService.accept(mid(), req);
         // Async bank-simulator flows (UAT SB p.16): per-request X-Sim-Scenario or the
         // platform default set by ops. MANUAL default keeps the existing manual flow.
@@ -180,6 +182,7 @@ public class MerchantController {
 
     @PostMapping("/payments/{id}/refund")
     public Dtos.RefundRow refund(@PathVariable String id, @Valid @RequestBody Dtos.RefundRequest req) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         return paymentService.refund(mid(), id, req);
     }
 
@@ -214,6 +217,7 @@ public class MerchantController {
     public Dtos.InvoicePayResult payInvoice(@PathVariable String id,
                                             @RequestBody(required = false) Dtos.PayInvoiceRequest req,
                                             @RequestHeader(value = "X-Sim-Scenario", required = false) String scenarioHeader) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         String route = req == null || req.route() == null ? null : req.route().name();
         String outcome = req == null ? null : req.outcome();
         var scenario = bankSimulator.parse(scenarioHeader);
@@ -276,6 +280,7 @@ public class MerchantController {
 
     @PostMapping("/advance/{id}/accept")
     public Dtos.Message acceptAdvance(@PathVariable String id) {
+        com.mipay.sme.security.MoneyGuard.requireAdmin(com.mipay.sme.security.Current.get());
         return advanceService.accept(mid(), id);
     }
 

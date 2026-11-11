@@ -1,6 +1,7 @@
 package com.mipay.sme.security;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -32,21 +33,28 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/**", "/api/env", "/api/onboarding/**", "/api/customer/**",
+                                "/api/auth/activate",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health").permitAll()
+                        .requestMatchers("/api/orgs/**").authenticated()
                         .requestMatchers("/api/merchant/**").hasRole("MERCHANT")
                         .requestMatchers("/api/supplier/**").hasRole("SUPPLIER")
                         .requestMatchers("/api/lender/**").hasRole("LENDER")
                         .requestMatchers("/api/ops/**").hasRole("TPTS_OPS")
                         .requestMatchers("/api/admin/**").hasRole("MINDLABS_ADMIN")
                         .anyRequest().authenticated())
+                .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> res.sendError(401)))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
+    @Value("${app.cors.allowed-origins:http://localhost:4200,http://localhost:4201,http://localhost:4202,http://localhost:4203,http://localhost:4204}")
+    private List<String> corsAllowedOrigins;
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration c = new CorsConfiguration();
-        c.setAllowedOriginPatterns(List.of("http://localhost:4200", "http://localhost:4201"));
+        // local portals by default; a deployment lists its own portal origins (APP_CORS_ALLOWED_ORIGINS)
+        c.setAllowedOriginPatterns(corsAllowedOrigins);
         c.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         c.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();

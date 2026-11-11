@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /** TPTS operations console API (T01-T20). */
 @RestController
@@ -30,6 +31,9 @@ import java.util.List;
 public class OpsController {
 
     private final OnboardingService onboardingService;
+    private final com.mipay.sme.service.OrgOnboardingService orgOnboardingService;
+    private final com.mipay.sme.repository.OnboardingRequestRepository onboardingRequestRepo;
+    private final com.mipay.sme.repository.OrganizationRepository orgRepo;
     private final OpsService opsService;
     private final ReconciliationService reconService;
     private final ReportingService reportingService;
@@ -46,15 +50,37 @@ public class OpsController {
     /** Recorded KYC checks (IDENTITY/SANCTIONS) for a merchant or supplier - ops review panel. */
     @GetMapping("/kyc/{entityType}/{entityId}")
     public List<Dtos.KycCheckRow> kycChecks(@PathVariable String entityType, @PathVariable String entityId) {
-        if (!entityType.equals("merchant") && !entityType.equals("supplier")) {
+        // KYC is recorded for any onboarded entity (merchant/supplier via legacy approval,
+        // distributor/manufacturer/lender via org onboarding). All are readable here.
+        if (!Set.of("merchant", "supplier", "distributor", "manufacturer", "lender").contains(entityType)) {
             throw new com.mipay.sme.common.NotFoundException("Unknown KYC entity type " + entityType);
         }
         return complianceService.kycChecks(entityType, entityId);
     }
 
+    /** Record a KYC check on an entity (manual ops review; IDENTITY/SANCTIONS/ADVERSE_MEDIA). */
+    @PostMapping("/kyc/{entityType}/{entityId}")
+    public Dtos.KycCheckRow recordKycCheck(@PathVariable String entityType,
+                                           @PathVariable String entityId,
+                                           @Valid @RequestBody Dtos.KycCheckRequest req) {
+        if (!Set.of("merchant", "supplier", "distributor", "manufacturer", "lender").contains(entityType)) {
+            throw new com.mipay.sme.common.NotFoundException("Unknown KYC entity type " + entityType);
+        }
+        Enums.KycCheckType type = Enums.KycCheckType.valueOf(req.checkType().toUpperCase());
+        Enums.KycResult result = Enums.KycResult.valueOf(req.result().toUpperCase());
+        com.mipay.sme.domain.compliance.KycCheck check = complianceService.recordCheck(
+                entityType, entityId, type, result, req.details());
+        return new Dtos.KycCheckRow(check.getId(), check.getEntityType(), check.getEntityId(),
+                check.getCheckType().name(), check.getResult().name(), check.getDetails(),
+                check.getCheckedAt());
+    }
+
     @GetMapping("/approvals/merchants")
     public List<Dtos.MerchantApprovalRow> merchantQueue() {
-        return merchantRepoRef.findQueue(Enums.ApprovalStatus.PENDING);
+        // legacy queue leaves out orgs onboarded through the tree (parent != root) [plan C1]
+        return merchantRepoRef.findQueue(Enums.ApprovalStatus.PENDING).stream()
+                .filter(r -> isLegacyRow("MERCHANT", r.id()))
+                .toList();
     }
 
     @GetMapping("/approvals/merchants/all")
@@ -71,7 +97,9 @@ public class OpsController {
 
     @GetMapping("/approvals/suppliers")
     public List<Dtos.SupplierApprovalRow> supplierQueue() {
-        return onboardingService.supplierQueue();
+        return onboardingService.supplierQueue().stream()
+                .filter(r -> isLegacyRow("SUPPLIER", r.id()))
+                .toList();
     }
 
     @GetMapping("/approvals/suppliers/all")
@@ -94,6 +122,53 @@ public class OpsController {
     public Dtos.ApprovalResult approveBankAccount(@PathVariable String id,
                                                   @Valid @RequestBody Dtos.BankApprovalRequest req) {
         return onboardingService.approveBankAccount(id, req.approve(), actor(), "TPTS_OPS");
+    }
+
+    // ------------------------------------------------------------------ org onboarding review [ops]
+
+    /** Review queue for tree onboarding requests (TPTS_OPS). */
+    @GetMapping("/onboarding-requests")
+    public List<Dtos.OnboardingRequestRow> onboardingRequests(
+            @RequestParam(defaultValue = "PENDING_REVIEW") String status) {
+        Enums.OnboardingStatus st = Enums.OnboardingStatus.valueOf(status.toUpperCase());
+        return onboardingRequestRepo.findByStatusOrderByCreatedAtDesc(st).stream()
+                .map(r -> new Dtos.OnboardingRequestRow(r.getId(), r.getKind().name(), r.getStatus().name(),
+                        r.getOrgId(), orgName(r.getOrgId()), orgType(r.getOrgId()), r.getParentOrgId(),
+                        r.getRequestedBy(), r.getRequestedByRole(), r.getRequestedByOrgId(),
+                        r.getReviewedBy(), r.getStatus().name(),
+                        metaPart(r.getMeta(), "direct="), metaPart(r.getMeta(), "ceiling="),
+                        r.getNote(), r.getMeta(), r.getCreatedAt(), r.getReviewedAt()))
+                .toList();
+    }
+
+    @PostMapping("/onboarding-requests/{id}/decision")
+    public Dtos.OrgDecisionResult decideOnboarding(@PathVariable String id,
+                                                   @RequestBody Dtos.OrgDecideRequest req) {
+        return orgOnboardingService.decide(id, Current.get(), Boolean.TRUE.equals(req.approve()),
+                req.note(), req.sanctionsResult());
+    }
+
+    private String orgName(String orgId) {
+        return orgRepo.findById(orgId).map(o -> o.getName()).orElse(null);
+    }
+
+    private String orgType(String orgId) {
+        return orgRepo.findById(orgId).map(o -> o.getOrgType().name()).orElse(null);
+    }
+
+    private String metaPart(String meta, String key) {
+        if (meta == null) return null;
+        for (String part : meta.split(";")) {
+            if (part.startsWith(key)) return part.substring(key.length());
+        }
+        return null;
+    }
+
+    /** True when the org is under the root or has no org binding yet. */
+    private boolean isLegacyRow(String type, String entityId) {
+        return orgRepo.findByOrgTypeAndEntityId(Enums.OrgType.valueOf(type), entityId)
+                .map(o -> com.mipay.sme.service.OrgProvisioningService.ORG_ROOT.equals(o.getParentId()))
+                .orElse(true);
     }
 
     // ------------------------------------------------------------------ reconciliation (T05)

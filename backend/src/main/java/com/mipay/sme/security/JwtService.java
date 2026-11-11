@@ -39,6 +39,13 @@ public class JwtService {
     public record IssuedToken(String token, String jti, Instant expiresAt) { }
 
     public IssuedToken issue(User u, String merchantId, String supplierId, String lenderId) {
+        return issue(u, merchantId, supplierId, lenderId, u.getOrgId(), null,
+                u.getOrgRole() == null ? null : u.getOrgRole().name());
+    }
+
+    /** [H3/M9] full-shape issue carrying the org binding claims. */
+    public IssuedToken issue(User u, String merchantId, String supplierId, String lenderId,
+                             String orgId, String orgType, String orgRole) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", u.getRole().name());
         claims.put("phone", u.getPhone());
@@ -46,6 +53,9 @@ public class JwtService {
         if (merchantId != null) claims.put("merchantId", merchantId);
         if (supplierId != null) claims.put("supplierId", supplierId);
         if (lenderId != null) claims.put("lenderId", lenderId);
+        if (orgId != null) claims.put("orgId", orgId);
+        if (orgType != null) claims.put("orgType", orgType);
+        if (orgRole != null) claims.put("orgRole", orgRole);
         Instant now = Instant.now();
         Instant expiresAt = now.plus(TTL);
         String jti = java.util.UUID.randomUUID().toString();

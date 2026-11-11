@@ -39,6 +39,19 @@ public class Supplier {
     @Column(name = "owner_phone")
     private String ownerPhone;
 
+    /** Profile detail of the tree onboarding (e.g. WHOLESALER / PRODUCER). */
+    @Column(name = "supplier_type")
+    private String supplierType;
+
+    @Column(name = "owner_id_number")
+    private String ownerIdNumber;
+
+    @Column(name = "approved_by", length = 36)
+    private String approvedBy;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
+
     @Enumerated(EnumType.STRING)
     private ApprovalStatus approvalStatus;
 

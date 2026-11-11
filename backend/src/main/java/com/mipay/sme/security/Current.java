@@ -16,7 +16,19 @@ public final class Current {
     private Current() { }
 
     public record Principal(String userId, String role, String name, String phone,
-                            String merchantId, String supplierId, String lenderId) { }
+                            String merchantId, String supplierId, String lenderId,
+                            String orgId, String orgType, String orgRole) {
+
+        /** Legacy shape (org fields null) used by sim/runAs helpers. */
+        public Principal(String userId, String role, String name, String phone,
+                         String merchantId, String supplierId, String lenderId) {
+            this(userId, role, name, phone, merchantId, supplierId, lenderId, null, null, null);
+        }
+
+        public boolean isOrgAdmin() {
+            return orgRole != null && "ADMIN".equals(orgRole);
+        }
+    }
 
     public static Principal get() {
         Authentication a = SecurityContextHolder.getContext() == null ? null : SecurityContextHolder.getContext().getAuthentication();
@@ -59,13 +71,20 @@ public final class Current {
     /** Re-entrant principal override for admin/sim endpoints that act on behalf of a role. */
     public static void runAs(String userId, String role, String merchantId, String supplierId, String lenderId,
                              Runnable action) {
-        Principal original = null;
+        runAs(userId, role, userId, null, merchantId, supplierId, lenderId, null, null, null, action);
+    }
+
+    /** Full-shape override (org claims included) for org tests. */
+    public static void runAs(String userId, String role, String name, String phone,
+                             String merchantId, String supplierId, String lenderId,
+                             String orgId, String orgType, String orgRole, Runnable action) {
+        Principal original;
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        Principal admin = get();
-        original = admin;
+        original = get();
         SecurityContextHolder.getContext().setAuthentication(
                 new PreAuthenticatedAuthenticationToken(
-                        new Principal(userId, role, userId, null, merchantId, supplierId, lenderId),
+                        new Principal(userId, role, name, phone, merchantId, supplierId, lenderId,
+                                orgId, orgType, orgRole),
                         null, java.util.List.of(() -> "ROLE_" + role)));
         try {
             action.run();

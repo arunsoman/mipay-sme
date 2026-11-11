@@ -74,7 +74,7 @@ class TUat02OnboardingTests extends UatSupport {
         assertThat(complianceChecksFor("supplier", s.getId())).isNotEmpty();
 
         // nothing pending left for this supplier
-        assertThat(bankAccounts.findBySupplierIdAndStatus(s.getId(), Enums.BankAccountStatus.PENDING_APPROVAL))
+        assertThat(bankAccounts.findByOrgIdAndStatus(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(), Enums.BankAccountStatus.PENDING_APPROVAL))
                 .isEmpty();
     }
 
@@ -93,7 +93,7 @@ class TUat02OnboardingTests extends UatSupport {
         var s = newApprovedSupplier("Cooking oil 750ml", "26.00");
         User supplierUser = users.findById(s.getUserId()).orElseThrow();
 
-        Dtos.ApprovalResult request = onboarding.changeSupplierBankAccount(s.getId(),
+        Dtos.ApprovalResult request = onboarding.changeOrgBankAccount(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(),
                 new Dtos.BankAccountChangeRequest("Nedbank", "20009988", "UAT Supplier " + seq(),
                         "new receiving account"),
                 supplierUser.getId());
@@ -109,7 +109,7 @@ class TUat02OnboardingTests extends UatSupport {
         // different approver succeeds; previous approved account is revoked
         Dtos.ApprovalResult ok = onboarding.approveBankAccount(request.id(), true, "uat-ops-2", "TPTS_OPS");
         assertThat(ok.status()).isEqualTo("APPROVED");
-        var rows = bankAccounts.findBySupplierIdOrderByCreatedAtDesc(s.getId());
+        var rows = bankAccounts.findByOrgIdOrderByCreatedAtDesc(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId());
         assertThat(rows.stream().filter(a -> a.getStatus() == Enums.BankAccountStatus.APPROVED).count())
                 .isEqualTo(1);
         assertThat(rows).anyMatch(a -> a.getStatus() == Enums.BankAccountStatus.REVOKED);

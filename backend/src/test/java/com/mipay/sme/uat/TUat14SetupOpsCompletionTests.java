@@ -179,7 +179,7 @@ class TUat14SetupOpsCompletionTests extends UatSupport {
                 .getIssuerAccountRef()).startsWith("NDB-S-");
 
         // and the ops bank-approval queue no longer lists accounts pending for this supplier
-        assertThat(bankAccounts.findBySupplierIdAndStatus(s.getId(), Enums.BankAccountStatus.PENDING_APPROVAL))
+        assertThat(bankAccounts.findByOrgIdAndStatus(orgOfEntity(Enums.OrgType.SUPPLIER, s.getId()).getId(), Enums.BankAccountStatus.PENDING_APPROVAL))
                 .isEmpty();
     }
 
