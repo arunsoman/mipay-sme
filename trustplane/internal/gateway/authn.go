@@ -352,7 +352,7 @@ func (g *Gateway) authenticate(r *http.Request) (*identity, int, string) {
 		if proof == "" {
 			return nil, 401, "use_dpop_header: proof required (DPoP: <jwt>)"
 		}
-		htu, cerr := dpop.CanonicalHTU("https://" + r.Host + r.URL.EscapedPath())
+		htu, cerr := dpop.CanonicalHTU("https://" + externalHost(r) + r.URL.EscapedPath())
 		if cerr != nil {
 			return nil, 401, "invalid_dpop_proof: bad url"
 		}

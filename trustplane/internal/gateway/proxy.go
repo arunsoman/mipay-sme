@@ -91,7 +91,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, route *Route, 
 	}
 	outReq.Header.Set("X-Forwarded-For", remoteIPKey(r))
 	outReq.Header.Set("X-Forwarded-Proto", "https")
-	outReq.Header.Set("X-Forwarded-Host", r.Host)
+	outReq.Header.Set("X-Forwarded-Host", externalHost(r))
 	outReq.Header.Set(ctxauth.RequestID, requestID(r))
 	if ctxVal != "" {
 		outReq.Header.Set(ctxauth.Header, ctxVal)

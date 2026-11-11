@@ -127,7 +127,7 @@ func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
 		Nonce:           nonce,
 		CodeVerifier:    verifier,
 		ReturnTo:        returnTo,
-		Host:            r.Host,
+		Host:            externalHost(r),
 		DPoPPrivatePEM:  privatePEM,
 		DPoPJKT:         dpopJKT,
 		CreatedAt:       time.Now(),
@@ -146,7 +146,7 @@ func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// PAR to the IdP as the gateway-bff confidential client.
-	requestURI, err := g.par(r.Context(), r.Host, state, nonce, challenge, dpopJKT)
+	requestURI, err := g.par(r.Context(), externalHost(r), state, nonce, challenge, dpopJKT)
 	if err != nil {
 		log.Printf("[gateway] bff login PAR failed: %v", err)
 		writeErr(w, 502, "server_error: identity unavailable")

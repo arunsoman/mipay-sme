@@ -82,7 +82,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 
 | # | Item | Plan | Status |
 |---|---|---|---|
-| 1.1 | A0: edge hardening, switches, drop unused `Tenant` | cut-over P0 | 🟡 in progress (uncommitted, 2026-11-11). **Done:** 0.4 switches (`identityMode`, `authProvider`, `rbacSync` in `AppProperties`; read from P3 onwards) and 0.5 (`Tenant`, `TenantRepository`, `TenantType`/`TenantStatus` removed; `V14__drop_tenants.sql` fixed; backend compiles; 159 tests pass, 3 skipped; V1–V14 migrate and validate on Postgres 16). **Open:** 0.1 nginx TLS, 0.2 DPoP `htu` from a trusted `X-Forwarded-Host`, 0.3 public issuer + no seed users |
+| 1.1 | A0: edge hardening, switches, drop unused `Tenant` | cut-over P0 | ✅ code done 2026-11-11: 0.1 FAPI TLS in `nginx-mipay-sme.conf` (`nginx -t` ok); 0.2 `externalHost()` (DPoP `htu`, BFF `redirect_uri`, upstream `X-Forwarded-Host` from a trusted proxy only; tests); 0.3 `IDP_ENVIRONMENT` (no seed users and a public https issuer outside dev/sandbox; tests); 0.4 switches; 0.5 `Tenant` removed, V14 verified on Postgres. **Waiting on ops (⛔ for production only):** copy the nginx file to the host and reload; DNS + certificate for `auth.afriqpay.com` before `IDP_ENVIRONMENT=production` |
 | 1.2 | A1: IdP credential accounts, enrolment API, events, `uid` claim, `CommsClient` (sandbox) | cut-over P1 | ⬜ |
 | 1.3 | A2: delete the demo RBAC; build the grid, roles, SoD, four-eyes approvals | cut-over P2 | ⬜ |
 | 1.4 | B0: comms plane skeleton, Postgres queue, sandbox provider, `POST /messages`, `GET /capabilities` | comms P0 | ⬜ |

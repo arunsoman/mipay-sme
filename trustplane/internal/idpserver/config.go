@@ -2,6 +2,8 @@ package idpserver
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +23,8 @@ type Config struct {
 	ClientsFile string
 	SigningDir  string
 	SeedUsers   string
+	// Environment: dev | sandbox | uat | production (IDP_ENVIRONMENT, default dev).
+	Environment string
 
 	ParTTL     time.Duration
 	CodeTTL    time.Duration
@@ -53,13 +57,45 @@ func FromEnv() (Config, error) {
 		AccessTTL:    300 * time.Second,
 		SessionTTL:   15 * time.Minute,
 	}
+	c.Environment = envOr("IDP_ENVIRONMENT", "dev")
 	if c.Issuer == "" {
 		return c, fmt.Errorf("idp: IDP_ISSUER is required")
 	}
 	if c.DSN == "" {
 		return c, fmt.Errorf("idp: DB_URL is required")
 	}
+	if err := c.validateEnvironment(); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+// devEnvironments may carry demo seed users and an internal (*.local) issuer.
+var devEnvironments = map[string]bool{"dev": true, "sandbox": true}
+
+// validateEnvironment enforces cut-over P0.3 (idp-rbac-cutover-plan.md): outside dev and
+// sandbox the IdP refuses to start with demo seed users, and its issuer must be a public
+// https URL (FAPI clients check aud = issuer, so it must be the name they can reach).
+func (c Config) validateEnvironment() error {
+	switch c.Environment {
+	case "dev", "sandbox", "uat", "production":
+	default:
+		return fmt.Errorf("idp: IDP_ENVIRONMENT %q must be dev|sandbox|uat|production", c.Environment)
+	}
+	if devEnvironments[c.Environment] {
+		return nil
+	}
+	if strings.TrimSpace(c.SeedUsers) != "" {
+		return fmt.Errorf("idp: IDP_SEED_USERS is not allowed when IDP_ENVIRONMENT=%s (demo users only in dev/sandbox)", c.Environment)
+	}
+	u, err := url.Parse(c.Issuer)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("idp: IDP_ISSUER %q must be a bare https origin when IDP_ENVIRONMENT=%s", c.Issuer, c.Environment)
+	}
+	if host := strings.ToLower(u.Hostname()); strings.HasSuffix(host, ".local") || host == "localhost" || net.ParseIP(host) != nil {
+		return fmt.Errorf("idp: IDP_ISSUER %q must be a public host name when IDP_ENVIRONMENT=%s", c.Issuer, c.Environment)
+	}
+	return nil
 }
 
 func parseSeedUsers(raw string) [][3]string {

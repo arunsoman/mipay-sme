@@ -11,6 +11,12 @@ services:
     restart: unless-stopped
   idp:
     restart: unless-stopped
+    environment:
+      # Cut-over P0.3: still a sandbox deployment (demo seed users, internal issuer).
+      # Moving to production needs DNS + a certificate for auth.afriqpay.com and its nginx
+      # vhost first; then set IDP_ENVIRONMENT=production, IDP_ISSUER=https://auth.afriqpay.com
+      # and remove IDP_SEED_USERS (the IdP refuses to start otherwise).
+      IDP_ENVIRONMENT: sandbox
   rbac:
     restart: unless-stopped
   pg:

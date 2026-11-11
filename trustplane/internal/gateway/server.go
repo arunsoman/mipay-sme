@@ -386,6 +386,28 @@ func remoteIPKey(r *http.Request) string {
 	return h
 }
 
+// forwardedHostRe accepts exactly one host[:port]: no lists, paths, userinfo or spaces.
+var forwardedHostRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?$`)
+
+// externalHost is the host the caller actually addressed. Behind the host nginx, r.Host
+// is the internal vhost (portal.fapi.local), so the public host comes from
+// X-Forwarded-Host - but only when the TCP peer is a trusted proxy (the same rule as
+// remoteIPKey) and the header is a single well-formed host. Anyone else gets r.Host.
+// Used wherever the gateway rebuilds a public URL: the DPoP htu check (RFC 9449 §4.3)
+// and the BFF redirect_uri.
+func externalHost(r *http.Request) string {
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		h = r.RemoteAddr
+	}
+	if peer := net.ParseIP(h); peer != nil && isTrustedProxy(peer) {
+		if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); v != "" && forwardedHostRe.MatchString(v) {
+			return strings.ToLower(v)
+		}
+	}
+	return r.Host
+}
+
 // ---------------------------------------------------------------------------
 // Error writer with WWW-Authenticate semantics
 // ---------------------------------------------------------------------------
