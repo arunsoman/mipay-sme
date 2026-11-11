@@ -207,7 +207,7 @@ Each step can be deployed and rolled back on its own. The old login keeps workin
 | **0. Harden the edge** | FAPI TLS settings on nginx (§10); `htu` from a trusted `X-Forwarded-Host`; IdP public issuer `auth.afriqpay.com` with its own certificate; remove the IdP dev seed users on the server | revert config | 0.5 day |
 | **1. IdP account model** | Extend the users table; admin provisioning API (mTLS); TPTS login page; per-account lockout; activation links; account notifications (needs the email/SMS provider) | IdP only, not yet used by MiPay | 3–4 days |
 | **2. Copy users into the IdP** | One-off job: for every MiPay user, create the IdP user with **the same id**, username, email, phone and status, and copy the bcrypt hash (strip Spring's `{bcrypt}` prefix; Go's bcrypt reads `$2a$`). PENDING users get a fresh IdP activation link. MiPay then keeps the IdP in sync on every create, update and disable. | IdP users unused until step 4 | 1 day |
-| **2b. RBAC model** | Add `subtree` scope, `role_inheritance`, `ssd_sets` / `dsd_sets`, session activation, delegation ceilings and review APIs to trustplane RBAC; seed the MiPay permission catalogue and roles (§9.2–9.4). | RBAC only, not yet consulted | 4–5 days |
+| **2b. RBAC model** | The permission grid (Appendix G: rows, fixed verb columns, bitmask role grids, cell registry, SoD as cell pairs). Add `subtree` scope, `role_inheritance`, `ssd_sets` / `dsd_sets`, session activation, delegation ceilings and review APIs to trustplane RBAC; seed the MiPay permission catalogue and roles (§9.2–9.4). | RBAC only, not yet consulted | 4–5 days |
 | **2c. Copy authorizations into RBAC** | One-off job: each org → tenant (with closure for `subtree`); each user's ADMIN/STAFF → `org_admin` / `org_staff` assignment; `user_platform_functions` → platform role assignments; `org_rights` DIRECT/CEILING → delegated grants. Run the SSD check over the result and resolve conflicts before go-live (e.g. today `ops-admin-mindlabs` must hold no review role). MiPay then writes every change to RBAC. | RBAC unused until step 3 | 1–2 days |
 | **3. Gateway BFF + dual-stack** | Build §4 behind a per-host flag (`bff: true`). MiPay accepts **either** its old token **or** the gateway's signed context (`GatewayContextFilter` first). Switch `admin.` on the server; test; then the three org portals. | flip the flag back per host | 4–5 days |
 | **4. Portals on the IdP** | Portals drop token storage and use `/auth/*`, `X-CSRF` and step-up handling; release per portal. | previous portal image | 2 days |
@@ -249,7 +249,7 @@ Each step can be deployed and rolled back on its own. The old login keeps workin
 |---|---|
 | **User** | IdP `sub` (= MiPay user id) |
 | **Tenant** | an organization in the tree (Platform Root, manufacturers, distributors, suppliers, merchants). A scope is `own` (that org), `subtree` (that org and everything below it, from `org_closures`) or `all` (platform staff) |
-| **Permission** | `resource:action` operation strings, the only thing code checks. For example: `kyc.application.view`, `kyc.application.edit`, `kyc.application.submit`, `kyc.task.decide.ops_review`, `kyc.task.decide.compliance_review`, `kyc.task.decide.senior_approval`, `org.child.onboard`, `org.rights.narrow`, `org.suspend`, `org.user.create`, `org.user.deactivate`, `rbac.role.assign`, `payout.initiate`, `payout.approve`, `audit.read` |
+| **Permission** | one cell of the **2-D grid** (Appendix G): `<service>.<resource>.<verb>`, with the verb from a fixed list of 10 (`read · create · modify · delete · submit · authorize · execute · export · administer · simulate`). It is the only thing code checks. For example: `kyc.application.view`, `kyc.application.edit`, `kyc.application.submit`, `kyc.task.decide.ops_review`, `kyc.task.decide.compliance_review`, `kyc.task.decide.senior_approval`, `org.child.onboard`, `org.rights.narrow`, `org.suspend`, `org.user.create`, `org.user.deactivate`, `rbac.role.assign`, `payout.initiate`, `payout.approve`, `audit.read` |
 | **Role** | a named bundle of permissions. Org roles: `org_admin`, `org_staff`, `org_viewer`. Platform roles: `platform_ops_reviewer`, `platform_compliance_officer`, `platform_mlro`, `platform_senior_approver`, `platform_user_admin`, `platform_auditor`, `platform_break_glass` |
 | **Assignment** | user + role + tenant + scope, e.g. `selma` = `org_admin` on *Okahandja Fresh Market* (own); `ops-admin-ops` = `platform_ops_reviewer` on Platform Root (all) |
 
@@ -1031,3 +1031,430 @@ rpc ListEndpoints(ListEndpointsRequest) returns (EndpointManifest); // for the g
   - with RBAC down at boot, every service route returns 404/503;
   - `lookup` endpoints run `CheckAny` and the backend still enforces the object tenant.
 - **Matrix (Appendix E.3):** generated from the manifest + RBAC seed, so every annotated endpoint is tested for every persona automatically.
+
+## Appendix G. The RBAC plan: a two-dimensional permission grid
+
+### G.1 The idea in one picture
+
+```
+                         read create modify delete submit authorize execute export administer simulate
+kyc.application           ●            ●      ●      ●
+kyc.task                  ●                                 ●
+merchant.withdrawal       ●                                           ●
+org.user                  ●     ●             ●                       ●
+org.rights                ●                                                          ●
+…  (50 rows)
+```
+
+- **Rows** = resources (`<service>.<resource>`). They are **registered by the code** (G.3); there are 50 today (G.10).
+- **Columns** = a **fixed list of 10 verbs**: `read · create · modify · delete · submit · authorize · execute · export · administer · simulate`.
+- **Cell** = one permission, `<row>.<verb>`, e.g. `kyc.application.submit`. A cell **exists only if at least one endpoint uses it** (● above). There are 119 today; every other cell is greyed out and can't be granted.
+- **Role** = a set of ticked cells: a grid with ticks.
+- **Assignment** = user + role + **org** + scope (`own` / `subtree` / `all`). The grid says **what**, the assignment says **where**.
+
+So "may Selma do X?" becomes: **find her roles on that org (assignment), then look up the cell (row, column) in those roles' grids.**
+
+### G.1a Why read / create / edit / approve is not enough
+
+Four verbs look simpler, but they force **about 50 of the 102 non-read handlers** in this codebase into a bucket that means something else. Each misfit is a real permission someone gets without anyone deciding to give it. Every extra column exists because a regulator, an auditor or a pen tester would treat that action differently:
+
+| Extra verb | If it were folded into… | What goes wrong, with a real handler from this code | What the separate column lets us enforce |
+|---|---|---|---|
+| **submit** (maker) | edit | KYC `save` (fix a typo in a draft) and KYC `submit` (send it to review, attesting it is complete and true) become the same permission. Every clerk who can correct a draft can also **send it to the regulator's review**, and the maker-checker pair can't be expressed. | "Staff draft, only an admin submits"; SoD `submit × authorize` (the maker never checks) |
+| **delete** | edit | Fixing a supplier's catalogue text and `retireItem`, user profile edits and `deactivate` (lock someone out), changing and `revokeBankAccount`. Anyone allowed to correct data could **remove records or lock out the last admin**. Deletion is irreversible and erases evidence. | Destructive actions only for admins; separate audit; a confirmation step |
+| **execute** (do it now / move money) | create or edit | `withdraw`, `refund`, `payInvoice`, `sweep`, `fund` *move money*. `runRecon`, `remind`, `resend` activation, `rotate` keys, `deploy`, `backupNow` *trigger actions* without creating anything a user would call a record. Under "create", **creating a stock item and withdrawing the shop's money look like the same kind of right**, and "every money movement needs a fresh second factor" can't be written as one rule. | Step-up (`aal2`) and transaction binding (RAR) on the whole column; SoD `execute × authorize` (initiator ≠ approver); tighter rate limits |
+| **export** | read | Opening **one** invoice and downloading a **statement**, or `export` on a data-subject request: the latter takes **bulk personal and financial data out of the system**. Under "read", every viewer can download everything, and data-protection audit can't tell a glance from a bulk extract. | Export only for named roles; every export audited and rate-limited; step-up for bulk personal data |
+| **administer** | edit | `suspend` / `lift` (block a whole subtree and sign everyone out), `narrowRights`, `revokeAccess`, `revokeClient`: **power over other people's access**. Under "edit", whoever may edit an org's profile could suspend it or strip its rights. | SoD "access administrators never approve customers"; four-eyes on administer cells |
+| **simulate** | create | `/sim/payment`, `simulate-fund`, `injectBreak`, `runScene` create **fake payments, fake funding and fake faults**. Under "create", a real merchant's "create" could inject a fake payment in production. | The whole column switched off in the production profile; RBAC refuses ticks there |
+| **authorize** (= approve) | — | Kept as is. | — |
+
+**In short:** a permission model is only as fine as the questions an auditor asks:
+- "Who can **send** a KYC to review?" (submit)
+- "Who can **move money**?" (execute)
+- "Who can **take data out**?" (export)
+- "Who can **lock other people out**?" (administer)
+- "Who can **destroy** records?" (delete)
+
+With four verbs, each of these answers becomes "everyone who can edit" or "everyone who can read". With ten, each is a single column of the grid that can be read off and restricted directly.
+
+**Rows matter for the same reason.** A service-wide `merchant.create` would bundle `merchant.inventory.create` (a clerk's job) with every other create in the merchant service. Keeping the resource as the row lets "stock clerk" and "owner" differ without inventing special roles.
+
+### G.2 Storage (trustplane RBAC)
+
+```sql
+-- columns: fixed, never edited at runtime
+--   read=1 create=2 modify=4 delete=8 submit=16 authorize=32 execute=64 export=128 administer=256 simulate=512
+
+create table rbac_resources (               -- rows, registered by services (G.3)
+  id          text primary key,             -- 'kyc.application'
+  service     text not null,                -- 'mipay'
+  description text not null,
+  used_verbs  integer not null,             -- bitmask of cells that have endpoints (greys out the rest)
+  retired     boolean not null default false
+);
+
+create table rbac_role_grid (               -- a role = one bitmask per row
+  role     text    not null references roles(name),
+  resource text    not null references rbac_resources(id),
+  verbs    integer not null,                -- ticked cells; must be a subset of used_verbs
+  primary key (role, resource),
+  check (verbs >= 0 and verbs < 1024)
+);
+
+create table rbac_cell_endpoints (          -- which endpoints each cell protects (shown on click)
+  resource text not null, verb integer not null,
+  method text not null, path text not null, service text not null,
+  primary key (method, path)
+);
+
+create table rbac_sod_rules (               -- separation of duty, written as cell pairs (G.5)
+  id text primary key, kind text check (kind in ('STATIC','DYNAMIC','OBJECT')),
+  cell_a text not null, cell_b text not null, reason text not null
+);
+-- assignments(user, role, tenant, scope, expires_at, approval) already exist (§9.1)
+```
+
+### G.3 The code chooses a cell
+
+```java
+public enum Verb { READ, CREATE, MODIFY, DELETE, SUBMIT, AUTHORIZE, EXECUTE, EXPORT, ADMINISTER, SIMULATE }
+
+@Target(METHOD) @Retention(RUNTIME)
+@PreAuthorize("@authz.can('{resource}', T(com.mipay.sme.security.Verb).{verb}, {tenant})")
+public @interface Perm {
+    String resource();                         // the row: "kyc.application"
+    Verb verb();                               // the column
+    String tenant() default "null";            // SpEL: "#orgId", "@tenants.ofTask(#taskId)", or SELF
+    TenantSource tenantSource() default TenantSource.PATH;  // PATH | LOOKUP | SELF | NONE
+    String tenantParam() default "";
+    String acr() default ""; int maxAgeSeconds() default -1; String rar() default ""; boolean fresh() default false;
+    String description() default "";
+}
+
+@PutMapping("/api/kyc/orgs/{orgId}")
+@Perm(resource = "kyc.application", verb = Verb.MODIFY, tenant = "#orgId", tenantParam = "orgId")
+public KycApplicationView save(@PathVariable String orgId, @RequestBody Map<String, Object> body) { … }
+```
+
+At startup the manifest (Appendix F) sends RBAC:
+- every **row** (resource + description);
+- every **used cell** with its endpoints.
+
+RBAC updates `rbac_resources.used_verbs` and `rbac_cell_endpoints`. The gateway gets each route's cell from RBAC (`ListEndpoints`).
+
+**Rules enforced at build time and at startup:**
+- every handler has `@Perm` or `@PublicEndpoint`;
+- the `resource` matches `^[a-z]+\.[a-z_]+$`;
+- **one handler = one cell**: a handler that would need two cells is split, or takes the higher-risk cell.
+
+### G.4 How a check is answered
+
+```
+Check(sub, tenant, "kyc.application.modify")
+  1. split the permission → row = kyc.application, column = modify (bit 4)
+  2. assignments of sub that cover tenant (own / subtree via the org closure / all), active, approved,
+     not expired; drop roles that need session activation unless they are active
+  3. mask = OR of rbac_role_grid.verbs for (each role and its inherited roles, row)
+  4. allowed = (mask & 4) != 0           ← one bit test
+  5. apply grants (onboarding entitlements) and obligations (acr, max_age, rar) for the cell
+  6. log decision_id with: matched assignment, role, row, column → ALLOW / DENY (deny by default)
+```
+
+- **Caching:** the masks are cached per (sub, tenant, row) for 3 s and invalidated by `Watch` on any grid or assignment change. A whole page of buttons is decided from one cached mask per row.
+- **For the UI,** `ListPermissions(sub, org)` returns `{row: mask}`. The portal hides buttons whose bit is 0, which is a hint only; enforcement stays at the gateway and the backend.
+
+### G.5 Separation of duty as grid rules
+
+| Rule | Kind | Cells | Reason |
+|---|---|---|---|
+| Maker ≠ checker on KYC | OBJECT | `kyc.application.submit` × `kyc.task.authorize` | the person who submitted an application never decides its tasks (also enforced by the workflow engine) |
+| No self-approval of money | STATIC | `merchant.withdrawal.execute` × `ops.bank_account_approval.authorize` | whoever moves money can't approve the account it goes to |
+| Admins don't approve customers | STATIC | any `*.administer` × any `*.authorize` held by **platform** roles | access administrators are not reviewers |
+| Two review stages, two people | DYNAMIC | `kyc.task.authorize` (stage ops-review) × `kyc.task.authorize` (stage compliance) | per submission, one person acts on one stage (stage carried as an attribute) |
+| No simulation in production | STATIC | the whole `simulate` column | disabled by the production profile; RBAC refuses ticks in it |
+
+**Same-row shorthand:** for any row, no single role may tick both `submit` and `authorize`. Across a user's roles, holding both on the same org is a static violation unless an OBJECT rule covers it instead.
+
+**When the rules apply:**
+- **STATIC** rules are checked when a grid is saved and when a role is assigned → `409 SOD_CONFLICT`;
+- **DYNAMIC** rules at session activation;
+- **OBJECT** rules at decision time, by the domain service.
+
+### G.6 Starting roles (proposal for compliance)
+
+| Role | Ticks (summary) |
+|---|---|
+| `org_viewer` | `read` on every org-scoped row (kyc, org, merchant.*, supplier.*) |
+| `org_staff` | `org_viewer` + day-to-day: `merchant.inventory` create/modify, `merchant.khata` / `merchant.tab` create/execute, `merchant.order` create, `merchant.payment` execute (take payments), `supplier.catalogue` create/delete, `supplier.invoice` create, `kyc.application` modify (draft) |
+| `org_admin` | `org_staff` + `kyc.application` submit/delete, `org.user` create/delete/execute, `org.onboarding` create/submit, `org.rights` / `org.suspension` administer (for orgs below), `merchant.withdrawal` execute, `merchant.advance` submit/authorize, `merchant.payment` execute (refund, aal2), `supplier.bank_account` modify/delete, `*.statement` export |
+| `platform_ops_reviewer` | `kyc.task` authorize (ops stage), `ops.merchant_approval` / `ops.supplier_approval` / `ops.bank_account_approval` / `ops.onboarding_request` authorize, read on ops rows |
+| `platform_compliance_officer` | `kyc.task` authorize (compliance stage), `admin.sar` create/submit, `admin.aml_alert` read, `admin.dsar` create/export |
+| `platform_operations` | `ops.incident` / `ops.complaint` / `ops.dispute` create/modify, `ops.recon` execute/modify, `ops.report` read/execute, `ops.kyc_check` create, `ops.suspension` read |
+| `platform_user_admin` | `org.user` *, `admin.access` administer, `admin.api_client` create/administer (no `authorize` anywhere: SoD) |
+| `platform_engineer` | `admin.platform_ops` execute/administer, `admin.connector` modify/execute/administer, `admin.config` modify |
+| `platform_auditor` | `read` on every row + `ops.audit` read |
+| `lender_officer` | `lender.assessment` execute, `lender.advance` authorize, `lender.collection` execute, `lender.portfolio` read/execute |
+| `sandbox_tester` | the `simulate` column (sandbox only) |
+
+**Example stored grid (`org_admin`, three rows):**
+
+| row | ticked | mask |
+|---|---|---|
+| `kyc.application` | read + modify + delete + submit | 1+4+8+16 = **29** |
+| `merchant.withdrawal` | read + execute | 1+64 = **65** |
+| `org.rights` | read + administer | 1+256 = **257** |
+
+### G.7 Worked example, end to end
+
+**The setup:**
+- Okahandja Fresh Market (merchant) sits under Namib Distribution.
+- **Selma** is `org_admin` (own) on Okahandja.
+- **Tomas** is `org_staff` (own) on Okahandja.
+- **Jonas** is `org_admin` (subtree) on Namib Distribution.
+- **Ops-Ana** is `platform_ops_reviewer` (all).
+
+**1. Selma saves the KYC draft:** `PUT /api/kyc/orgs/{okahandja}`
+1. Annotation: `@Perm(resource="kyc.application", verb=MODIFY, tenant="#orgId")` → cell **kyc.application × modify** (bit 4).
+2. Gateway: route from the manifest → `Check(selma, okahandja, "kyc.application.modify")`.
+3. PDP:
+   - assignment `org_admin@own(okahandja)` covers the tenant;
+   - grid `org_admin` row `kyc.application` = **29** → `29 & 4 = 4` → **ALLOW**, `decision_id = d-7f1`.
+4. Gateway signs the context (`perms` for okahandja) → backend `@Perm` fast path (same tenant, permission present) → the service saves → audit row carries `d-7f1`.
+
+**2. Tomas tries to withdraw money:** `POST /api/merchant/withdrawals`
+1. Cell **merchant.withdrawal × execute** (bit 64), tenant = SELF (Okahandja).
+2. PDP: `org_staff` row `merchant.withdrawal` = **1** (read only) → `1 & 64 = 0` → **DENY**.
+3. Gateway: `403 insufficient_permission: subject lacks "merchant.withdrawal.execute" in tenant "okahandja"`. **Never forwarded.**
+
+**3. Jonas edits his child org's draft:** the same request as step 1, made by Jonas.
+- `org_admin@subtree(namib)`, and Namib is an ancestor of Okahandja in the closure → covered.
+- Row mask 29 → **ALLOW**.
+
+The **same Jonas** on a sibling merchant under another distributor → no covering assignment → **DENY** (`404` at the backend's visibility check, so the org's existence isn't revealed).
+
+**4. Selma submits; Ops-Ana decides:** `POST /api/kyc/tasks/{t1}/decision`
+1. Cell **kyc.task × authorize**, tenant via LOOKUP (task → Okahandja), obligation `acr=aal2, max_age=300`.
+2. Gateway: `CheckAny(ops-ana, "kyc.task.authorize")` → allowed (platform role, scope all).
+3. The session is 40 min old → **401 step-up** → push approval → retried.
+4. Backend: `@tenants.ofTask(t1)` = Okahandja → `@authz.can` → ALLOW. The workflow engine's OBJECT rule checks that Ops-Ana didn't submit it → allowed → decision recorded.
+
+**5. Selma tries to decide her own application's task:**
+- `org_admin` has **no** tick in `kyc.task × authorize` → the gateway refuses with **403**.
+- If a misconfigured role ever gave her the tick, the OBJECT SoD rule (`kyc.application.submit` × `kyc.task.authorize`) and the engine's maker ≠ checker check would still refuse it with **403 MAKER_CANNOT_ACT**.
+
+**6. An administrator tries to give Ops-Ana `platform_user_admin` as well:** STATIC SoD (`*.administer` × `*.authorize` for platform roles) → **409 SOD_CONFLICT**: "platform_user_admin conflicts with platform_ops_reviewer (admins don't approve customers)".
+
+### G.8 The screen: Roles & access
+
+The admin portal gets one grid per role:
+- rows grouped by service (collapsible);
+- 10 columns;
+- cells: ☑ granted, ☐ not granted, · no endpoint (greyed), ⊘ blocked by SoD (hover for the rule).
+
+**Clicking a cell** shows the endpoints it protects (`rbac_cell_endpoints`) and who holds it.
+
+**Bulk shortcuts:** a group row or a column header ticks the visible cells. They are stored cell by cell, so a newly registered row never inherits access automatically.
+
+**Saving** shows a diff ("+3 cells, −1 cell"). For privileged roles it waits for a second approver (four-eyes), and every change is audited.
+
+**Per-user view (read-only):** "Selma in Okahandja Fresh Market" is the OR of her roles' grids on that org. That's the effective-permission view for audits and access reviews.
+
+### G.9 Rollout
+
+| Step | Work | Effort |
+|---|---|---|
+| 1 | `Verb` enum, `@Perm`, `@PublicEndpoint`, manifest publisher (rows + cells), ArchUnit and startup checks in **report-only** mode | 1 day |
+| 2 | RBAC: `rbac_resources`, `rbac_role_grid`, `rbac_cell_endpoints`, `rbac_sod_rules`; bit-test `Check`, `CheckAny`, `ListPermissions`; `RegisterEndpoints` / `ListEndpoints`; SoD on save and assign | 2 days |
+| 3 | Annotate the 205 handlers from the draft mapping (G.10); compliance reviews rows, cells and starting roles (G.6) | 1–2 days |
+| 4 | Copy today's authorizations into grids and assignments (ADMIN/STAFF, platform functions, TPTS_OPS / MINDLABS_ADMIN → the new platform roles); resolve SoD conflicts | 1 day |
+| 5 | **Shadow mode** per controller (old rule enforced, grid decision logged); fix mismatches; then enforce, with Merchant/Supplier/Lender first, then Ops/Admin, then Org/KYC | 2–3 days + 1 week of observation |
+| 6 | Roles & access grid screen (edit, diff, four-eyes, per-user view) | 2–3 days |
+| 7 | Generated authorization-matrix tests (persona × endpoint, from the grids); checks switch to **enforcing** | 1 day |
+
+That's about 10–13 working days plus the shadow week. The work slots into migration steps 2b, 2c, 4b, 4c and 4d (§8).
+
+### G.10 Draft catalogue generated from the code (for review)
+
+Generated from the 205 handlers by name and HTTP method, then curated: 50 rows, 119 used cells, and 11 endpoints with no cell (public or service identity). **Every assignment below needs a human review** before step 3; misreadings are likely in borderline names.
+
+**The grid (● = a used cell):**
+
+| Resource (row) | read | create | modify | delete | submit | authorize | execute | export | administer | simulate |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `admin.access` | ● |  |  |  |  |  |  |  | ● |  |
+| `admin.aml_alert` | ● |  |  |  |  |  |  |  |  |  |
+| `admin.api_client` | ● | ● |  |  |  |  |  |  | ● |  |
+| `admin.config` | ● |  | ● |  |  |  |  |  |  |  |
+| `admin.connector` | ● |  | ● |  |  |  | ● |  | ● |  |
+| `admin.dsar` | ● | ● |  |  |  |  |  | ● |  |  |
+| `admin.platform_ops` | ● |  |  |  |  |  | ● |  | ● |  |
+| `admin.sar` | ● | ● |  |  | ● |  |  |  |  |  |
+| `admin.simulation` | ● |  |  |  |  |  |  |  |  | ● |
+| `kyc.application` | ● |  | ● | ● | ● |  |  |  |  |  |
+| `kyc.form` | ● |  |  |  |  |  |  |  |  |  |
+| `kyc.task` | ● |  |  |  |  | ● |  |  |  |  |
+| `lender.advance` | ● |  |  |  |  | ● |  |  |  |  |
+| `lender.assessment` | ● |  |  |  |  |  | ● |  |  |  |
+| `lender.collection` | ● |  |  |  |  |  | ● |  |  |  |
+| `lender.portfolio` | ● |  |  |  |  |  | ● |  |  |  |
+| `merchant.account` | ● |  |  |  |  |  |  |  |  |  |
+| `merchant.advance` | ● | ● |  | ● | ● | ● |  |  |  | ● |
+| `merchant.inventory` | ● | ● | ● |  |  |  |  |  |  |  |
+| `merchant.invoice` | ● |  |  |  |  |  | ● |  |  |  |
+| `merchant.khata` | ● | ● |  |  |  |  | ● |  |  |  |
+| `merchant.order` | ● | ● |  |  |  |  |  |  |  |  |
+| `merchant.payment` | ● |  |  |  |  |  | ● |  |  | ● |
+| `merchant.statement` | ● |  |  |  |  |  | ● | ● |  |  |
+| `merchant.tab` | ● | ● |  |  |  |  | ● |  |  |  |
+| `merchant.withdrawal` | ● |  |  |  |  |  | ● |  |  |  |
+| `ops.audit` | ● |  |  |  |  |  |  |  |  |  |
+| `ops.bank_account_approval` | ● |  |  |  |  | ● |  |  |  |  |
+| `ops.complaint` | ● | ● | ● |  |  |  |  |  |  |  |
+| `ops.dispute` | ● | ● | ● |  |  |  |  |  |  |  |
+| `ops.incident` | ● | ● | ● |  |  |  |  |  |  |  |
+| `ops.kyc_check` | ● | ● |  |  |  |  |  |  |  |  |
+| `ops.merchant_approval` | ● |  |  |  |  | ● |  |  |  |  |
+| `ops.monitoring` |  |  |  |  |  |  | ● |  |  |  |
+| `ops.onboarding_request` | ● |  |  |  |  | ● |  |  |  |  |
+| `ops.recon` | ● |  | ● |  |  |  | ● |  |  |  |
+| `ops.report` | ● |  |  |  |  |  | ● |  |  |  |
+| `ops.supplier_approval` | ● |  |  |  |  | ● |  |  |  |  |
+| `ops.suspension` | ● |  |  |  |  |  |  |  | ● |  |
+| `org.onboarding` | ● | ● |  |  | ● | ● |  |  |  |  |
+| `org.rights` | ● |  |  |  |  |  |  |  | ● |  |
+| `org.suspension` |  |  |  |  |  |  |  |  | ● |  |
+| `org.tree` | ● |  |  |  |  |  |  |  |  |  |
+| `org.user` | ● | ● |  | ● |  |  | ● |  |  |  |
+| `supplier.account` | ● |  |  |  |  |  |  |  |  |  |
+| `supplier.bank_account` | ● |  | ● | ● |  |  |  |  |  |  |
+| `supplier.catalogue` | ● | ● |  | ● |  |  |  |  |  |  |
+| `supplier.invoice` | ● | ● |  |  |  |  |  |  |  |  |
+| `supplier.order` | ● |  |  |  |  |  |  |  |  |  |
+| `supplier.statement` | ● |  |  |  |  |  | ● | ● |  |  |
+
+**Every handler and its cell:**
+
+| Row | Verb | Handlers (controller method) |
+|---|---|---|
+| `(public)` | — | activate, env, login, lookup, pay, registerMerchant, registerSupplier, requestOtp, verifyOtp |
+| `(service identity)` | — | providerEvent |
+| `(signed-in)` | — | me |
+| `admin.access` | read | access |
+| `admin.access` | administer | revokeAccess |
+| `admin.aml_alert` | read | amlAlerts |
+| `admin.api_client` | read | apiClients |
+| `admin.api_client` | create | createClient |
+| `admin.api_client` | administer | revokeClient |
+| `admin.config` | read | limits, rules, settings, tariffs, templates |
+| `admin.config` | modify | toggleRule, upsertLimit, upsertSetting, upsertTariff, upsertTemplate |
+| `admin.connector` | read | connectors |
+| `admin.connector` | modify | upsertConnector |
+| `admin.connector` | execute | testConnector |
+| `admin.connector` | administer | rotate |
+| `admin.dsar` | read | dsars |
+| `admin.dsar` | create | createDsar |
+| `admin.dsar` | export | export |
+| `admin.platform_ops` | read | backups, deployments, health, restoreTests |
+| `admin.platform_ops` | execute | backupNow, restoreTest |
+| `admin.platform_ops` | administer | deploy, rollback |
+| `admin.sar` | read | sars |
+| `admin.sar` | create | createSar |
+| `admin.sar` | submit | submitSar |
+| `admin.simulation` | read | scenarios, simControls |
+| `admin.simulation` | simulate | clearBreaks, injectBreak, runScene, setSimControls, simulateAdvance, simulateInvoicePayment, simulatePayment, synthetic |
+| `kyc.application` | read | get, list, listV2, mine, mineV2 |
+| `kyc.application` | modify | save, upgrade |
+| `kyc.application` | delete | withdraw |
+| `kyc.application` | submit | submit |
+| `kyc.form` | read | list, schemaForOrg, schemaForOwnOrg |
+| `kyc.task` | read | inbox |
+| `kyc.task` | authorize | decide |
+| `lender.advance` | read | advances, consents |
+| `lender.advance` | authorize | declineOffer, fund |
+| `lender.assessment` | read | assessments |
+| `lender.assessment` | execute | assess |
+| `lender.collection` | read | collections |
+| `lender.collection` | execute | sweep |
+| `lender.portfolio` | read | portfolio, records |
+| `lender.portfolio` | execute | snapshot |
+| `merchant.account` | read | balance, billingPreview, dashboard, devices, ledger, settings, speakerLog |
+| `merchant.advance` | read | consents, currentAdvance, eligibility, lenders |
+| `merchant.advance` | create | consent |
+| `merchant.advance` | delete | withdrawConsent |
+| `merchant.advance` | submit | requestAdvance |
+| `merchant.advance` | authorize | acceptAdvance |
+| `merchant.advance` | simulate | simulateFund |
+| `merchant.inventory` | read | alerts, inventory, reorderRules |
+| `merchant.inventory` | create | addItem |
+| `merchant.inventory` | modify | adjust, reorder |
+| `merchant.invoice` | read | invoiceDetail, invoices |
+| `merchant.invoice` | execute | payInvoice, retryTimeout |
+| `merchant.khata` | read | khata, khataEntries |
+| `merchant.khata` | create | addKhataEntry, createKhata |
+| `merchant.khata` | execute | remindKhata |
+| `merchant.order` | read | catalogue, orderDetail, orders |
+| `merchant.order` | create | placeOrder |
+| `merchant.payment` | read | payInfo, paymentDetail, payments |
+| `merchant.payment` | execute | accept, refund |
+| `merchant.payment` | simulate | simulate |
+| `merchant.statement` | read | statements |
+| `merchant.statement` | execute | generateStatement |
+| `merchant.statement` | export | downloadStatement |
+| `merchant.tab` | read | tabEntries, tabs |
+| `merchant.tab` | create | addTabEntry, createTab |
+| `merchant.tab` | execute | remindTab, settleTab |
+| `merchant.withdrawal` | read | withdrawals |
+| `merchant.withdrawal` | execute | withdraw |
+| `ops.audit` | read | audit |
+| `ops.bank_account_approval` | read | bankQueue |
+| `ops.bank_account_approval` | authorize | approveBankAccount |
+| `ops.complaint` | read | complaints |
+| `ops.complaint` | create | createComplaint |
+| `ops.complaint` | modify | assign, resolveComplaint |
+| `ops.dispute` | read | disputes |
+| `ops.dispute` | create | createDispute |
+| `ops.dispute` | modify | resolveDispute |
+| `ops.incident` | read | incidents |
+| `ops.incident` | create | createIncident |
+| `ops.incident` | modify | ack, resolveIncident |
+| `ops.kyc_check` | read | kycChecks |
+| `ops.kyc_check` | create | recordKycCheck |
+| `ops.merchant_approval` | read | merchantQueue, merchantsAll |
+| `ops.merchant_approval` | authorize | approveMerchant |
+| `ops.monitoring` | execute | touch |
+| `ops.onboarding_request` | read | onboardingRequests |
+| `ops.onboarding_request` | authorize | decideOnboarding |
+| `ops.recon` | read | breaks, reconRuns |
+| `ops.recon` | modify | resolveBreak |
+| `ops.recon` | execute | runRecon |
+| `ops.report` | read | feeReports, payments, settlement |
+| `ops.report` | execute | generateStatement |
+| `ops.supplier_approval` | read | supplierQueue, suppliersAll |
+| `ops.supplier_approval` | authorize | approveSupplier |
+| `ops.suspension` | read | suspensions |
+| `ops.suspension` | administer | lift, suspend |
+| `org.onboarding` | read | queue |
+| `org.onboarding` | create | submitChild |
+| `org.onboarding` | submit | requestAdminRecovery |
+| `org.onboarding` | authorize | decide |
+| `org.rights` | read | grantable, rights |
+| `org.rights` | administer | narrowRights |
+| `org.suspension` | administer | lift, suspend |
+| `org.tree` | read | descendants, me, meDescendants, mePath, meTree, org, outbox, path |
+| `org.user` | read | meUsers |
+| `org.user` | create | addStaff |
+| `org.user` | delete | deactivate |
+| `org.user` | execute | resend |
+| `supplier.account` | read | paymentsReceived, profile |
+| `supplier.bank_account` | read | bankAccounts |
+| `supplier.bank_account` | modify | changeBankAccount |
+| `supplier.bank_account` | delete | revokeBankAccount |
+| `supplier.catalogue` | read | catalogue |
+| `supplier.catalogue` | create | addToCatalogue |
+| `supplier.catalogue` | delete | retireItem |
+| `supplier.invoice` | read | invoiceDetail, invoices |
+| `supplier.invoice` | create | issueInvoice |
+| `supplier.order` | read | orderDetail, orders |
+| `supplier.statement` | read | statements |
+| `supplier.statement` | execute | generateStatement |
+| `supplier.statement` | export | download |
