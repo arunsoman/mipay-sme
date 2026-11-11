@@ -14,7 +14,7 @@ This file decides **what is built in what order, and why**. It doesn't repeat th
 | Org hierarchy (V4 migrations, `OrgTreeService`, suspensions) | org tree, closure, holds, onboarding rights | ✅ built |
 | [`kyc-design.md`](kyc-design.md) | KYC master, validation, workflow, providers | 🟡 **built in-process** (phases 1, 2, 3, 5, 7 in core: `KycMasterService`, `KycSecretProtector`, `KycWorkflowEngine`, built-in providers, shared editor). **Not done:** phase 0 (separate `kyc-service`), phase 4 (cross-service go-live gate), phase 6 (EMI profile; verify) |
 | [`fapi2-design.md`](fapi2-design.md) | the identity, FAPI and RBAC **design** (the "why") | 📘 design, revised to the agreed model. It is built through the cut-over plan, plus its §8 steps 7–8 |
-| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | login as a plugin, users owned by the core, RBAC decides (P0–P7) | 📝 planned; decisions D1–D10 agreed; `@Perm` catalogue and org-tree sync already done |
+| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | login as a plugin, users owned by the core, RBAC decides (P0–P7) | 🟡 **P0 done** (`1c12e52`, `eb3bd7f`); P1–P7 not started; decisions D1–D10 agreed; `@Perm` catalogue and org-tree sync already done |
 | [`2fa-design.md`](2fa-design.md) | 2FA in the IdP, shipped `off`, factors light up with comms (phases 1–5) | 📝 planned; all items decided; break-glass names are placeholders |
 | [`comms-design.md`](comms-design.md) | the comms plane: email, SMS, push, WhatsApp, in-app (P0–P4) | 📝 planned (uncommitted draft); §14 decisions are assumed |
 | [`inventory-plugin.md`](inventory-plugin.md) | the **plugin framework** (§1) and the Inventory plugin | 📝 planned; its prerequisite (org hierarchy) is done |
@@ -70,7 +70,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 
 | # | Item | Plan | Status |
 |---|---|---|---|
-| 0.1 | Review and commit the four plan docs (`idp-rbac-cutover-plan`, `2fa-design`, `fapi2-design` revision, `comms-design`) and this file | all | ✅ committed 2026-11-11 (review continues in the docs) |
+| 0.1 | Review and commit the four plan docs (`idp-rbac-cutover-plan`, `2fa-design`, `fapi2-design` revision, `comms-design`) and this file | all | ✅ 2026-11-11, commit `1c12e52` (review continues in the docs) |
 | 0.2 | Compliance starts reviewing the role pack (draft from cut-over P2.5 / `fapi2-design` G.6). The sign-off is needed only at Stage 3 | cut-over D9 | ⬜ |
 | 0.3 | Confirm the comms §14 assumptions (SMS aggregator, email provider, WhatsApp) and start provider contracts; the long lead time is why this starts now | comms §14 | ⬜ |
 | 0.4 | Mobile app: confirm the roadmap date (it gates push, C5) | 2fa D4 | ⬜ |
@@ -82,7 +82,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 
 | # | Item | Plan | Status |
 |---|---|---|---|
-| 1.1 | A0: edge hardening, switches, drop unused `Tenant` | cut-over P0 | ✅ code done 2026-11-11: 0.1 FAPI TLS in `nginx-mipay-sme.conf` (`nginx -t` ok); 0.2 `externalHost()` (DPoP `htu`, BFF `redirect_uri`, upstream `X-Forwarded-Host` from a trusted proxy only; tests); 0.3 `IDP_ENVIRONMENT` (no seed users and a public https issuer outside dev/sandbox; tests); 0.4 switches; 0.5 `Tenant` removed, V14 verified on Postgres. **Waiting on ops (⛔ for production only):** copy the nginx file to the host and reload; DNS + certificate for `auth.afriqpay.com` before `IDP_ENVIRONMENT=production` |
+| 1.1 | A0: edge hardening, switches, drop unused `Tenant` | cut-over P0 | ✅ code done 2026-11-11, commits `1c12e52` (0.4, 0.5) and `eb3bd7f` (0.1–0.3): 0.1 FAPI TLS in `nginx-mipay-sme.conf` (`nginx -t` ok); 0.2 `externalHost()` (DPoP `htu`, BFF `redirect_uri`, upstream `X-Forwarded-Host` from a trusted proxy only; tests); 0.3 `IDP_ENVIRONMENT` (no seed users and a public https issuer outside dev/sandbox; tests); 0.4 switches; 0.5 `Tenant` removed, V14 verified on Postgres. **Waiting on ops (⛔ for production only):** copy the nginx file to the host and reload; DNS + certificate for `auth.afriqpay.com` before `IDP_ENVIRONMENT=production` |
 | 1.2 | A1: IdP credential accounts, enrolment API, events, `uid` claim, `CommsClient` (sandbox) | cut-over P1 | ⬜ |
 | 1.3 | A2: delete the demo RBAC; build the grid, roles, SoD, four-eyes approvals | cut-over P2 | ⬜ |
 | 1.4 | B0: comms plane skeleton, Postgres queue, sandbox provider, `POST /messages`, `GET /capabilities` | comms P0 | ⬜ |
@@ -188,6 +188,8 @@ These assume one developer on Track A and a second on Tracks B and C. The comms 
 | Current branch-code lists from each bank | before production KYC for new banks | ops | kyc §18 |
 | Whether a parent org's admin should ever be a KYC approval stage | Track D | compliance | kyc §18 |
 | Inventory assumptions (its "please confirm" list) | E1 (Stage 5) | product | inventory, Assumptions |
+| Deploy the hardened `nginx-mipay-sme.conf` to the afriqpay host and reload nginx | production edge (P0.1) | ops | cut-over P0, `eb3bd7f` |
+| DNS + certificate for `auth.afriqpay.com`, then `IDP_ENVIRONMENT=production` with that issuer | production IdP (P0.3); before A4 goes live | ops | cut-over P0, `eb3bd7f` |
 
 Resolved elsewhere, kept here for traceability: who holds compliance roles in production is now RBAC assignments (cut-over D9/D10), and comms owns the SMS/email provider choice (2fa §17).
 
