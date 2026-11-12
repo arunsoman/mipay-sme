@@ -99,7 +99,7 @@ public class RolePack {
         }
 
         // extended-rbac X11: org-defined roles are subsets of the signed-off roles above; listed for the access review
-        List<Policy.Role> orgRoles = s.roles().values().stream().filter(Policy.Role::orgDefined).toList();
+        List<Policy.Role> orgRoles = s.roles().values().stream().filter(r -> r.orgDefined() && !r.retired()).toList();
         b.append("---\n\n## Role ceilings and org-defined roles\n\n");
         b.append("Every org uses only the roles inside its **role ceiling**, chosen by the org that onboarded it and never wider than that org's own hand-down set. ")
                 .append("Always inside every ceiling: ").append(s.baseline().isEmpty() ? "nothing" : "`" + String.join("`, `", s.baseline()) + "`").append(".\n\n");

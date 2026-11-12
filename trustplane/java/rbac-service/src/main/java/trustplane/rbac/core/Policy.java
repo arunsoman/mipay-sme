@@ -32,7 +32,7 @@ public class Policy {
      */
     public record Role(String name, String description, String kind, String approval, Integer maxHours,
                        int allRowsVerbs, boolean seeded, Map<String, Integer> grid, List<String> juniors,
-                       String ownerTenant, List<String> baseRoles) {
+                       String ownerTenant, List<String> baseRoles, boolean retired) {
         public int ownMask(String row) {
             return grid.getOrDefault(row, 0) | allRowsVerbs;
         }
@@ -101,13 +101,13 @@ public class Policy {
             juniors.computeIfAbsent(rs.getString("senior"), k -> new ArrayList<>()).add(rs.getString("junior"));
         });
         Map<String, Role> roles = new LinkedHashMap<>();
-        db.query("SELECT name, description, kind, approval, max_hours, all_rows_verbs, seeded, owner_tenant, base_roles FROM roles ORDER BY name", rs -> {
+        db.query("SELECT name, description, kind, approval, max_hours, all_rows_verbs, seeded, owner_tenant, base_roles, retired_at FROM roles ORDER BY name", rs -> {
             String n = rs.getString("name");
             Integer mh = (Integer) rs.getObject("max_hours");
             roles.put(n, new Role(n, rs.getString("description"), rs.getString("kind"), rs.getString("approval"), mh,
                     rs.getInt("all_rows_verbs"), rs.getBoolean("seeded"),
                     grids.getOrDefault(n, Map.of()), juniors.getOrDefault(n, List.of()),
-                    rs.getString("owner_tenant"), arr(rs.getArray("base_roles"))));
+                    rs.getString("owner_tenant"), arr(rs.getArray("base_roles")), rs.getTimestamp("retired_at") != null));
         });
         Map<String, Set<String>> expanded = new HashMap<>();
         for (String r : roles.keySet()) expanded.put(r, expand(r, juniors));

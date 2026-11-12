@@ -147,6 +147,7 @@ public class AccessService {
      * base role inside the owner's ceiling. System writes are not exempt.
      */
     void checkCeiling(Policy.Role r, String tenant) {
+        if (r.retired()) throw new ApiException(409, "ROLE_RETIRED", r.name() + " belonged to an org that is no longer active");
         Ceilings.Effective c = ceilings.of(tenant);
         if (r.orgDefined()) {
             if (!r.ownerTenant().equals(tenant)) {
@@ -406,7 +407,9 @@ public class AccessService {
                 UPDATE grants SET status='revoked', revoked_by=?, revoked_at=now() WHERE status='active' AND tenant_id IN (
                     SELECT descendant_id FROM org_closure WHERE ancestor_id=? UNION SELECT ?)""", SYSTEM, tenant, tenant);
         store.touchSubjects(new ArrayList<>(new LinkedHashSet<>(subjects)));
-        store.audit(SYSTEM, tenant, "tenant_assignments_revoked", Map.of("count", subjects.size(), "reason", reason));
+        List<String> retired = store.retireOrgRoles(db.queryForList(
+                "SELECT descendant_id FROM org_closure WHERE ancestor_id=? UNION SELECT ?", String.class, tenant, tenant), SYSTEM);
+        store.audit(SYSTEM, tenant, "tenant_assignments_revoked", Map.of("count", subjects.size(), "reason", reason, "retired_roles", retired));
         return subjects.size();
     }
 

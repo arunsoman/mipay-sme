@@ -510,4 +510,44 @@ class RbacGridTest {
         assertEquals(409, status(() -> access.request("core-user-7", new AccessService.AssignRequest("vera", "org_staff", "oka", "own", null, ""),
                 "core_portal", true)));
     }
+
+    @Test
+    void orgDefinedRolesAreRetiredWithTheirOrgButKeepTheirHistory() {
+        Map<String, Integer> clerk = store.parseGrid(Map.of("merchant.inventory", List.of("read", "create")), null);
+        store.createOrgRole("selma", "oka", "stock_clerk", "", List.of("org_staff"), clerk);
+        store.createOrgRole("jonas", "oka2", "counter", "", List.of("org_viewer"),
+                store.parseGrid(Map.of("merchant.inventory", List.of("read")), null));
+        String asg = (String) assign("pia", "stock_clerk@oka", "oka", "own").get("id");
+        assertTrue(allowed("pia", "oka", "merchant.inventory:create"));
+
+        // the core's revoke-all (KYC terminated / org archived) retires the org's own roles too
+        access.revokeForTenant("oka", "kyc rejected");
+        Policy.Role r = policy.get().roles().get("stock_clerk@oka");
+        assertTrue(r.retired());
+        assertEquals("REVOKED", access.view(asg).get("status"), "history kept, not deleted");
+        assertFalse(allowed("pia", "oka", "merchant.inventory:read"));
+        assertEquals(409, status(() -> assign("pia", "stock_clerk@oka", "oka", "own")));
+        assertEquals(409, status(() -> store.updateOrgRole("selma", "stock_clerk@oka", "x", null, null)));
+        assertTrue(((List<?>) store.rolesFor("oka").get("org_roles")).isEmpty());
+        // even an assignment written behind the API stays unusable
+        db.update("UPDATE assignments SET status='ACTIVE' WHERE id=?", asg);
+        assertEquals("role_retired:stock_clerk@oka", check("pia", "oka", "merchant.inventory:read").reason());
+
+        // an org that reaches a terminal state through the org-tree sync loses its roles as well
+        assertFalse(policy.get().roles().get("counter@oka2").retired());
+        List<Map<String, Object>> closure = new ArrayList<>();
+        List<RbacStore.OrgRow> rows = new ArrayList<>();
+        for (var e : tree.entrySet()) {
+            int depth = 0;
+            for (String cur = e.getKey(); cur != null; cur = tree.get(cur)[1], depth++) {
+                closure.add(Map.of("ancestor", cur, "descendant", e.getKey(), "depth", depth));
+            }
+            rows.add(new RbacStore.OrgRow(e.getKey(), e.getKey(), e.getValue()[0], e.getValue()[1],
+                    "oka2".equals(e.getKey()) ? "CLOSED" : "ACTIVE", false, List.of()));
+        }
+        store.syncOrgs(closure, rows);
+        assertTrue(policy.get().roles().get("counter@oka2").retired());
+        String md = new RolePack(db, policy).render("dev");
+        assertFalse(md.contains("stock_clerk@oka") || md.contains("counter@oka2"), "retired roles leave the role pack");
+    }
 }

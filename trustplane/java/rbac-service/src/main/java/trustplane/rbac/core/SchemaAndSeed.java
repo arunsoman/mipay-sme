@@ -189,6 +189,9 @@ public class SchemaAndSeed implements ApplicationRunner {
             "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS role_delegable TEXT[]",
             "ALTER TABLE roles ADD COLUMN IF NOT EXISTS owner_tenant TEXT",
             "ALTER TABLE roles ADD COLUMN IF NOT EXISTS base_roles TEXT[] NOT NULL DEFAULT '{}'",
+            // an org-defined role of an archived / rejected / closed org is retired, never deleted:
+            // its assignment history stays for audit, but it can't be assigned or used again
+            "ALTER TABLE roles ADD COLUMN IF NOT EXISTS retired_at TIMESTAMPTZ",
             "CREATE INDEX IF NOT EXISTS roles_owner_idx ON roles(owner_tenant)", """
             CREATE TABLE IF NOT EXISTS ceiling_baseline(
                 role TEXT PRIMARY KEY REFERENCES roles(name) ON DELETE CASCADE)""");

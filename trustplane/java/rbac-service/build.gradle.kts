@@ -49,6 +49,10 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     environment("TEST_RBAC_DSN", System.getenv("TEST_RBAC_DSN") ?: "")
     environment("TEST_RBAC_SEED", rootProject.file("../config/rbac/grid.yaml").absolutePath)
+    // role pack export (RolePackExport): skipped unless both are set
+    environment("ROLE_PACK_DSN", System.getenv("ROLE_PACK_DSN") ?: "")
+    environment("ROLE_PACK_OUT", System.getenv("ROLE_PACK_OUT") ?: "")
+    environment("ROLE_PACK_ENV", System.getenv("ROLE_PACK_ENV") ?: "dev")
     testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
 

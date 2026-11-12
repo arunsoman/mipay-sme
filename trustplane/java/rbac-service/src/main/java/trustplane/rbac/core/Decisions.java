@@ -231,6 +231,10 @@ public class Decisions {
             }
             Ceilings.Effective c = eff.get(a.tenant());
             if (r.orgDefined()) {
+                if (r.retired()) {
+                    skipped.add("role_retired:" + r.name());
+                    continue;
+                }
                 if (!r.ownerTenant().equals(a.tenant())) {
                     skipped.add("role_not_owned:" + r.name() + "@" + a.tenant());
                     continue;

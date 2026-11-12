@@ -153,6 +153,8 @@ public class RbacStore {
             }
         }
         changed.addAll(ceilings.clampAll()); // child within parent (extended-rbac X4)
+        // an org that reached a terminal state (or vanished) keeps no usable org-defined roles
+        retireOrgRoles(db.queryForList("SELECT id FROM tenants WHERE lifecycle IN ('REJECTED','BLOCKED','CLOSED','ARCHIVED')", String.class), "mipay");
         for (String id : changed) touchTenantTree(id);
         if (closure != null || !changed.isEmpty()) touchAll(); // tree shape or a ceiling changed: subjects anywhere may be affected
         audit("mipay", null, "org_tree_sync", Map.of("orgs", orgs.size(), "closure_rows", closureRows, "changed", changed));
@@ -242,6 +244,7 @@ public class RbacStore {
         m.put("inherits", r.juniors());
         m.put("owner_tenant", r.ownerTenant());
         m.put("base_roles", r.baseRoles());
+        if (r.orgDefined()) m.put("retired", r.retired());
         Map<String, List<String>> grid = new LinkedHashMap<>();
         for (var e : new java.util.TreeMap<>(r.grid()).entrySet()) grid.put(e.getKey(), Verbs.names(e.getValue()));
         m.put("grid", grid);
@@ -474,6 +477,7 @@ public class RbacStore {
     public Map<String, Object> updateOrgRole(String actor, String name, String description, List<String> bases, Map<String, Integer> grid) {
         Policy.Role r = policy.get().roles().get(name);
         if (r == null || !r.orgDefined()) throw ApiException.notFound();
+        if (r.retired()) throw new ApiException(409, "ROLE_RETIRED", name + " belonged to an org that is no longer active");
         List<String> newBases = bases == null ? r.baseRoles() : List.copyOf(new LinkedHashSet<>(bases));
         Map<String, Integer> newGrid = grid == null ? r.grid() : grid;
         String approval = validateOrgRole(name, r.ownerTenant(), newBases, newGrid);
@@ -484,6 +488,28 @@ public class RbacStore {
         touchAll();
         audit(actor, r.ownerTenant(), "org_role_update", Map.of("role", name, "base_roles", newBases, "grid", newGrid));
         return getRole(name);
+    }
+
+    /**
+     * Retires the org-defined roles owned by these orgs (they are archived, rejected or
+     * closed): kept with their assignment history for audit, revoked wherever still held,
+     * never assignable or usable again. Returns the roles retired now.
+     */
+    public List<String> retireOrgRoles(java.util.Collection<String> tenants, String actor) {
+        if (tenants == null || tenants.isEmpty()) return List.of();
+        List<String> names = db.queryForList(
+                "UPDATE roles SET retired_at=now(), updated_at=now() WHERE owner_tenant = ANY(?::text[]) AND retired_at IS NULL RETURNING name",
+                String.class, SchemaAndSeed.pgArray(new ArrayList<>(tenants)));
+        if (names.isEmpty()) return names;
+        List<String> subjects = db.queryForList(
+                "UPDATE assignments SET status='REVOKED', revoked_by=?, revoked_at=now(), revoke_reason='org-defined role retired' "
+                        + "WHERE role = ANY(?::text[]) AND status IN ('ACTIVE','PENDING_APPROVAL') RETURNING subject",
+                String.class, actor, SchemaAndSeed.pgArray(names));
+        policy.reload();
+        touchSubjects(new ArrayList<>(new LinkedHashSet<>(subjects)));
+        touchAll();
+        audit(actor, null, "org_roles_retired", Map.of("roles", names, "assignments_revoked", subjects.size()));
+        return names;
     }
 
     /**
@@ -505,7 +531,7 @@ public class RbacStore {
                 v.put("delegable", c.mayDelegate(r.name()));
                 v.put("baseline", s.baseline().contains(r.name()));
                 global.add(v);
-            } else if (tenant.equals(r.ownerTenant())) {
+            } else if (tenant.equals(r.ownerTenant()) && !r.retired()) {
                 Map<String, Object> v = roleView(r);
                 v.put("in_ceiling", r.baseRoles().stream().allMatch(c::allows));
                 own.add(v);
