@@ -44,6 +44,10 @@ class RbacGridTest {
 
     void wire(String env) throws Exception {
         String raw = System.getenv("TEST_RBAC_DSN");
+        if ("true".equalsIgnoreCase(System.getenv("REQUIRE_RBAC_DSN"))) {
+            assertNotNull(raw, "TEST_RBAC_DSN is required for the RBAC test suite");
+            assertFalse(raw.isBlank(), "TEST_RBAC_DSN is required for the RBAC test suite");
+        }
         Assumptions.assumeTrue(raw != null && !raw.isBlank(), "TEST_RBAC_DSN not set (needs a scratch Postgres)");
         PostgresDsn dsn = PostgresDsn.parse(raw);
         DriverManagerDataSource ds = new DriverManagerDataSource(dsn.jdbcUrl(), dsn.user(), dsn.password());

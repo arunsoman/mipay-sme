@@ -44,7 +44,7 @@ role-pack:
 ##   make test-integration PG=postgres://user:pw@127.0.0.1:5432
 test-integration:
 	TEST_IDP_DSN="$(PG)/idp_test?sslmode=disable" TEST_COMMS_DSN="$(PG)/comms_test?sslmode=disable" go test -p 1 ./... -count=1
-	cd java && TEST_RBAC_DSN="$(PG)/rbac_test?sslmode=disable" ./gradlew :rbac-service:test
+	cd java && REQUIRE_RBAC_DSN=true TEST_RBAC_DSN="$(PG)/rbac_test?sslmode=disable" ./gradlew :rbac-service:test
 	cd java && TEST_COMMS_DSN="$(PG)/comms_test?sslmode=disable" ./gradlew :comms-service:test --rerun-tasks
 
 ## Host-side smoke test (needs /etc/hosts entries, see README)

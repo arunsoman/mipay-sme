@@ -24,6 +24,9 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
   template: `
+    <div class="rbac-status" role="status">
+      This matrix configures RBAC policy data. RBAC is not yet enforced for MiPay application access; existing legacy role checks still control access.
+    </div>
     <div class="head">
       <h2>Permission Matrix</h2>
       <div class="tabs" role="tablist">
@@ -147,6 +150,7 @@ import {
     }
   `,
   styles: [`
+    .rbac-status { margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d6a43a; border-radius: 6px; color: #f4d58d; background: #302713; font-size: 13px; }
     .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 20px; line-height: 1.1; }
     .filter { max-width: 260px; }
