@@ -31,8 +31,9 @@ public class ActivationController {
           description = "Resend activation for a user (PATH tenant)")
     @PostMapping("/api/orgs/users/{id}/resend-activation")
     public Dtos.Message resend(@PathVariable String id) {
-        String outboxId = activation.resend(id, Current.get());
-        return new Dtos.Message("Activation re-issued; outbox entry " + outboxId, null);
+        String tokenId = activation.resend(id, Current.get());
+        // the set-up link itself (also emailed through the comms plane): User management shows it to copy
+        return new Dtos.Message("A new set-up link was issued", activation.linkOfToken(tokenId));
     }
 
     /** Sandbox-only outbox ([M8]) — never in production environments. */

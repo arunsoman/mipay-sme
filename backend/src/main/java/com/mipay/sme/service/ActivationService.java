@@ -51,6 +51,9 @@ public class ActivationService {
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final com.mipay.sme.config.AppProperties properties;
+    /** Comms-plane delivery of the set-up link (email, then SMS), when the comms plane is configured. */
+    private final org.springframework.beans.factory.ObjectProvider<com.mipay.sme.security.auth.LinkDelivery> linkDelivery;
+    private final org.springframework.beans.factory.ObjectProvider<com.mipay.sme.service.OrgTreeService> orgTree;
 
     @Value("${app.environment:sandbox}")
     private String environment;
@@ -94,8 +97,9 @@ public class ActivationService {
         msg.setStatus("QUEUED");
         notificationRepo.save(msg);
 
-        // sandbox-only raw-token mirror so the sim reader can assemble the link ([M8])
-        if ("sandbox".equalsIgnoreCase(environment)) {
+        // raw-token mirror, kept in every environment (2026-11-12): a user manager can show and
+        // copy a pending person's set-up link from User management
+        if (true) {
             SimOutbox outbox = new SimOutbox();
             outbox.setPurpose("ACTIVATION");
             outbox.setUserId(user.getId());
@@ -105,11 +109,38 @@ public class ActivationService {
             simOutboxRepo.save(outbox);
         }
 
+        // the set-up link goes out through the comms plane (email first, then SMS); a comms outage
+        // never blocks the issue — the user manager can still copy the link
+        String link = linkFor(rawToken);
+        com.mipay.sme.security.auth.LinkDelivery delivery = linkDelivery.getIfAvailable();
+        if (delivery != null) {
+            try {
+                delivery.deliver(new com.mipay.sme.security.auth.LinkDelivery.Request(user.getId(), token.getId(), "ENROL",
+                        link, token.getExpiresAt()));
+                msg.setStatus("SENT");
+                notificationRepo.save(msg);
+            } catch (RuntimeException e) {
+                log.error("[activation] set-up link for {} not delivered through comms: {}", user.getId(), e.getMessage());
+            }
+        }
+
         // audit carries the hash only — never the raw token ([C4/H8])
         auditService.record(issuedBy, "SYSTEM", "activation_issued", "user", user.getId(),
                 null, null, "tokenHash=" + HashUtil.sha256(rawToken).substring(0, 16)
                         + "…;expires in 72h; link assembled at dispatch", false, null);
         return token.getId();
+    }
+
+    /** The page a person opens to set their password. */
+    public String linkFor(String rawToken) {
+        return publicBaseUrl.replaceAll("/+$", "") + "/activate?token=" + rawToken;
+    }
+
+    /** The set-up link of an issued token (from the token mirror), or null. */
+    @Transactional(readOnly = true)
+    public String linkOfToken(String tokenId) {
+        return simOutboxRepo.findAll().stream().filter(o -> tokenId.equals(o.getActivationTokenId()))
+                .findFirst().map(o -> linkFor(o.getRawToken())).orElse(null);
     }
 
     /** Resend: only while PENDING, and only by the user's org admin or an ancestor admin. */
@@ -123,10 +154,10 @@ public class ActivationService {
         if (user.getOrgId() == null) {
             throw new ForbiddenException("NO_ORG", "User has no org binding");
         }
-        boolean admin = caller.orgRole() != null && Enums.OrgMemberRole.ADMIN.name().equals(caller.orgRole());
-        if (!admin) {
-            throw new ForbiddenException("ADMIN_REQUIRED", "Org admin or an ancestor admin may resend");
-        }
+        // who may resend is RBAC's decision (org.user:administer); the person must be in the
+        // caller's org or an org below it
+        var tree = orgTree.getIfAvailable();
+        if (tree != null) tree.visible(caller, user.getOrgId());
         String outboxId = issue(user, caller.userId());
         return outboxId;
     }

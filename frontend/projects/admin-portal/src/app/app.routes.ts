@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { adminGuard } from './core/guards';
 import { Login } from './features/login/login';
+import { Activate } from './features/activate/activate';
 import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
 import { UserManagement } from '../../../shared/users/user-management';
@@ -14,6 +15,7 @@ import { PermissionMatrix } from './features/permission-matrix/permission-matrix
  */
 export const routes: Routes = [
   { path: 'login', component: Login },
+  { path: 'activate', component: Activate },
   {
     path: '',
     component: Shell,

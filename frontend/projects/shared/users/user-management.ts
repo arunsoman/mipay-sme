@@ -58,7 +58,11 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
                   @empty {<span class="sub">no role</span>}
                 </td>
                 <td><span class="st {{ p.status.toLowerCase() }}">{{ p.status.toLowerCase() }}</span></td>
-                <td class="act"><button type="button" class="ghost sm" (click)="startRole(p)">Give a role</button></td>
+                <td class="act">
+                  @if (p.status === 'PENDING') {
+                    <button type="button" class="ghost sm" (click)="setupLink(p)" [disabled]="busy()">Set-up link</button>
+                  }
+                  <button type="button" class="ghost sm" (click)="startRole(p)">Give a role</button></td>
               </tr>
             } @empty {
               <tr><td colspan="5" class="sub pad">No people in this organization yet.</td></tr>
@@ -69,6 +73,16 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     } @else if (!loadError()) {
       <div class="muted">Loading…</div>
     }
+
+    <!-- a pending person's set-up link: emailed, and shown here to copy -->
+    <mp-modal [open]="!!link()" eyebrow="Set-up link" [title]="link()?.name ?? ''" (closed)="link.set(null)">
+      @if (link(); as l) {
+        <p class="hint">A new link was issued and emailed to {{ l.email || 'them' }}. Earlier links stop working.
+          It works once and expires in 72 hours. Anyone with it can set this person's password: share it only with them.</p>
+        <div class="linkrow"><input class="inp mono" readonly [value]="l.url" (focus)="$any($event.target).select()" />
+          <button type="button" class="primary" (click)="copy(l.url)">{{ copied() ? 'Copied' : 'Copy' }}</button></div>
+      }
+    </mp-modal>
 
     <!-- 1. add a person -->
     <mp-modal [open]="adding()" eyebrow="User management" title="Add a person" [dirty]="!!(np.name || np.phone || np.email)"
@@ -179,6 +193,9 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
            background: #0d0d0d; border-color: #2a2a2a; padding: 0 14px; }
     .tried .inp.ng-invalid { border-color: var(--a-red); }
     .hint { margin: 0; color: var(--a-dim); font-size: 13px; }
+    .linkrow { display: flex; gap: 8px; margin-top: 12px; }
+    .linkrow .inp { font-size: 12.5px; }
+    .act button + button { margin-left: 6px; }
     .foot { display: flex; gap: 10px; align-items: center; }
     .foot button { min-height: 42px; padding: 0 20px; }
     .seg { display: inline-flex; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; justify-self: start; }
@@ -213,6 +230,29 @@ export class UserManagement implements OnInit {
   readonly busy = signal(false);
 
   readonly adding = signal(false);
+  readonly link = signal<{ name: string; email: string; url: string } | null>(null);
+  readonly copied = signal(false);
+
+  /** Issues a fresh set-up link (emailed through comms) and shows it to copy. */
+  async setupLink(p: Person) {
+    this.busy.set(true);
+    this.flash.set(null);
+    try {
+      const r = await firstValueFrom(this.http.post<{ message: string; label: string | null }>(
+        `/api/orgs/users/${p.id}/resend-activation`, {}));
+      this.copied.set(false);
+      if (r.label) this.link.set({ name: p.name, email: p.email, url: r.label });
+      else this.flash.set({ kind: 'ok', text: `A new set-up link was emailed to ${p.name}.` });
+    } catch (e) {
+      this.flash.set({ kind: 'bad', text: this.refusal(e) });
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async copy(text: string) {
+    try { await navigator.clipboard.writeText(text); this.copied.set(true); } catch { this.copied.set(false); }
+  }
   np = { name: '', phone: '', email: '' };
 
   readonly roleFor = signal<Person | null>(null);
