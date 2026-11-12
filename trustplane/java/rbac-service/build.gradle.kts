@@ -48,6 +48,8 @@ dependencies {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     environment("TEST_RBAC_DSN", System.getenv("TEST_RBAC_DSN") ?: "")
+    // CI must exercise the Postgres-backed policy tests instead of accepting JUnit skips.
+    environment("REQUIRE_RBAC_DSN", System.getenv("REQUIRE_RBAC_DSN") ?: if (System.getenv("CI") == "true") "true" else "")
     environment("TEST_RBAC_SEED", rootProject.file("../config/rbac/grid.yaml").absolutePath)
     // role pack export (RolePackExport): skipped unless both are set
     environment("ROLE_PACK_DSN", System.getenv("ROLE_PACK_DSN") ?: "")
