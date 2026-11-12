@@ -29,7 +29,7 @@ Only work still to do is listed here. Finished work, delivery notes and the old 
 | Step | Work | Plan |
 |---|---|---|
 | **1. Now** | Commit and push the review fixes; deploy to afriqpay (trustplane first, then `deploy/afriqpay/preflight.sh`, then mipay) | — |
-| | P3 remainder: org-binding backfill + `users.org_id NOT NULL`, identity backfill, RBAC backfill, admin access screen; UAT in `dual` mode | cut-over 3.9–3.11 |
+| | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
 | | OA1 TPTS root bootstrap · OA2 capability roles · OA3 per-type onboarding rights in the UI | org-access |
 | | Comms B1 starts (real email/SMS providers) | comms P1 |
 | **2. Before 2026-12-31** | P4 gateway sessions · P5 portals on the BFF, with OA7 org-centred navigation | cut-over, org-access |
