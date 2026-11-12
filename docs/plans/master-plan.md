@@ -2,7 +2,7 @@
 
 Status: **living document** · last updated 2026-11-12
 
-afriqpay runs `a1ee936` (deployed 2026-11-12; backups and `:pre-full-20261112` rollback tags on the host). Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
+afriqpay runs `d9bf909` (KYC v3, OA1/OA2; deployed 2026-11-12, rollback tags `:pre-kyc3-20261112`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
 
 ## 1. Plans with work left
 
