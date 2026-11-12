@@ -51,6 +51,9 @@ public class KycWorkflowEngine {
     private final KycVerificationRepository verifications;
     private final KycApplicationRepository apps;
     private final UserPlatformFunctionRepository functions;
+    private final com.mipay.sme.security.rbac.RbacMeshClient rbac;
+    @org.springframework.beans.factory.annotation.Value("${app.rbac.mode:shadow}")
+    private String rbacMode;
     private final UserRepository users;
     private final OrgCallerService callerService;
     private final OrgUserService orgUsers;
@@ -597,7 +600,16 @@ public class KycWorkflowEngine {
                     throw new ForbiddenException("MAKER_CANNOT_ACT", "The submitter cannot act on their own submission");
                 }
                 String function = text(rule.get("function"));
-                if (function != null && !function.isBlank()
+                if ("enforce".equalsIgnoreCase(rbacMode)) {
+                    // RBAC decides who reviews: the kyc.task:authorize permission (role or org-defined role)
+                    boolean may;
+                    try {
+                        may = Boolean.TRUE.equals(rbac.check(actor.userId(), "", "kyc.task:authorize").get("allowed"));
+                    } catch (RuntimeException e) {
+                        may = false;
+                    }
+                    if (!may) throw new ForbiddenException("NO_PERMISSION", "Approving KYC needs the permission kyc.task:authorize");
+                } else if (function != null && !function.isBlank()
                         && !functions.existsByUserIdAndFunction(actor.userId(), function)) {
                     throw new ForbiddenException("NO_FUNCTION",
                             "User does not hold the platform function " + function

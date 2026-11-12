@@ -26,7 +26,7 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
       <div class="ptitle">{{ v.orgName }} <span class="chip">{{ v.orgType }}</span>
         <span class="chip {{ cls(v.status) }}">{{ v.status.replace('_', ' ') }}</span>
         @if (v.isSuspended) {<span class="chip bad">SUSPENDED</span>}
-        @if (readOnly() && v.canEdit && v.orgType !== 'PLATFORM') {
+        @if (readOnly() && allowEdit() && v.canEdit && v.orgType !== 'PLATFORM') {
           <button class="primary editbtn" (click)="edit.emit(v.orgId)">{{ doc() ? 'Edit KYC' : 'Start KYC application' }}</button>
         }
       </div>
@@ -141,6 +141,8 @@ export class KycApplication {
   readonly edit = output<string>();
   /** Onboarding wizard: no header, one footer (Back · Save draft · Continue / Submit). */
   readonly wizard = input(false);
+  /** Read-only views may offer "Edit KYC"; the approver's review never does. */
+  readonly allowEdit = input(true);
   /** Step the form opens on (0-based). */
   readonly startStep = input(0);
   readonly editor = viewChild<KycSchemaEditor>('ed');

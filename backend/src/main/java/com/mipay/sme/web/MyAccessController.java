@@ -2,10 +2,7 @@ package com.mipay.sme.web;
 
 import com.mipay.sme.domain.org.Organization;
 import com.mipay.sme.security.Current;
-import com.mipay.sme.security.rbac.Perm;
 import com.mipay.sme.security.rbac.RbacMeshClient;
-import com.mipay.sme.security.rbac.TenantSource;
-import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.OrgTreeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,8 +31,8 @@ public class MyAccessController {
     public record MyAccess(String orgId, String orgName, String orgType, List<HeldPermission> permissions) { }
 
     @SuppressWarnings("unchecked")
-    @Perm(resource = "org.user", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
-          description = "My permissions in my organization (User management)")
+    @com.mipay.sme.security.rbac.PublicEndpoint(reason = "needs no permission, only a signed-in user (SecurityConfig): "
+            + "every user may see their own permissions, which decide the menus they are shown")
     @GetMapping("/api/orgs/me/access")
     public MyAccess myAccess() {
         Current.Principal me = Current.get();

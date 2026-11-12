@@ -23,10 +23,10 @@ import { MyAccess, USER_ADMIN_CELL } from '../../../../../shared/users/user-mana
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
         <div class="brand">MiPay <span>{{ portal.label }}</span></div>
         <nav>
-          <a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>
-          <a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>
+          @if (can('org.onboarding')) {<a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>}
+          @if (can('org.tree')) {<a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>}
           @if (canManageUsers()) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
-          <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>
+          @if (can('kyc.application', 'kyc.task')) {<a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>}
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
@@ -112,12 +112,32 @@ export class Shell implements OnInit {
 
   /** User management shows only to holders of org.user:administer (RBAC or extended RBAC). */
   readonly canManageUsers = signal(false);
+  /** Cells the user holds in their own org: each menu shows only with its permission. */
+  readonly held = signal<Set<string>>(new Set());
+  /** Pages and the permissions that show them, in menu order. */
+  private readonly pages: [string, string[]][] = [['/onboarding', ['org.onboarding']], ['/network', ['org.tree']], ['/users', ['org.user:administer']], ['/kyc', ['kyc.application', 'kyc.task']]];
+
+  /** A user who may not use the page they landed on goes to the first page they may use. */
+  private toAllowedPage() {
+    const url = this.router.url.split('?')[0];
+    const here = this.pages.find(([path]) => url.startsWith(path));
+    if (here && this.can(...here[1])) return;
+    const first = this.pages.find(([, rows]) => this.can(...rows));
+    if (first) void this.router.navigateByUrl(first[0]);
+  }
+
+  can(...rows: string[]) {
+    const h = this.held();
+    return rows.some((r) => r.includes(':') ? h.has(r) : [...h].some((c) => c.startsWith(r + ':')));
+  }
 
   async ngOnInit() {
     try { this.org.set(await firstValueFrom(this.http.get<OrgView>('/api/orgs/me'))); } catch { /* header only */ }
     try {
       const a = await firstValueFrom(this.http.get<MyAccess>('/api/orgs/me/access'));
+      this.held.set(new Set(a.permissions.map((x) => x.id)));
       this.canManageUsers.set(a.permissions.some((x) => x.id === USER_ADMIN_CELL));
+      this.toAllowedPage();
     } catch { this.canManageUsers.set(false); }
     window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }

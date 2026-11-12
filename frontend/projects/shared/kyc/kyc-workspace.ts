@@ -50,11 +50,8 @@ const LABELS: Record<string, string> = {
           <span class="chip warn small">{{ t.kind === 'ENTRY_CHECK' ? 'entry check' : t.stageKey }}</span>
           <button class="link nm" (click)="pick(t.orgId)">{{ t.orgName }}</button>
           <span class="chip {{ cls(t.applicationStatus) }}">{{ t.applicationStatus.replace('_', ' ') }}</span>
-          <input class="tnote" [(ngModel)]="taskNotes[t.id]" [ngModelOptions]="o" placeholder="note (sent back to the organization)" />
-          @for (oc of decisionsFor(t); track oc) {
-            <button class="dec {{ oc === 'APPROVE' || oc === 'CONFIRM' ? 'primary' : oc === 'RETURN' || oc === 'SEND_BACK' ? '' : 'danger' }}"
-                    [disabled]="busy()" (click)="decide(t, oc)">{{ label(oc) }}</button>
-          }
+          <span class="grow"></span>
+          <button class="primary dec" [disabled]="busy()" (click)="openReview(t)">Review</button>
         </div>
       } @empty {
         <div class="muted small">No open tasks for you right now.</div>
@@ -98,8 +95,30 @@ const LABELS: Record<string, string> = {
         }
       </div>
     </div>
+
+    <!-- the approver's view: the same KYC form, read-only, with Approve / Reject and a reason -->
+    <mp-modal [open]="!!reviewing()" size="wide" eyebrow="KYC review" [title]="reviewing()?.orgName ?? ''"
+              [dirty]="!!reviewReason.trim()" discardText="Close without deciding? The reason you typed will be lost."
+              (closed)="reviewing.set(null)">
+      @if (reviewing(); as t) {
+        <mp-kyc-application [orgId]="t.orgId" [readOnly]="true" [allowEdit]="false" />
+        <label class="reason"><span>Reason <em>required to reject; sent to the organization</em></span>
+          <textarea rows="2" [(ngModel)]="reviewReason" [ngModelOptions]="o"
+                    placeholder="e.g. The registration certificate does not match the legal name"></textarea></label>
+        @if (reviewError(); as e) {<div class="flash bad">{{ e }}</div>}
+      }
+      <div modal-footer>
+        <button type="button" class="danger" [disabled]="busy() || !reviewReason.trim()" (click)="decideReview(false)">Reject</button>
+        <button type="button" class="primary" [disabled]="busy()" (click)="decideReview(true)">Approve</button>
+      </div>
+    </mp-modal>
   `,
   styles: [`
+    .reason { display: grid; gap: 7px; margin-top: 8px; font-size: 13px; font-weight: 550; color: #d9d9d9; }
+    .reason em { font-style: normal; font-weight: 400; color: var(--a-dim); font-size: 12px; margin-left: 6px; }
+    .reason textarea { width: 100%; box-sizing: border-box; border-radius: 10px; background: #0d0d0d; border: 1px solid #2a2a2a;
+                       color: var(--a-text); padding: 10px 12px; font: inherit; font-weight: 400; resize: vertical; }
+    .grow { flex: 1; }
     .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; flex: 1; }
     h3 { margin: 0; font-size: 14px; display: flex; gap: 8px; align-items: center; }
@@ -233,7 +252,28 @@ export class KycWorkspace implements OnInit {
     }
   }
 
-  async decide(t: KycTaskRow, outcome: string) {
+  readonly reviewing = signal<KycTaskRow | null>(null);
+  readonly reviewError = signal('');
+  reviewReason = '';
+
+  openReview(t: KycTaskRow) {
+    this.reviewReason = '';
+    this.reviewError.set('');
+    this.reviewing.set(t);
+  }
+
+  /** Approve / Reject from the read-only review (an entry check confirms / sends back). */
+  async decideReview(approve: boolean) {
+    const t = this.reviewing();
+    if (!t) return;
+    if (!approve && !this.reviewReason.trim()) { this.reviewError.set('Give a reason to reject.'); return; }
+    const outcome = t.kind === 'ENTRY_CHECK' ? (approve ? 'CONFIRM' : 'SEND_BACK') : (approve ? 'APPROVE' : 'REJECT');
+    this.taskNotes = { ...this.taskNotes, [t.id]: this.reviewReason.trim() || null };
+    if (await this.decide(t, outcome)) this.reviewing.set(null);
+    else this.reviewError.set(this.taskFlash()?.text ?? 'Not decided');
+  }
+
+  async decide(t: KycTaskRow, outcome: string): Promise<boolean> {
     this.busy.set(true);
     this.taskFlash.set(null);
     try {
@@ -245,8 +285,10 @@ export class KycWorkspace implements OnInit {
       // re-open the decided org so the form shows its new state
       if (this.selectedId() === v.orgId) { this.selectedId.set(null); queueMicrotask(() => this.selectedId.set(v.orgId)); }
       await Promise.all([this.loadSummaries(), this.loadTasks()]);
+      return true;
     } catch (e) {
       this.taskFlash.set({ kind: 'bad', text: refusal(e, KYC_HINTS) });
+      return false;
     } finally {
       this.busy.set(false);
     }
