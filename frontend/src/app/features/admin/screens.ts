@@ -65,8 +65,8 @@ export class AdminHome implements OnInit {
       <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="pick($event)" empty="No connectors configured" />
       <div class="row mt">
         <span class="dim">Selected: {{ sel()?.slice(0, 8) || 'none' }}</span>
-        <mp-button *mpPerm="'admin.connector:execute'" [disabled]="!sel()" (onClick)="test()">Test (C08)</mp-button>
-        <mp-button *mpPerm="'admin.connector:administer'" variant="ghost" [disabled]="!sel()" (onClick)="rotate()">Rotate secret (C09)</mp-button>
+        <mp-button *mpPerm="'admin.connector:execute'" [disabled]="!sel()" (onClick)="test()">Test</mp-button>
+        <mp-button *mpPerm="'admin.connector:administer'" variant="ghost" [disabled]="!sel()" (onClick)="rotate()">Change secret</mp-button>
       </div>
       @if (testResult(); as t) {
         <div class="mt"><status-badge [status]="okLabel(t)" /> latency {{ t.latencyMs ?? 'n/a' }} ms {{ t.error ?? '' }}</div>
@@ -322,7 +322,8 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
     .row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .sel { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; }
     .step { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: var(--fs-md); }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mt { margin-top: var(--sp-3); }
   `],
 })
@@ -468,25 +469,25 @@ export class AdminAccess implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm, MpPerm],
   template: `
-    <page-header title="Compliance" subtitle="C40: AML alerts; C41: SAR drafts; C42: submit; C43: DSAR data export (POPIA art. data export)" />
+    <page-header title="Compliance" subtitle="Money-laundering alerts, suspicious activity reports and personal data requests" />
 
-    <mp-card title="AML monitoring alerts" class="mt">
+    <mp-card title="Money-laundering alerts" class="mt">
       <mp-table [cols]="amlCols" [rows]="aml() ?? []" empty="No AML alerts (all flows healthy)" />
     </mp-card>
 
     <mp-card title="Suspicious activity reports" class="mt">
-      <mp-table [cols]="sarCols" [rows]="sars() ?? []" [selectable]="true" (rowClick)="selSar.set($event)" empty="No SARs" />
+      <mp-table [cols]="sarCols" [rows]="sars() ?? []" [selectable]="true" (rowClick)="selSar.set($event)" empty="No reports yet" />
       <div class="row mt">
-        <mp-button (onClick)="submitSar()" [disabled]="!selSar()">Submit SAR (C42)</mp-button>
+        <mp-button (onClick)="submitSar()" [disabled]="!selSar()">Submit report</mp-button>
         <span class="dim">Selected: {{ selSar()?.slice(0, 8) || 'none' }}</span>
       </div>
-      <mp-entity-form #sf [schema]="sarCreateSchema" submitLabel="Draft SAR from alert" *mpPerm="'admin.sar:create'" (submitted)="createSar($event)" class="mt" />
+      <mp-entity-form #sf [schema]="sarCreateSchema" submitLabel="Draft a report from this alert" *mpPerm="'admin.sar:create'" (submitted)="createSar($event)" class="mt" />
     </mp-card>
 
-    <mp-card title="Data subject access requests" class="mt">
-      <mp-table [cols]="dsarCols" [rows]="dsars() ?? []" empty="No DSARs" />
-      <mp-entity-form #df [schema]="dsarCreateSchema" submitLabel="Create DSAR" *mpPerm="'admin.dsar:create'" (submitted)="createDsar($event)" class="mt" />
-      <div class="dim mt">Completed DSARs generate a full data export (balance, payments, invoices, consents, statements) for the merchant.</div>
+    <mp-card title="Personal data requests" class="mt">
+      <mp-table [cols]="dsarCols" [rows]="dsars() ?? []" empty="No data requests yet" />
+      <mp-entity-form #df [schema]="dsarCreateSchema" submitLabel="Create data request" *mpPerm="'admin.dsar:create'" (submitted)="createDsar($event)" class="mt" />
+      <div class="dim mt">When a request is completed, the merchant gets a full copy of their data: balance, payments, invoices, consents and statements.</div>
     </mp-card>
   `,
   styles: [`
@@ -499,7 +500,7 @@ export class AdminCompliance implements OnInit {
   readonly amlCols: MpColumn[] = [
     { key: 'createdAt', label: 'When', type: 'time' },
     { key: 'alertType', label: 'Type' },
-    { key: 'entityType', label: 'Entity' },
+    { key: 'entityType', label: 'Account' },
     { key: 'details', label: 'Details' },
     { key: 'status', label: 'Status', type: 'status' },
   ];
@@ -517,11 +518,11 @@ export class AdminCompliance implements OnInit {
     { key: 'completedAt', label: 'Completed', type: 'time' },
   ];
   readonly sarCreateSchema: MpFieldSchema[] = [
-    { key: 'alertId', label: 'AML alert id', kind: 'text', required: true },
+    { key: 'alertId', label: 'Alert', kind: 'text', required: true },
     { key: 'details', label: 'Details', kind: 'text' },
   ];
   readonly dsarCreateSchema: MpFieldSchema[] = [
-    { key: 'merchantId', label: 'Merchant id', kind: 'text', required: true },
+    { key: 'merchantId', label: 'Merchant ID', kind: 'text', required: true },
   ];
 
   private readonly amlSig = signal<D.AmlRow[] | null>(null);

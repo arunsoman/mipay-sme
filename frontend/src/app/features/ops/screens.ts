@@ -25,8 +25,8 @@ function wireMsg(e: unknown): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, ApprovalActions, EmptyState, MpPerm],
   template: `
-    <page-header title="Approvals" subtitle="T01-T04: onboarding queues. Bank changes need a DIFFERENT approver than the requester (TC-SET-17). Select a merchant/supplier row to review its recorded KYC checks" />
-    <mp-card title="Merchant approvals (T02)" subtitle="Full directory - pending rows carry approve/reject; any row opens the KYC review panel" class="mt">
+    <page-header title="Approvals" subtitle="New merchants, suppliers and bank account changes waiting for a decision. Pick a row to see its KYC checks." />
+    <mp-card title="Merchants" subtitle="Pending merchants can be approved or rejected" class="mt">
       @if (merchants(); as m) {
         <mp-table [cols]="merchCols" [rows]="m" [selectable]="true" (rowClick)="pick('merchant', $event)" empty="No merchants waiting for approval" />
         @for (row of m; track row.id) {
@@ -34,9 +34,9 @@ function wireMsg(e: unknown): string {
             <approval-actions [status]="row.approvalStatus" perm="ops.merchant_approval:authorize" (decide)="approveMerchant(row.id, $event)" />
           }
         }
-      } @else { <mp-spinner label="Loading merchant queue..." /> }
+      } @else { <mp-spinner label="Loading merchants…" /> }
     </mp-card>
-    <mp-card title="Supplier approvals (T03)" subtitle="Full directory - pending rows carry approve/reject" class="mt">
+    <mp-card title="Suppliers" subtitle="Pending suppliers can be approved or rejected" class="mt">
       @if (suppliers(); as s) {
         <mp-table [cols]="supCols" [rows]="s" [selectable]="true" (rowClick)="pick('supplier', $event)" empty="No suppliers waiting for approval" />
         @for (row of s; track row.id) {
@@ -44,9 +44,9 @@ function wireMsg(e: unknown): string {
             <approval-actions [status]="row.approvalStatus" perm="ops.supplier_approval:authorize" (decide)="approveSupplier(row.id, $event)" />
           }
         }
-      } @else { <mp-spinner label="Loading supplier queue..." /> }
+      } @else { <mp-spinner label="Loading suppliers…" /> }
     </mp-card>
-    <mp-card title="Bank account changes (T04)" class="mt">
+    <mp-card title="Bank account changes" class="mt">
       @if (banks(); as b) {
         <mp-table [cols]="bankCols" [rows]="b" [selectable]="true" (rowClick)="selBankId.set($event)" empty="No bank change requests" />
         @if (selBank(); as row) {
@@ -54,7 +54,7 @@ function wireMsg(e: unknown): string {
             <approval-actions [status]="row.status" perm="ops.bank_account_approval:authorize" (decide)="approveBank(row.id, $event)" />
           } @else { <div class="dim mt">Selected request is already {{ row.status }}.</div> }
         }
-      } @else { <mp-spinner label="Loading bank queue..." /> }
+      } @else { <mp-spinner label="Loading bank account changes…" /> }
     </mp-card>
 
     <!-- KYC review panel (recorded IDENTITY/SANCTIONS checks; read model) -->
@@ -67,7 +67,7 @@ function wireMsg(e: unknown): string {
             <empty-state icon="⛨" title="No KYC checks recorded yet"
               hint="Checks are recorded automatically (IDENTITY + SANCTIONS) when ops approves this entity." />
           }
-          <div class="dim mt">Approver ≠ requester is enforced (TC-SET-17); every check is audit-labelled SIMULATED in sandbox.</div>
+          <div class="dim mt">The person who asked for a change can’t approve it.</div>
         } @else { <mp-spinner label="Loading KYC checks..." /> }
       </mp-card>
     }
@@ -88,7 +88,7 @@ export class OpsApprovals implements OnInit {
   readonly supCols: MpColumn[] = [
     { key: 'businessName', label: 'Business' },
     { key: 'ownerName', label: 'Owner' },
-    { key: 'registrationNumber', label: 'Reg' },
+    { key: 'registrationNumber', label: 'Registration no.' },
     { key: 'approvalStatus', label: 'Status', type: 'status' },
     { key: 'createdAt', label: 'Requested', type: 'time' },
   ];
@@ -166,9 +166,9 @@ export class OpsApprovals implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
-    <page-header title="Three-ledger reconciliation" subtitle="T05-T06: NDB issuer vs MiPay subledger vs credit ledger; open breaks BLOCK withdrawals (BC p.18)" />
+    <page-header title="Reconciliation" subtitle="Checks that the bank, MiPay and the credit ledger agree. While a mismatch is open, withdrawals are paused." />
     <div class="row mt">
-      <mp-button *mpPerm="'ops.recon:execute'" (onClick)="runRecon()">Run reconciliation (T05)</mp-button>
+      <mp-button *mpPerm="'ops.recon:execute'" (onClick)="runRecon()">Run a check now</mp-button>
     </div>
     @if (lastRun(); as r) {
       <mp-card title="Last run outcome" class="mt">
@@ -183,15 +183,15 @@ export class OpsApprovals implements OnInit {
         }
       </mp-card>
     }
-    <mp-card title="Reconciliation runs (T05)" class="mt">
+    <mp-card title="Past checks" class="mt">
       @if (runs(); as runs) {
         <mp-table [cols]="runCols" [rows]="runs" [selectable]="true" (rowClick)="selectRun($event)" empty="No runs yet" />
       } @else { <mp-spinner label="Loading runs..." /> }
     </mp-card>
-    <mp-card [title]="selRun() ? 'Breaks for run ' + selRun()?.slice(0,8) : 'Select a run to see breaks'" class="mt">
+    <mp-card [title]="selRun() ? 'Mismatches in this check' : 'Pick a check to see its mismatches'" class="mt">
       @if (breaks(); as b) {
-        <mp-table [cols]="breakCols" [rows]="b" empty="Clean run - no breaks (three totals reconciled)" />
-      } @else if (selRun()) { <mp-spinner label="Loading breaks..." /> }
+        <mp-table [cols]="breakCols" [rows]="b" empty="Everything matched" />
+      } @else if (selRun()) { <mp-spinner label="Loading…" /> }
     </mp-card>
     @if (doneMsg(); as m) { <div class="ok">{{ m }}</div> }
   `,
@@ -205,17 +205,17 @@ export class OpsRecon implements OnInit {
   private readonly api = inject(OpsService);
   readonly runCols: MpColumn[] = [
     { key: 'id', label: 'Run' },
-    { key: 'issuerTotal', label: 'Issuer', type: 'money', align: 'right' },
-    { key: 'subledgerTotal', label: 'Subledger', type: 'money', align: 'right' },
-    { key: 'creditLedgerTotal', label: 'Credit', type: 'money', align: 'right' },
-    { key: 'breaksCount', label: 'Breaks', align: 'right' },
+    { key: 'issuerTotal', label: 'Bank', type: 'money', align: 'right' },
+    { key: 'subledgerTotal', label: 'MiPay', type: 'money', align: 'right' },
+    { key: 'creditLedgerTotal', label: 'Credit ledger', type: 'money', align: 'right' },
+    { key: 'breaksCount', label: 'Mismatches', align: 'right' },
     { key: 'status', label: 'Status', type: 'status' },
   ];
   readonly breakCols: MpColumn[] = [
-    { key: 'id', label: 'Break' },
+    { key: 'id', label: 'Mismatch' },
     { key: 'breakType', label: 'Type' },
     { key: 'amount', label: 'Amount', type: 'money', align: 'right' },
-    { key: 'reference', label: 'Ref' },
+    { key: 'reference', label: 'Reference' },
     { key: 'description', label: 'Detail' },
     { key: 'status', label: 'Status', type: 'status' },
   ];
@@ -283,8 +283,8 @@ export class OpsRecon implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm, MpPerm],
   template: `
-    <page-header title="Incidents" subtitle="T09: create; T10: acknowledge within 15 minutes (late flag); T11: resolve (TC-INC-01)" />
-    <mp-card title="Open + historical incidents" class="mt">
+    <page-header title="Incidents" subtitle="Log a problem, acknowledge it within 15 minutes, then resolve it" />
+    <mp-card title="All incidents" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="selSig.set($event)" empty="No incidents logged" />
         <div class="row mt">
@@ -310,7 +310,7 @@ export class OpsIncidents implements OnInit {
     { key: 'severity', label: 'Severity' },
     { key: 'title', label: 'Title' },
     { key: 'status', label: 'Status', type: 'status' },
-    { key: 'acknowledgedAt', label: 'Ack at', type: 'time' },
+    { key: 'acknowledgedAt', label: 'Acknowledged', type: 'time' },
     { key: 'acknowledgedLate', label: 'Late' },
     { key: 'resolvedAt', label: 'Resolved', type: 'time' },
   ];
@@ -350,7 +350,7 @@ export class OpsIncidents implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule, MpPerm],
   template: `
-    <page-header title="Service desk" subtitle="T12: complaints (assign/resolve); T13: disputes; T14/T15: suspension lift restores LOGIN only on APPROVED accounts" />
+    <page-header title="Complaints & disputes" subtitle="Customer complaints, payment disputes and account suspensions" />
     <div class="grid2">
       <mp-card title="Complaints" class="mt">
         @if (complaints(); as c) {
@@ -379,13 +379,14 @@ export class OpsIncidents implements OnInit {
       <div class="colgap">
         <mp-entity-form #icf [schema]="incSchema" submitLabel="Log complaint" *mpPerm="'ops.complaint:create'" (submitted)="createComp($event)" />
         <mp-entity-form #dcf [schema]="dispSchema" submitLabel="Open dispute" *mpPerm="'ops.dispute:create'" (submitted)="createDisp($event)" />
-        <mp-entity-form #scf [schema]="suspSchema" submitLabel="Suspend entity" *mpPerm="'ops.suspension:administer'" (submitted)="suspend($event)" />
-        <div class="dim">Suspension blocks login (OTP verify 403 with machine-readable code) (TC-SEC-02).</div>
+        <mp-entity-form #scf [schema]="suspSchema" submitLabel="Suspend account" *mpPerm="'ops.suspension:administer'" (submitted)="suspend($event)" />
+        <div class="dim">A suspended account can’t sign in until the suspension is lifted.</div>
       </div>
     </div>
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .row { display: flex; gap: var(--sp-3); }
     .colgap { display: grid; gap: var(--sp-3); }
     .mt { margin-top: var(--sp-3); }
@@ -408,8 +409,8 @@ export class OpsDesk implements OnInit {
   ];
   readonly suspCols: MpColumn[] = [
     { key: 'suspendedAt', label: 'When', type: 'time' },
-    { key: 'entityType', label: 'Entity' },
-    { key: 'entityId', label: 'Id' },
+    { key: 'entityType', label: 'Account' },
+    { key: 'entityId', label: 'ID' },
     { key: 'reason', label: 'Reason' },
     { key: 'liftedAt', label: 'Lifted', type: 'time' },
   ];
@@ -421,13 +422,13 @@ export class OpsDesk implements OnInit {
     { key: 'description', label: 'Description', kind: 'text', required: true },
   ];
   readonly dispSchema: MpFieldSchema[] = [
-    { key: 'paymentId', label: 'Payment id', kind: 'text', required: true },
+    { key: 'paymentId', label: 'Payment reference', kind: 'text', required: true },
     { key: 'reason', label: 'Reason', kind: 'text', required: true },
   ];
   readonly suspSchema: MpFieldSchema[] = [
-    { key: 'entityType', label: 'Entity type', kind: 'select', required: true,
+    { key: 'entityType', label: 'Account type', kind: 'select', required: true,
       options: [{ value: 'MERCHANT', label: 'Merchant' }, { value: 'SUPPLIER', label: 'Supplier' }] },
-    { key: 'entityId', label: 'Entity id (from queues)', kind: 'text', required: true },
+    { key: 'entityId', label: 'Merchant or supplier ID', kind: 'text', required: true },
     { key: 'reason', label: 'Reason', kind: 'text', required: true },
   ];
 
@@ -485,21 +486,21 @@ export class OpsDesk implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpCard, MpTable, MpButton, PageHeader, KpiRow, FormsModule],
   template: `
-    <page-header title="Reports" subtitle="T18: daily settlement; T19: fee ledger with externalCost and contribution (BC p.14-16)" />
+    <page-header title="Reports" subtitle="Daily settlement and the fees earned for a day" />
     <div class="row mt">
       <label>Date (YYYY-MM-DD, blank = today):</label>
       <input class="in" [(ngModel)]="date" placeholder="e.g. 2025-03-14" />
       <mp-button (onClick)="load()">Load</mp-button>
     </div>
     @if (settle(); as s) {
-      <mp-card title="Settlement cycle of record (C33/Eco SB)" class="mt">
+      <mp-card title="Settlement" class="mt">
         <kpi-row [tiles]="[
           { label: 'Cycle', amount: s.cycle ?? '-', money: false, sub: s.settlementDate },
           { label: 'Settled', amount: s.totalAmount ?? 0, sub: s.status },
         ]" />
       </mp-card>
     }
-    <mp-card title="Fee report (fees / provisions / external costs)" class="mt">
+    <mp-card title="Fees" class="mt">
       <mp-table [cols]="feeCols" [rows]="fees() ?? []" empty="No fees billed for this date" />
     </mp-card>
   `,
@@ -538,7 +539,7 @@ export class OpsReports implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MpTable, MpButton, PageHeader, MpSpinner, FormsModule],
   template: `
-    <page-header title="Audit trail" subtitle="T20: every bank/lender event is SIMULATED-labelled here (E34, TC-AUD-01)" />
+    <page-header title="Audit trail" subtitle="Who did what, and when" />
     <div class="row mt">
       <label class="dim"><input type="checkbox" [(ngModel)]="simOnly" (change)="load()" /> Simulated events only</label>
       <mp-button variant="ghost" (onClick)="nextPage()">Next page</mp-button>
@@ -546,7 +547,7 @@ export class OpsReports implements OnInit {
     </div>
     @if (rows(); as r) {
       <mp-table [cols]="cols" [rows]="r" empty="No audit entries" />
-    } @else { <mp-spinner label="Loading audit..." /> }
+    } @else { <mp-spinner label="Loading…" /> }
   `,
   styles: [`
     .row { display: flex; align-items: center; gap: var(--sp-4); }
@@ -558,7 +559,7 @@ export class OpsAudit implements OnInit {
     { key: 'createdAt', label: 'When', type: 'time' },
     { key: 'action', label: 'Action' },
     { key: 'actorRole', label: 'Actor' },
-    { key: 'entityType', label: 'Entity' },
+    { key: 'entityType', label: 'Account' },
     { key: 'simulated', label: 'Sim' },
     { key: 'meta', label: 'Meta' },
   ];

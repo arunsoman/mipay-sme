@@ -135,7 +135,8 @@ export class MerchantDashboard implements OnInit {
     .stack { display: grid; gap: 6px; }
     label { font-size: var(--fs-sm); color: var(--mp-text-dim); font-weight: 600; margin-top: 4px; }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; width: 100%; }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .simbtns { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .payinfo { margin-top: var(--sp-4); font-size: var(--fs-sm); display: grid; gap: 3px; }
     .mono { font-family: monospace; }
@@ -296,7 +297,8 @@ export class MerchantPaymentDetail implements OnInit {
     } @else { <mp-spinner label="Loading balance..." /> }
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mt { margin-top: var(--sp-4); }
   `],
 })
@@ -483,7 +485,8 @@ export class MerchantOrders implements OnInit {
     </div>
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mt { margin-top: var(--sp-4); }
   `],
 })
@@ -908,7 +911,8 @@ export class MerchantAdvance implements OnInit {
     } @else { <mp-spinner label="Loading settings..." /> }
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); align-items: start; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mono { font-family: monospace; font-size: var(--fs-sm); }
     .mt { margin-top: var(--sp-4); }
   `],

@@ -29,6 +29,19 @@ import { MeView } from '../../core/api';
           @if (can('org.rights')) {<a routerLink="/permissions" routerLinkActive="active" (click)="closeNav()">Onboarding rights</a>}
           @if (can('rbac.role')) {<a routerLink="/rbac" routerLinkActive="active" (click)="closeNav()">Roles and permissions</a>}
           @if (can('admin.access')) {<a routerLink="/inventory" routerLinkActive="active" (click)="closeNav()">All permissions</a>}
+          @if (can('ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval', 'ops.recon', 'ops.incident', 'ops.complaint', 'ops.dispute', 'ops.suspension', 'ops.report', 'ops.audit')) {
+            <div class="navgroup">Operations</div>
+          }
+          @if (can('ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval')) {<a routerLink="/ops/approvals" routerLinkActive="active" (click)="closeNav()">Approvals</a>}
+          @if (can('ops.recon')) {<a routerLink="/ops/recon" routerLinkActive="active" (click)="closeNav()">Reconciliation</a>}
+          @if (can('ops.incident')) {<a routerLink="/ops/incidents" routerLinkActive="active" (click)="closeNav()">Incidents</a>}
+          @if (can('ops.complaint', 'ops.dispute', 'ops.suspension')) {<a routerLink="/ops/desk" routerLinkActive="active" (click)="closeNav()">Complaints &amp; disputes</a>}
+          @if (can('ops.report')) {<a routerLink="/ops/reports" routerLinkActive="active" (click)="closeNav()">Reports</a>}
+          @if (can('ops.audit')) {<a routerLink="/ops/audit" routerLinkActive="active" (click)="closeNav()">Audit trail</a>}
+          @if (can('admin.aml_alert', 'admin.sar', 'admin.dsar')) {
+            <div class="navgroup">Compliance</div>
+            <a routerLink="/compliance" routerLinkActive="active" (click)="closeNav()">AML, SAR and data requests</a>
+          }
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
@@ -76,6 +89,7 @@ import { MeView } from '../../core/api';
     nav a { color: var(--a-dim); text-decoration: none; padding: 10px 14px; border-radius: 999px; font-weight: 600;
             font-size: 13.5px; border: 1px solid transparent; white-space: nowrap; }
     nav a:hover { color: var(--a-text); background: var(--a-panel-2); }
+    .navgroup { margin: 14px 14px 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--a-dim); opacity: .7; }
     nav a.active { color: var(--a-accent-ink); background: var(--a-teal); border-color: var(--a-teal); font-weight: 800; }
 
     main { flex: 1; min-width: 0; }
@@ -109,7 +123,7 @@ export class Shell implements OnInit {
   /** The one shared access engine; nav + pages key off the held RBAC cells. */
   readonly access = inject(AccessService);
   /** Pages and the permissions that show them, in menu order. */
-  private readonly pages: [string, string[]][] = [['/onboarding', ['org.onboarding']], ['/kyc', ['kyc.application', 'kyc.task']], ['/users', ['org.user:administer']], ['/permissions', ['org.rights']], ['/rbac', ['rbac.role']], ['/inventory', ['admin.access']]];
+  private readonly pages: [string, string[]][] = [['/onboarding', ['org.onboarding']], ['/kyc', ['kyc.application', 'kyc.task']], ['/users', ['org.user:administer']], ['/permissions', ['org.rights']], ['/rbac', ['rbac.role']], ['/inventory', ['admin.access']], ['/ops/approvals', ['ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval']], ['/ops/recon', ['ops.recon']], ['/ops/incidents', ['ops.incident']], ['/ops/desk', ['ops.complaint', 'ops.dispute', 'ops.suspension']], ['/ops/reports', ['ops.report']], ['/ops/audit', ['ops.audit']], ['/compliance', ['admin.aml_alert', 'admin.sar', 'admin.dsar']]];
 
   /** A user who may not use the page they landed on goes to the first page they may
    *  use; a user with no rights at all lands on the shared empty shell - and one who

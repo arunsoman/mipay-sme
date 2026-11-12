@@ -11,6 +11,8 @@ import { Permissions } from './features/permissions/permissions';
 import { Kyc } from './features/kyc/kyc';
 import { PermissionMatrix } from './features/permission-matrix/permission-matrix';
 import { PermInventory } from '../../../shared/web-core/permission-inventory';
+// operations and compliance screens (shared with sme-ui), each behind its permission rows
+import { OpsApprovals, OpsRecon, OpsIncidents, OpsDesk, OpsReports, OpsAudit, AdminCompliance } from '../../../../src/app/screens';
 
 /**
  * Admin portal surface - the platform superset. Every page is gated twice:
@@ -31,6 +33,13 @@ const PERMS: Record<string, string[]> = {
   '/permissions': ['org.rights'],
   '/rbac': ['rbac.role'],
   '/inventory': ['admin.access:read'],
+  '/ops/approvals': ['ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval'],
+  '/ops/recon': ['ops.recon'],
+  '/ops/incidents': ['ops.incident'],
+  '/ops/desk': ['ops.complaint', 'ops.dispute', 'ops.suspension'],
+  '/ops/reports': ['ops.report'],
+  '/ops/audit': ['ops.audit'],
+  '/compliance': ['admin.aml_alert', 'admin.sar', 'admin.dsar'],
 };
 const pg = (path: string) => permGuard(PERMS[path] ?? []);
 
@@ -50,6 +59,13 @@ export const routes: Routes = [
       { path: 'permissions', component: Permissions, canActivate: [pg('/permissions')] },
       { path: 'rbac', component: PermissionMatrix, canActivate: [pg('/rbac')] },
       { path: 'inventory', component: PermInventory, canActivate: [pg('/inventory')] },
+      { path: 'ops/approvals', component: OpsApprovals, canActivate: [pg('/ops/approvals')] },
+      { path: 'ops/recon', component: OpsRecon, canActivate: [pg('/ops/recon')] },
+      { path: 'ops/incidents', component: OpsIncidents, canActivate: [pg('/ops/incidents')] },
+      { path: 'ops/desk', component: OpsDesk, canActivate: [pg('/ops/desk')] },
+      { path: 'ops/reports', component: OpsReports, canActivate: [pg('/ops/reports')] },
+      { path: 'ops/audit', component: OpsAudit, canActivate: [pg('/ops/audit')] },
+      { path: 'compliance', component: AdminCompliance, canActivate: [pg('/compliance')] },
     ],
   },
   { path: '**', redirectTo: 'login' },
