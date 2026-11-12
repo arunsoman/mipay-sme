@@ -679,6 +679,8 @@ public class AccessService {
             store.touchSubjects(subjects);
             store.audit("system", null, "review_closed", Map.of("review", rv, "expired", ids.size()));
         }
-        db.update("DELETE FROM decision_log WHERE at < now() - interval '90 days'");
+        // Keep decision evidence long enough to explain audit references under the
+        // platform's seven-year audit-retention target.
+        db.update("DELETE FROM decision_log WHERE at < now() - interval '7 years'");
     }
 }
