@@ -2,7 +2,7 @@
 
 Status: **living document** · last updated 2026-11-12
 
-Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
+afriqpay runs `a1ee936` (deployed 2026-11-12; backups and `:pre-full-20261112` rollback tags on the host). Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
 
 ## 1. Plans with work left
 
@@ -28,8 +28,7 @@ Only work still to do is listed here. Finished work, delivery notes and the old 
 
 | Step | Work | Plan |
 |---|---|---|
-| **1. Now** | Commit and push the review fixes; deploy to afriqpay (trustplane first, then `deploy/afriqpay/preflight.sh`, then mipay) | — |
-| | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
+| **1. Now** | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
 | | OA3 per-type onboarding rights in the UI ( OA2 roles live in `grid.yaml` + role pack regenerated; OA1 bootstrap built — `V18` + `POST /api/admin/bootstrap/tpts`) | org-access |
 | | Comms B1: Brevo email adapter done and tested (live send waits on the Brevo **API** key — the held `brevo` credential is SMTP-relay); SMS provider choice still open | comms P1 |
 | **2. Before 2026-12-31** | P4 gateway sessions · P5 portals on the BFF, with OA7 org-centred navigation | cut-over, org-access |
