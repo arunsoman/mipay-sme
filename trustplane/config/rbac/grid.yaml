@@ -31,6 +31,7 @@ resources:
   admin.access:              {service: mipay, used: [read, administer], description: "Platform access administration"}
   admin.aml_alert:           {service: mipay, used: [read], description: "AML alerts"}
   admin.api_client:          {service: mipay, used: [read, create, administer], description: "Partner API clients"}
+  admin.bootstrap:           {service: mipay, used: [administer], description: "One-time TPTS operating-root bootstrap (OA1: creates TPTS, its first admin, moves platform staff)"}
   admin.config:              {service: mipay, used: [read, modify], description: "Limits, rules, settings, tariffs, templates"}
   admin.connector:           {service: mipay, used: [read, modify, execute, administer], description: "Bank and provider connectors"}
   admin.dsar:                {service: mipay, used: [read, create, export], description: "Data-subject access requests"}
@@ -160,8 +161,8 @@ roles:
   org_admin:
     kind: ORG
     approval: org_admin
-    inherits: [org_staff]
-    description: "Org administrator (today's ADMIN): money movement, KYC, users, onboarding and the orgs below"
+    inherits: [org_staff, org_user_admin, org_onboarder, org_access_admin]
+    description: "Org administrator (today's ADMIN): money movement, KYC, users, onboarding and the orgs below; the union of the D-6 capability roles"
     grid:
       merchant.withdrawal: [execute]
       merchant.payment: [execute]
@@ -178,6 +179,36 @@ roles:
       rbac.grant: [read, create, administer]
       rbac.review: [read, administer]
       rbac.role: [read, create, modify, delete]   # org-defined roles of its own org, within its ceiling (extended-rbac X8)
+
+  # D-6 capability roles: narrow, delegable slices of org administration. org_admin stays
+  # their exact union so existing ADMIN users keep today's powers; ceilings control which
+  # of the three an org may delegate.
+  org_user_admin:
+    kind: ORG
+    approval: org_admin
+    inherits: [org_staff]
+    description: "Capability role (D-6): manages the org's people — user lifecycle and role assignments within the org ceiling"
+    grid:
+      org.user: [create, delete, administer]
+      rbac.assignment: [read, create, administer]
+
+  org_onboarder:
+    kind: ORG
+    approval: org_admin
+    inherits: [org_staff]
+    description: "Capability role (D-6): onboards orgs below and sets the per-type onboarding rights (OA3)"
+    grid:
+      org.onboarding: [create, authorize]
+      org.rights: [administer]
+      rbac.grant: [read, create]
+
+  org_access_admin:
+    kind: ORG
+    approval: org_admin
+    inherits: [org_staff]
+    description: "Capability role (D-6): org-defined roles within the org's ceiling (extended-rbac X8-X10)"
+    grid:
+      rbac.role: [read, create, modify, delete]
 
   platform_auditor:
     kind: PLATFORM
