@@ -13,6 +13,7 @@ import com.mipay.sme.service.ComplianceService;
 import com.mipay.sme.service.ConnectorService;
 import com.mipay.sme.service.ReportingService;
 import com.mipay.sme.service.SimulationService;
+import com.mipay.sme.service.migration.OrgBindingBackfill;
 import com.mipay.sme.web.Dtos;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,9 @@ public class AdminController {
     private final ComplianceService complianceService;
     private final ReportingService reportingService;
     private final com.mipay.sme.service.LedgerService ledgerService;
+    private final OrgBindingBackfill orgBindingBackfill;
+    private final com.mipay.sme.service.migration.IdentityBackfill identityBackfill;
+    private final com.mipay.sme.service.migration.RbacBackfill rbacBackfill;
     private final AppProperties props;
 
     private String actor() {
@@ -311,11 +315,81 @@ public class AdminController {
         return adminService.accessUsers();
     }
 
+    /** A user's credential links and sessions (cut-over P3.9). */
+    @Perm(resource = "admin.access", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "View a user's credential links and sessions")
+    @GetMapping("/access/{userId}")
+    public Dtos.AccessDetail accessDetail(@PathVariable String userId) {
+        return adminService.accessDetail(userId);
+    }
+
+    /** Disables one credential link without suspending the user (cut-over P3.9). */
+    @Perm(resource = "admin.access", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Disable one credential link")
+    @PostMapping("/access/links/{linkId}/disable")
+    public Dtos.AccessDisableResult disableLink(@PathVariable String linkId) {
+        return adminService.disableLink(linkId, actor(), role());
+    }
+
     @Perm(resource = "admin.access", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
           description = "Revoke user access")
     @PostMapping("/access/{userId}/revoke")
     public Dtos.AccessRevokeResult revokeAccess(@PathVariable String userId) {
         return adminService.revokeUserAccess(userId, actor(), role());
+    }
+
+    // ------------------------------------------------- cut-over P3.10a: org-binding backfill (D4)
+
+    /** Dry-run report: where each unbound user would be placed; unresolved users are listed, never guessed. */
+    @Perm(resource = "admin.access", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Report the org-binding backfill")
+    @GetMapping("/migration/org-binding")
+    public OrgBindingBackfill.Report orgBindingReport() {
+        return orgBindingBackfill.report();
+    }
+
+    /** Applies the deterministic binds; unresolved users stay listed until a manual decision (D4). */
+    @Perm(resource = "admin.access", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Run the org-binding backfill")
+    @PostMapping("/migration/org-binding")
+    public OrgBindingBackfill.Report runOrgBinding() {
+        return orgBindingBackfill.run();
+    }
+
+    // ------------------------------------------------- cut-over P3.10: identity backfill
+
+    /** Dry-run classification: what the identity backfill would do per user, no provider calls. */
+    @Perm(resource = "admin.access", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Preview the identity backfill")
+    @GetMapping("/migration/identity-backfill")
+    public com.mipay.sme.service.migration.IdentityBackfill.Report identityBackfillPreview() {
+        return identityBackfill.preview();
+    }
+
+    /** Enrols every user at the credential provider (imported hash or set-up link); re-runnable. */
+    @Perm(resource = "admin.access", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Run the identity backfill")
+    @PostMapping("/migration/identity-backfill")
+    public com.mipay.sme.service.migration.IdentityBackfill.Report runIdentityBackfill() {
+        return identityBackfill.run();
+    }
+
+    // ------------------------------------------------- cut-over P3.11: RBAC backfill
+
+    /** Dry-run: what the RBAC backfill would write, plus the legacy-inconsistency report. */
+    @Perm(resource = "admin.access", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Preview the RBAC backfill")
+    @GetMapping("/migration/rbac-backfill")
+    public com.mipay.sme.service.migration.RbacBackfill.Report rbacBackfillPreview() {
+        return rbacBackfill.preview();
+    }
+
+    /** Mirrors org_role, platform functions and org_rights into RBAC (system source: backfill). */
+    @Perm(resource = "admin.access", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Run the RBAC backfill")
+    @PostMapping("/migration/rbac-backfill")
+    public com.mipay.sme.service.migration.RbacBackfill.Report runRbacBackfill() {
+        return rbacBackfill.run();
     }
 
     // ------------------------------------------------------- bank-simulator controls (X-Sim-Scenario)

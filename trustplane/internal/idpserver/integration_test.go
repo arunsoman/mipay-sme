@@ -30,6 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"trustplane/internal/clients"
 	"trustplane/internal/dbx"
 	"trustplane/internal/dpop"
@@ -262,6 +264,67 @@ func (h *harness) eventTypes() []string {
 }
 
 // ---- tests ----------------------------------------------------------------
+
+// Credential import (cut-over P3.10): the core's IdentityBackfill enrols existing users with
+// their bcrypt hash copied over, so the account is ACTIVE straight away instead of ENROLLING.
+func TestAccountsHashImport(t *testing.T) {
+	h := newHarness(t, nil)
+	importHash, err := bcrypt.GenerateFromPassword([]byte("a-good-long-password"), 10)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	hash := string(importHash)
+
+	body := `"uid":"u-imp","login_name":"imelda","phone":"+264811234000","display_name":"Imelda","password_hash":"` + hash + `"`
+	// malformed hashes never reach the store
+	if code, _ := h.api("POST", "/accounts", `{"uid":"u-imp2","login_name":"imelda2","password_hash":"hunter2"}`); code != 400 {
+		t.Fatalf("non-bcrypt import hash accepted: %d", code)
+	}
+	if code, _ := h.api("POST", "/accounts", `{"uid":"u-imp2","login_name":"imelda2","password_hash":"$2y$10$"}`); code != 400 {
+		t.Fatalf("truncated import hash accepted: %d", code)
+	}
+	code, out := h.api("POST", "/accounts", `{`+body+`}`)
+	if code != 201 || out["state"] != "ACTIVE" || out["subject"] == "" || out["link"] != nil {
+		t.Fatalf("import enrol: %d %v", code, out)
+	}
+	sub := out["subject"].(string)
+	// a set credential is announced to the core like any other credential-set
+	if ev := h.eventTypes(); len(ev) != 1 || ev[0] != EventCredentialSet {
+		t.Fatalf("import credential-set event: %v", ev)
+	}
+	// the imported password signs in, and the core is told the link is not needed
+	if w, _ := h.login("imelda", "a-good-long-password"); w.Code != 200 {
+		t.Fatalf("login with imported hash: %d %s", w.Code, w.Body.String())
+	}
+	// replay of the same import is idempotent (the backfill is safe to re-run)
+	code, out2 := h.api("POST", "/accounts", `{`+body+`}`)
+	if code != 200 || out2["subject"] != sub || out2["state"] != "ACTIVE" || out2["link"] != nil {
+		t.Fatalf("import replay: %d %v", code, out2)
+	}
+	// a different hash for a live account is refused, never silently replaced
+	other, _ := bcrypt.GenerateFromPassword([]byte("another-good-password"), 10)
+	if code, _ := h.api("POST", "/accounts", `{"uid":"u-imp","login_name":"imelda","password_hash":"` + string(other) + `"}`); code != 409 || out["state"] != "ACTIVE" {
+		t.Fatalf("hash mismatch not refused: %d %v", code, out)
+	}
+	// an account left ENROLLING is finished by the import and the pending link dies
+	_, tok := h.enrol("u-late", "late-user", "+264811234111")
+	code, out3 := h.api("POST", "/accounts", `{"uid":"u-late","login_name":"late-user","password_hash":"` + hash + `"}`)
+	if code != 200 || out3["state"] != "ACTIVE" || out3["link"] != nil {
+		t.Fatalf("import over ENROLLING: %d %v", code, out3)
+	}
+	if w, _ := h.login("late-user", "a-good-long-password"); w.Code != 200 {
+		t.Fatalf("activated-by-import login: %d", w.Code)
+	}
+	// the superseded set-up link no longer works
+	if w := h.setPassword(tok, "yet-another-password"); w.Code == 200 {
+		t.Fatalf("superseded enrol link still usable")
+	}
+	// without the hash the old link-flow is unchanged
+	code, out4 := h.api("POST", "/accounts", `{"uid":"u-link","login_name":"link-user","phone":"","display_name":"LU"}`)
+	if code != 201 || out4["state"] != "ENROLLING" || out4["link"] == nil {
+		t.Fatalf("plain enrol changed: %d %v", code, out4)
+	}
+}
 
 func TestEnrolmentAPIAcceptsOnlyTheCore(t *testing.T) {
 	h := newHarness(t, nil)

@@ -44,11 +44,16 @@ public final class TrustplaneAuthProvider implements AuthProvider {
     @Override
     public Enrolment enrol(EnrolRequest request) {
         require(request.userId());
-        JsonNode result = call("POST", "/accounts", Map.of(
+        Map<String, Object> body = new java.util.HashMap<>(Map.of(
                 "uid", request.userId(), "login_name", require(request.loginName()),
                 "phone", request.phone() == null ? "" : request.phone(),
-                "display_name", request.displayName() == null ? "" : request.displayName()),
-                "enrol:" + request.userId());
+                "display_name", request.displayName() == null ? "" : request.displayName()));
+        // credential import (P3.10 backfill): a bcrypt hash copies the account over ACTIVE,
+        // no set-up link is issued and the response has no link/expires_at
+        if (request.passwordHash() != null && !request.passwordHash().isBlank()) {
+            body.put("password_hash", request.passwordHash());
+        }
+        JsonNode result = call("POST", "/accounts", body, "enrol:" + request.userId());
         return enrolment(result);
     }
 
@@ -90,8 +95,13 @@ public final class TrustplaneAuthProvider implements AuthProvider {
     }
 
     private Enrolment enrolment(JsonNode result) {
-        return new Enrolment(require(result.path("subject").asText(null)),
-                require(result.path("link").asText(null)), Instant.parse(require(result.path("expires_at").asText(null))));
+        String subject = require(result.path("subject").asText(null));
+        // an imported-credential enrolment comes back ACTIVE with no link to deliver
+        if ("ACTIVE".equals(result.path("state").asText(""))) {
+            return new Enrolment(subject, null, null);
+        }
+        return new Enrolment(subject, require(result.path("link").asText(null)),
+                Instant.parse(require(result.path("expires_at").asText(null))));
     }
 
     private HttpClient client() {

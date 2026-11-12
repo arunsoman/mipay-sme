@@ -301,6 +301,11 @@ type enrolBody struct {
 	LoginName   string `json:"login_name"`
 	Phone       string `json:"phone"`
 	DisplayName string `json:"display_name"`
+	// Optional credential import (cut-over P3.10 backfill): a bcrypt hash copied from the
+	// MiPay core ({bcrypt} prefix stripped). When present and well-formed, the account is
+	// created/activated directly with the imported password instead of issuing a set-up link.
+	// Only the core's mesh certificate reaches this branch, same as the rest of the API.
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 func readJSON(r *http.Request, v any) error {
@@ -365,6 +370,14 @@ func (s *Server) apiEnrol(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	importHash := ""
+	if strings.TrimSpace(b.PasswordHash) != "" {
+		if validImportHash(b.PasswordHash) != nil {
+			apiErr(w, 400, "invalid_request", "password_hash is not a usable bcrypt hash ($2a/$2b, cost <= 12)")
+			return
+		}
+		importHash = b.PasswordHash
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	tx, err := s.pool.Begin(ctx)
@@ -379,6 +392,37 @@ func (s *Server) apiEnrol(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusCreated
 	subject := ""
 	switch {
+	case err == nil && existing.State == StateDisabled:
+		apiErr(w, 409, "account_exists", "uid already has a credential account in state "+existing.State)
+		return
+	case err == nil && importHash != "":
+		subject = existing.Subject
+		status = http.StatusOK
+		if existing.State == StateActive && existing.passwordHash != importHash {
+			apiErr(w, 409, "hash_mismatch", "credential already imported with a different hash; refusing to overwrite")
+			return
+		}
+		if existing.State == StateEnrolling {
+			// an unused set-up link dies with the import: the credential is already set
+			if _, err := tx.Exec(ctx, `UPDATE account_links SET used_at=now() WHERE subject=$1 AND purpose='SETUP' AND used_at IS NULL`, subject); err != nil {
+				apiErr(w, 500, "server_error", "storage failure")
+				return
+			}
+			if _, err := tx.Exec(ctx, `UPDATE accounts SET login_name=$2, phone=NULLIF($3,''), display_name=$4,
+				state='ACTIVE', password_hash=$5, password_changed_at=now(), tokens_valid_after=now(),
+				failed_attempts=0, lock_count=0, locked_until=NULL, updated_at=now() WHERE subject=$1`,
+				subject, b.LoginName, phone, b.DisplayName, importHash); err != nil {
+				s.uniqueOr500(w, err)
+				return
+			}
+			// the imported credential is a set credential: the core activates the user and its
+			// link row through the same CREDENTIAL_SET event it receives after a normal set-up
+			if err := s.emitEvent(ctx, tx, &Account{Subject: subject, UID: b.UID}, EventCredentialSet,
+				map[string]any{"method": "password", "imported": true}); err != nil {
+				apiErr(w, 500, "server_error", "storage failure")
+				return
+			}
+		}
 	case err == nil && existing.State != StateEnrolling:
 		apiErr(w, 409, "account_exists", "uid already has a credential account in state "+existing.State)
 		return
@@ -392,22 +436,63 @@ func (s *Server) apiEnrol(w http.ResponseWriter, r *http.Request) {
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		subject = newSubject()
-		if _, err := tx.Exec(ctx, `INSERT INTO accounts (subject, uid, login_name, phone, display_name, state)
-			VALUES ($1,$2,$3,NULLIF($4,''),$5,'ENROLLING')`, subject, b.UID, b.LoginName, phone, b.DisplayName); err != nil {
-			s.uniqueOr500(w, err)
-			return
+		if importHash != "" {
+			if _, err := tx.Exec(ctx, `INSERT INTO accounts (subject, uid, login_name, phone, display_name, state, password_hash, password_changed_at, tokens_valid_after)
+				VALUES ($1,$2,$3,NULLIF($4,''),$5,'ACTIVE',$6,now(),now())`, subject, b.UID, b.LoginName, phone, b.DisplayName, importHash); err != nil {
+				s.uniqueOr500(w, err)
+				return
+			}
+			// a credential that arrives already set activates the core user through CREDENTIAL_SET
+			if err := s.emitEvent(ctx, tx, &Account{Subject: subject, UID: b.UID}, EventCredentialSet,
+				map[string]any{"method": "password", "imported": true}); err != nil {
+				apiErr(w, 500, "server_error", "storage failure")
+				return
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `INSERT INTO accounts (subject, uid, login_name, phone, display_name, state)
+				VALUES ($1,$2,$3,NULLIF($4,''),$5,'ENROLLING')`, subject, b.UID, b.LoginName, phone, b.DisplayName); err != nil {
+				s.uniqueOr500(w, err)
+				return
+			}
 		}
 	default:
 		apiErr(w, 500, "server_error", "storage failure")
 		return
 	}
-	link, exp, err := s.issueEnrolLink(ctx, tx, subject, r.Header.Get("Idempotency-Key"), s.cfg.LinkTTL)
-	if err != nil || tx.Commit(ctx) != nil {
+	if importHash == "" {
+		link, exp, err := s.issueEnrolLink(ctx, tx, subject, r.Header.Get("Idempotency-Key"), s.cfg.LinkTTL)
+		if err != nil || tx.Commit(ctx) != nil {
+			apiErr(w, 500, "server_error", "storage failure")
+			return
+		}
+		jsonBytes(w, status, map[string]any{"subject": subject, "uid": b.UID, "state": StateEnrolling,
+			"link": link, "expires_at": exp.Format(time.RFC3339)})
+		return
+	}
+	if tx.Commit(ctx) != nil {
 		apiErr(w, 500, "server_error", "storage failure")
 		return
 	}
-	jsonBytes(w, status, map[string]any{"subject": subject, "uid": b.UID, "state": StateEnrolling,
-		"link": link, "expires_at": exp.Format(time.RFC3339)})
+	jsonBytes(w, status, map[string]any{"subject": subject, "uid": b.UID, "state": StateActive})
+}
+
+// validImportHash accepts only a well-formed bcrypt hash the Go login path can actually compare:
+// $2a/$2b prefix, standard 60-byte encoding, and a sane cost (legacy core hashes are cost 10).
+func validImportHash(hash string) error {
+	if len(hash) != 60 {
+		return errors.New("bcrypt hashes are 60 bytes")
+	}
+	if !strings.HasPrefix(hash, "$2a$") && !strings.HasPrefix(hash, "$2b$") {
+		return errors.New("unsupported bcrypt prefix")
+	}
+	cost, err := bcrypt.Cost([]byte(hash))
+	if err != nil {
+		return err
+	}
+	if cost < 4 || cost > 12 {
+		return fmt.Errorf("bcrypt cost %d out of range 4..12", cost)
+	}
+	return nil
 }
 
 func (s *Server) uniqueOr500(w http.ResponseWriter, err error) {
