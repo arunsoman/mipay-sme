@@ -56,6 +56,9 @@ public class AdminService {
     private final com.mipay.sme.service.BankSimulator bankSimulator;
     private final AppProperties props;
     private final AuditService auditService;
+    private final OrgProvisioningService orgProvisioning;
+    private final com.mipay.sme.repository.OrganizationRepository orgRepo;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
 
     private final SecureRandom random = new SecureRandom();
 
@@ -408,6 +411,46 @@ public class AdminService {
         auditService.record(actorId, actorRole, "access_revoked", "user", targetUserId,
                 "sessions=" + revoked, "sessions=0", "incident=" + incident.id(), false, null);
         return new Dtos.AccessRevokeResult((int) revoked, incident.id());
+    }
+
+    // ----------------------------------------------------------- OA1: TPTS operating root
+
+    /**
+     * One-time TPTS root bootstrap (org-access-model OA1/D-1, cell admin.bootstrap).
+     * Creates the TPTS operating org as a PLATFORM-typed sub-root ('tpts'), moves every TPTS
+     * staff member still parked in the MiNdLABS operator org into it, and enrols the first
+     * TPTS admin (PENDING; credentials arrive through the one-time set-up link — never a
+     * password here). Refuses once TPTS exists, so the seed park + bootstrap and the V18
+     * migration paths cannot double-apply. D4: no user is guessed at — only TPTS_OPS staff
+     * still sitting on the shared root moves.
+     */
+    @Transactional
+    public Dtos.TptsBootstrapResult bootstrapTpts(Dtos.TptsBootstrapRequest req, String actorId, String actorRole) {
+        if (req == null || req.name() == null || req.name().isBlank()
+                || req.phone() == null || req.phone().isBlank())
+            throw new com.mipay.sme.common.SimException("VALIDATION",
+                    "first TPTS admin name and phone are required");
+        boolean exists = orgRepo.findByOrgTypeAndEntityId(Enums.OrgType.PLATFORM, "tpts").isPresent();
+        if (exists)
+            throw new com.mipay.sme.common.SimException("ALREADY_BOOTSTRAPPED",
+                    "the TPTS operating root already exists; the bootstrap is one-time (OA1)");
+        com.mipay.sme.domain.org.Organization tpts =
+                orgProvisioning.ensurePlatformSubOrg("tpts", "TPTS (operating root)", "org_tpts_platform");
+        com.mipay.sme.domain.org.Organization mindlabs = orgProvisioning.ensurePlatformSubOrg(
+                "mindlabs", "MiNdLABS (operator)", "org_mindlabs_platform");
+        List<com.mipay.sme.domain.core.User> moved = userRepo.findByRole(Enums.UserRole.TPTS_OPS).stream()
+                .filter(u -> mindlabs.getId().equals(u.getOrgId()))
+                .peek(u -> u.setOrgId(tpts.getId()))
+                .toList();
+        userRepo.saveAll(moved);
+        com.mipay.sme.domain.core.User first = userLifecycle.create(
+                new com.mipay.sme.security.auth.UserLifecycleService.Registration(tpts.getId(), req.name(),
+                        req.username(), req.phone(), req.email(), Enums.UserRole.TPTS_OPS,
+                        Enums.OrgMemberRole.ADMIN, actorId));
+        auditService.record(actorId, actorRole, "tpts_root_bootstrapped", "organization", tpts.getId(),
+                null, "ACTIVE", "admin=" + first.getId() + ",moved=" + moved.size(), false, null);
+        return new Dtos.TptsBootstrapResult(tpts.getId(), first.getId(), first.getStatus().name(),
+                moved.size(), moved.stream().map(com.mipay.sme.domain.core.User::getId).toList());
     }
 
     // ------------------------------------------------------------- bank-simulator controls (X-Sim-Scenario)

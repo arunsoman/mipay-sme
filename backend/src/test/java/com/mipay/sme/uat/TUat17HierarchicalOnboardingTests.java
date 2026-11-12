@@ -54,7 +54,8 @@ class TUat17HierarchicalOnboardingTests extends UatSupport {
         assertThat(submitted.status()).isEqualTo("PENDING");
         Organization child = orgs.findById(submitted.orgId()).orElseThrow();
         assertThat(child.getLifecycle()).isEqualTo(Enums.OrgStatus.PENDING);
-        assertThat(child.getParentId()).isEqualTo(OrgProvisioningService.ORG_ROOT);
+        // OA1:.platform onboarding now hangs the child under the operator org, not the root shell
+        assertThat(child.getParentId()).isEqualTo(operatorOrg().getId());
 
         User admin = users.findByPhone(ownerPhone).orElseThrow();
         assertThat(admin.getStatus()).isEqualTo(Enums.UserStatus.PENDING);

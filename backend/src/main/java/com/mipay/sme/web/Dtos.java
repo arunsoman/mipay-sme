@@ -146,6 +146,13 @@ public final class Dtos {
 
     public record AccessRevokeResult(int revoked, String incidentId) { }
 
+    // ---- OA1: the one-time TPTS operating-root bootstrap (cell admin.bootstrap) ----
+
+    public record TptsBootstrapRequest(String name, String username, String phone, String email) { }
+
+    public record TptsBootstrapResult(String orgId, String firstAdminId, String firstAdminStatus,
+                                      int staffMoved, java.util.List<String> movedUserIds) { }
+
     // ---- cut-over P3.9: the access screen shows a user's credential links and sessions ----
 
     public record AccessLinkRow(String id, String provider, String subject, String status,

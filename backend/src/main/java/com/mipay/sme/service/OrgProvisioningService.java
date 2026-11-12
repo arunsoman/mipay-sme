@@ -74,6 +74,40 @@ public class OrgProvisioningService {
                 });
     }
 
+    /**
+     * OA1: a PLATFORM-typed sub-root with a fixed entity marker ('mindlabs' = operator org,
+     * 'tpts' = operating root) — the split of yesterday's shared root. Fixed ids keep the
+     * migration (V18), the seeder and the one-time bootstrap idempotent against each other.
+     * These orgs carry no org_rights rows (they onboard nothing via the delegated flow).
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public Organization ensurePlatformSubOrg(String entityId, String name, String fixedId) {
+        Organization root = ensurePlatformRoot();
+        return orgRepo.findByOrgTypeAndEntityId(Enums.OrgType.PLATFORM, entityId)
+                .orElseGet(() -> {
+                    Organization org = new Organization();
+                    if (fixedId != null && orgRepo.findById(fixedId).isEmpty()) org.setId(fixedId);
+                    org.setOrgType(Enums.OrgType.PLATFORM);
+                    org.setName(name);
+                    org.setEntityId(entityId);
+                    org.setParentId(root.getId());
+                    org.setLifecycle(Enums.OrgStatus.ACTIVE);
+                    org.setLicenceType("PSP");
+                    org.setCreatedBy("system:bootstrap");
+                    orgRepo.save(org);
+                    closureRepo.save(OrgClosure.of(org.getId(), org.getId(), 0));
+                    closureRepo.save(OrgClosure.of(root.getId(), org.getId(), 1));
+                    // D9: a platform sub-org keeps the root's onboarding abilities so
+                    // today's access is unchanged while the old root becomes a shell
+                    for (Enums.OrgType t : List.of(Enums.OrgType.MANUFACTURER, Enums.OrgType.DISTRIBUTOR,
+                            Enums.OrgType.SUPPLIER, Enums.OrgType.MERCHANT, Enums.OrgType.LENDER)) {
+                        saveRight(org.getId(), t, OrgRightKind.DIRECT, "system:bootstrap");
+                        saveRight(org.getId(), t, OrgRightKind.CEILING, "system:bootstrap");
+                    }
+                    return org;
+                });
+    }
+
     /** An org without rights rows may onboard nothing — rights are explicit. */
     private Organization create(Enums.OrgType type, String entityId, String name, Organization root) {
         Organization org = new Organization();

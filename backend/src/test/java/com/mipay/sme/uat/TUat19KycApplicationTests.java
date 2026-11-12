@@ -123,9 +123,10 @@ class TUat19KycApplicationTests extends UatSupport {
         assertThat(app.getLicenceType()).isEqualTo("PSP");
         assertThat(app.getSchemaVersionId()).isNotBlank();
         assertThat(app.getProfileId()).isNotBlank();
-        assertThat(app.getParentOrgId()).isEqualTo(OrgProvisioningService.ORG_ROOT);
-        assertThat(app.getTreePath()).isEqualTo(OrgProvisioningService.ORG_ROOT + "/" + distOrg);
-        assertThat(app.getDepth()).isEqualTo(1);
+        assertThat(app.getParentOrgId()).isEqualTo(operatorOrg().getId());
+        assertThat(app.getTreePath()).isEqualTo(String.join("/",
+                OrgProvisioningService.ORG_ROOT, operatorOrg().getId(), distOrg));
+        assertThat(app.getDepth()).isEqualTo(2);
         assertThat(app.isSuspended()).isFalse();
         assertThat(app.getWorkflowKey()).isEqualTo("configurable");
 
@@ -133,7 +134,8 @@ class TUat19KycApplicationTests extends UatSupport {
         KycApplication sup = kycRepo.findByOrgIdAndStatusIn(supOrg, KycApplication.OPEN_STATUSES).stream()
                 .findFirst().orElseThrow();
         assertThat(sup.getStatus()).isEqualTo(KycApplication.Status.DRAFT);
-        assertThat(sup.getTreePath()).isEqualTo(String.join("/", OrgProvisioningService.ORG_ROOT, distOrg, supOrg));
+        assertThat(sup.getTreePath()).isEqualTo(String.join("/", OrgProvisioningService.ORG_ROOT,
+                operatorOrg().getId(), distOrg, supOrg));
 
         // the PENDING supplier stays pending until its own KYC gate (D8)
         assertThat(orgs.findById(supOrg).orElseThrow().getLifecycle()).isEqualTo(Enums.OrgStatus.PENDING);
@@ -156,7 +158,7 @@ class TUat19KycApplicationTests extends UatSupport {
         JsonNode view = om.readTree(put.getResponse().getContentAsString());
         assertThat(view.get("status").asText()).isEqualTo("DRAFT");
         assertThat(view.get("isSuspended").asBoolean()).isFalse();
-        assertThat(view.get("depth").asInt()).isEqualTo(2);
+        assertThat(view.get("depth").asInt()).isEqualTo(3);   // ROOT > operator > distributor > supplier
         assertThat(view.at("/application/businessProfile/legalBusinessName").asText())
                 .contains("UAT Sparse " + n);
 

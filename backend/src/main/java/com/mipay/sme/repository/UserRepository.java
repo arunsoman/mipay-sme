@@ -29,6 +29,8 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     List<User> findByOrgIdIsNull();
 
+    List<User> findByRole(com.mipay.sme.domain.Enums.UserRole role);
+
     /**
      * Login identifier lookup [H6]: phone OR username must resolve to EXACTLY
      * one user; an ambiguous match is refused.

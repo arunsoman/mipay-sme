@@ -30,8 +30,8 @@ Only work still to do is listed here. Finished work, delivery notes and the old 
 |---|---|---|
 | **1. Now** | Commit and push the review fixes; deploy to afriqpay (trustplane first, then `deploy/afriqpay/preflight.sh`, then mipay) | — |
 | | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
-| | OA1 TPTS root bootstrap · OA2 capability roles · OA3 per-type onboarding rights in the UI | org-access |
-| | Comms B1 starts (real email/SMS providers) | comms P1 |
+| | OA3 per-type onboarding rights in the UI ( OA2 roles live in `grid.yaml` + role pack regenerated; OA1 bootstrap built — `V18` + `POST /api/admin/bootstrap/tpts`) | org-access |
+| | Comms B1: Brevo email adapter done and tested (live send waits on the Brevo **API** key — the held `brevo` credential is SMTP-relay); SMS provider choice still open | comms P1 |
 | **2. Before 2026-12-31** | P4 gateway sessions · P5 portals on the BFF, with OA7 org-centred navigation | cut-over, org-access |
 | | P6: RBAC shadow for 7 days, then enforce (OA8) | cut-over P6 |
 | | Compliance signs off the role pack | cut-over D9 |
@@ -45,9 +45,9 @@ Only work still to do is listed here. Finished work, delivery notes and the old 
 
 | Item | Owner | Needed by |
 |---|---|---|
-| Decisions D-1 … D-8 (MiNdLABS access, tiers, thresholds, first-user 4-eyes, portal merge, baseline roles, EMI scope, tier sign-off) | you, compliance | step 1 (D-1, D-6), step 3 (rest) |
+| Decisions D-2 … D-8 ( tiers, thresholds, first-user 4-eyes, portal merge, baseline roles, EMI scope, tier sign-off — **D-1 MiNdLABS split and D-6 capability roles were decided 2026-11-12**) | you, compliance | step 3 (rest) |
 | Role pack review and sign-off ([`role-pack-v1.md`](../rbac/role-pack-v1.md)); regenerate it when `grid.yaml` or `@Perm` changes | compliance | step 2 |
-| Comms provider contracts (email, SMS, WhatsApp) | business | step 1 |
+| Comms provider contracts (email: Brevo — API key still missing; SMS, WhatsApp) | business | step 1 |
 | Break-glass officers (placeholders in 2fa §9.6) | management | step 3 |
 | Mobile app release date (gates push 2FA) | product | step 4 |
 | DNS + certificate for `auth.afriqpay.com`, then `IDP_ENVIRONMENT=production` | ops | before P4 goes live |

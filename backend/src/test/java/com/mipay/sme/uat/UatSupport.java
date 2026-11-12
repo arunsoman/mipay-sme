@@ -744,4 +744,9 @@ public abstract class UatSupport {
     protected Dtos.TokenView loginWithPassword(String identifier, String password) {
         return auth.loginWithPassword(identifier, password);
     }
+
+    /** OA1: the operator org the seeder parks platform staff in — onboarding hangs under it. */
+    protected com.mipay.sme.domain.org.Organization operatorOrg() {
+        return orgs.findByOrgTypeAndEntityId(Enums.OrgType.PLATFORM, "mindlabs").orElseThrow();
+    }
 }

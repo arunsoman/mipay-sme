@@ -96,9 +96,9 @@ public class DataSeeder implements ApplicationRunner {
         log.info("Sandbox seed complete: users/merchant/supplier/lender/tariffs/rules/limits/inventory ready");
     }
 
-    /** Legacy-mode staff account: ACTIVE with a dev password, bound to the platform root. */
+    /** Legacy-mode staff account: ACTIVE with a dev password, bound to the given platform org. */
     private User legacyStaff(String name, String phone, String email, String password,
-                             String username, com.mipay.sme.domain.org.Organization root, Enums.UserRole role) {
+                             String username, com.mipay.sme.domain.org.Organization org, Enums.UserRole role) {
         User user = new User();
         user.setName(name);
         user.setPhone(phone);
@@ -107,7 +107,7 @@ public class DataSeeder implements ApplicationRunner {
         user.setRole(role);
         user.setStatus(Enums.UserStatus.ACTIVE);
         user.setUsername(username);
-        user.setOrgId(root.getId());
+        user.setOrgId(org.getId());
         user.setOrgRole(Enums.OrgMemberRole.ADMIN);
         userRepo.save(user);
         return user;
@@ -122,9 +122,13 @@ public class DataSeeder implements ApplicationRunner {
 
         // ---------------------------------------------------------------- staff accounts (X01)
         boolean gateway = !props.getIdentityMode().equals("legacy");
-        // [H6] staff usernames for IdP username login; platform staff bind to the
-        // platform root as ADMIN (mirrors the V4 postgres backfill)
-        com.mipay.sme.domain.org.Organization root = orgProvisioning.ensurePlatformRoot();
+        // [H6] staff usernames for IdP username login. OA1 split of yesterday's shared root:
+        // platform staff are born in the MiNdLABS operator org; the TPTS operating root does
+        // not exist yet. The one-time bootstrap (POST /api/admin/bootstrap/tpts, cell
+        // admin.bootstrap) creates TPTS and moves the TPTS staff over — mirroring what V18
+        // does for environments that already carry users.
+        com.mipay.sme.domain.org.Organization mindlabs =
+                orgProvisioning.ensurePlatformSubOrg("mindlabs", "MiNdLABS (operator)", "org_mindlabs_platform");
 
         User ops;
         User admin;
@@ -132,10 +136,10 @@ public class DataSeeder implements ApplicationRunner {
             // gateway mode: PENDING platform staff enrolled by the lifecycle service;
             // their credentials are set up through the issued one-time links, never passwords
             ops = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
-                    root.getId(), "TPTS Ops One", "ops-admin-ops", "0827777777", "ops@mipay.na",
+                    mindlabs.getId(), "TPTS Ops One", "ops-admin-ops", "0827777777", "ops@mipay.na",
                     Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR));
             admin = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
-                    root.getId(), "MiNdLABS Admin", "ops-admin-mindlabs", "0819999999", "admin@mipay.na",
+                    mindlabs.getId(), "MiNdLABS Admin", "ops-admin-mindlabs", "0819999999", "admin@mipay.na",
                     Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.ADMIN, SEED_ACTOR));
         } else {
             ops = new User();
@@ -157,11 +161,11 @@ public class DataSeeder implements ApplicationRunner {
             userRepo.save(admin);
 
             ops.setUsername("ops-admin-ops");
-            ops.setOrgId(root.getId());
+            ops.setOrgId(mindlabs.getId());
             ops.setOrgRole(Enums.OrgMemberRole.ADMIN);
             userRepo.save(ops);
             admin.setUsername("ops-admin-mindlabs");
-            admin.setOrgId(root.getId());
+            admin.setOrgId(mindlabs.getId());
             admin.setOrgRole(Enums.OrgMemberRole.ADMIN);
             userRepo.save(admin);
         }
@@ -177,10 +181,10 @@ public class DataSeeder implements ApplicationRunner {
         // intentionally holds no review function (the design's invariant).
         User comp = gateway
                 ? userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
-                        root.getId(), "Compliance Officer (sandbox)", "compliance-admin", "0834444444",
+                        mindlabs.getId(), "Compliance Officer (sandbox)", "compliance-admin", "0834444444",
                         "compliance@mipay.na", Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR))
                 : legacyStaff("Compliance Officer (sandbox)", "0834444444", "compliance@mipay.na",
-                        "compliance123", "compliance-admin", root, Enums.UserRole.TPTS_OPS);
+                        "compliance123", "compliance-admin", mindlabs, Enums.UserRole.TPTS_OPS);
         com.mipay.sme.domain.kyc.UserPlatformFunction cf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
         cf.setUserId(comp.getId());
         cf.setFunction("COMPLIANCE_OFFICER");
@@ -192,10 +196,10 @@ public class DataSeeder implements ApplicationRunner {
 
         User senior = gateway
                 ? userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
-                        root.getId(), "Senior Approver (sandbox)", "senior-admin", "0835555555",
+                        mindlabs.getId(), "Senior Approver (sandbox)", "senior-admin", "0835555555",
                         "senior@mipay.na", Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR))
                 : legacyStaff("Senior Approver (sandbox)", "0835555555", "senior@mipay.na",
-                        "senior123", "senior-admin", root, Enums.UserRole.TPTS_OPS);
+                        "senior123", "senior-admin", mindlabs, Enums.UserRole.TPTS_OPS);
         com.mipay.sme.domain.kyc.UserPlatformFunction sf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
         sf.setUserId(senior.getId());
         sf.setFunction("SENIOR_APPROVER");

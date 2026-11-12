@@ -392,6 +392,20 @@ public class AdminController {
         return rbacBackfill.run();
     }
 
+    // ------------------------------------------------- OA1: one-time TPTS operating-root bootstrap
+
+    /**
+     * D-1: the MiNdLABS admin creates TPTS and its first admin (enrolled, one-time set-up
+     * link), moves the TPTS staff parked in MiNdLABS over, and refuses once TPTS exists.
+     * Replaces yesterday's shared platform root for the operating side.
+     */
+    @Perm(resource = "admin.bootstrap", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "One-time TPTS operating-root bootstrap")
+    @PostMapping("/bootstrap/tpts")
+    public Dtos.TptsBootstrapResult bootstrapTpts(@Valid @RequestBody Dtos.TptsBootstrapRequest req) {
+        return adminService.bootstrapTpts(req, actor(), role());
+    }
+
     // ------------------------------------------------------- bank-simulator controls (X-Sim-Scenario)
 
     @Perm(resource = "admin.simulation", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
