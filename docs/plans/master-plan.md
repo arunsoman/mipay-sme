@@ -2,7 +2,7 @@
 
 Status: **living document** · last updated 2026-11-12
 
-afriqpay runs `d9bf909` (KYC v3, OA1/OA2; deployed 2026-11-12, rollback tags `:pre-kyc3-20261112`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
+afriqpay runs `125f06a` (KYC v3, OA1/OA2, **RBAC enforcing** with legacy-parity roles; deployed 2026-11-12, rollback tags `:pre-enforce-20261112`, or `APP_RBAC_MODE=shadow`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
 
 ## 1. Plans with work left
 
@@ -19,7 +19,7 @@ afriqpay runs `d9bf909` (KYC v3, OA1/OA2; deployed 2026-11-12, rollback tags `:p
 
 1. Permissions before features: no plugin starts until RBAC enforces (P6).
 2. Roles must be right before RBAC enforces (OA1–OA3 before P6).
-3. Ship behind switches, switch on last, with a week of shadow before each switch-on.
+3. Ship behind switches, switch on last, with a week of shadow before each switch-on (RBAC enforce was the deliberate exception).
 4. Comms runs on its own track; features that need it light up when it lands.
 
 ## 3. The sequence
@@ -32,7 +32,7 @@ afriqpay runs `d9bf909` (KYC v3, OA1/OA2; deployed 2026-11-12, rollback tags `:p
 | | OA3 per-type onboarding rights in the UI ( OA2 roles live in `grid.yaml` + role pack regenerated; OA1 bootstrap built — `V18` + `POST /api/admin/bootstrap/tpts`) | org-access |
 | | Comms B1: Brevo email adapter done and tested (live send waits on the Brevo **API** key — the held `brevo` credential is SMTP-relay); SMS provider choice still open | comms P1 |
 | **2. Before 2026-12-31** | P4 gateway sessions · P5 portals on the BFF, with OA7 org-centred navigation | cut-over, org-access |
-| | P6: RBAC shadow for 7 days, then enforce (OA8) | cut-over P6 |
+| | P6/OA8 enforce is **on** (skipped the shadow week by decision, 2026-11-12). Left: shrink the `legacy_*` parity roles to the D9 split in the matrix, replace the hard-coded legacy checks (6.3), gateway enforcement (6.6), matrix test (6.7) | cut-over P6 |
 | | Compliance signs off the role pack | cut-over D9 |
 | **3. Then** | OA5 risk tiers · OA6 approval chains (4-eyes, 6-eyes for EMI) | org-access |
 | | P7: identity `gateway` only; delete legacy JWT, passwords, `UserRole` | cut-over P7 |
