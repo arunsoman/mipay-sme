@@ -1,4 +1,4 @@
-# Trust plane: gateway / FAPI IdP / RBAC — one container each (pg + pki-init helpers).
+# Trust plane: gateway / FAPI IdP / RBAC / comms plane — one container each (pg + pki-init helpers).
 # Networks are layered: edge (gateway only) -> internal (services) -> data (db).
 name: trustplane
 
@@ -31,7 +31,8 @@ services:
     mem_limit: 128m
     cpus: 0.25
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform"]
+      # TCP probe: during first init the temporary server answers on the socket only
+      test: ["CMD-SHELL", "pg_isready -U platform -h 127.0.0.1"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -58,7 +59,16 @@ services:
       IDP_CLIENTS_FILE: /config/idp/clients.yaml
       IDP_SIGNING_DIR: /pki/signing
       DB_URL: postgres://platform:platform-dev@pg:5432/idp?sslmode=disable
-      IDP_SEED_USERS: "rootadmin:rootadmin-pw:openid,rbac:admin|alice:alice-pw:openid,rbac:admin,offline_access|bob:bob-pw:openid,rbac:admin,offline_access|carol:carol-pw:openid|dave:dave-pw:openid|saadmin:saadmin-pw:openid,rbac:admin|sbadmin:sbadmin-pw:openid,rbac:admin|priya:priya-pw:openid,rbac:admin"
+      # Demo credential accounts (dev/sandbox only): name:password:scopes[:uid[:phone[:mfa profile]]].
+      # Their uids are the RBAC subjects of config/rbac/fixtures.e2e.yaml.
+      IDP_SEED_USERS: "rootadmin:rootadmin-pw:openid|uadmin2:uadmin2-pw:openid|alice:alice-pw:openid|mlro1:mlro1-pw:openid|selma:selma-pw:openid|tomas:tomas-pw:openid|jonas:jonas-pw:openid|carol:carol-pw:openid|mira:mira-pw:openid:mira:+264810000042:MERCHANT_OTP"
+      IDP_ENVIRONMENT: ${IDP_ENVIRONMENT:-dev}
+      IDP_DEV_OTP: "123456"                                   # fixed phone OTP, dev/sandbox only (refused elsewhere)
+      IDP_COMMS_URL: https://comms:8443/comms/v1              # login OTP and reset links go through the comms plane
+      IDP_CORE_CN: sme-mipay-mesh                             # the only caller of the enrolment API
+      # IDP_CORE_EVENTS_URL: set when the core's POST /internal/auth/events exists (cut-over P3.6);
+      # until then auth events wait in the IdP's outbound queue and are delivered once it is set.
+      IDP_CORE_EVENTS_URL: ${IDP_CORE_EVENTS_URL:-}
     volumes:
       - pki:/pki:ro
       - ./config:/config:ro
@@ -68,7 +78,47 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
-    networks: [internal, data]
+    networks:
+      internal:
+      data:
+      sme-mesh:
+        aliases: [idp]   # the MiPay core reaches the enrolment API over mTLS (cut-over P3)
+    restart: unless-stopped
+
+  comms:
+    build:
+      <<: *build
+      args: {SERVICE: comms}
+    image: trustplane/comms
+    mem_limit: 64m
+    cpus: 0.25
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      pg:
+        condition: service_healthy
+    environment:
+      COMMS_ENVIRONMENT: ${COMMS_ENVIRONMENT:-dev}
+      COMMS_DB_URL: postgres://platform:platform-dev@pg:5432/comms?sslmode=disable
+      COMMS_TLS_CERT: /pki/comms-server.pem
+      COMMS_TLS_KEY: /pki/comms-server-key.pem
+      COMMS_INTERNAL_CA: /pki/platform-ca.pem
+      COMMS_CONFIG: /config/comms/comms.yaml
+      COMMS_DATA_KEY_FILE: /pki/comms-data-key
+    volumes:
+      - pki:/pki:ro
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8081/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      internal:
+      data:
+      sme-mesh:
+        aliases: [comms]   # the core writes contacts and sends set-up links (cut-over P3)
     restart: unless-stopped
 
   rbac:
@@ -91,7 +141,10 @@ services:
       RBAC_TLS_KEY: /pki/rbac-server-key.pem
       RBAC_INTERNAL_CA: /pki/platform-ca.pem
       RBAC_CTX_SECRET: /pki/ctx-secret
-      RBAC_SEED_FILE: /config/rbac/seed.yaml
+      RBAC_SEED_FILE: /config/rbac/grid.yaml
+      RBAC_ENVIRONMENT: ${RBAC_ENVIRONMENT:-dev}
+      RBAC_FIXTURES_FILE: /config/rbac/fixtures.e2e.yaml     # loaded only in dev/sandbox
+      RBAC_CORE_CN: sme-mipay-mesh
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
     volumes:
       - pki:/pki:ro
@@ -122,6 +175,8 @@ services:
       idp:
         condition: service_healthy
       rbac:
+        condition: service_healthy
+      comms:
         condition: service_healthy
     environment:
       GATEWAY_CONFIG: /config/gateway/routes.yaml
@@ -163,10 +218,15 @@ services:
       TP_RBAC_BASE: https://rbac.fapi.local:8443
       TP_CA: /pki/platform-ca.pem
       TP_CLIENTS_FILE: /config/idp/clients.yaml
+      # acting as the MiPay core over the mesh (enrolment API, contacts, sandbox outbox)
+      TP_IDP_MESH: https://idp:8443
+      TP_COMMS_MESH: https://comms:8443/comms/v1
+      TP_CORE_CERT: /pki/mipay-mesh.pem
+      TP_CORE_KEY: /pki/mipay-mesh-key.pem
     volumes:
       - pki:/pki:ro
       - ./config:/config:ro
-    networks: [edge]
+    networks: [edge, internal]
 
 networks:
   edge:

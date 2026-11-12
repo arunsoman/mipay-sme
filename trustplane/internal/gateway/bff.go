@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"trustplane/internal/dpop"
@@ -44,16 +45,29 @@ type loginTransaction struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-// txStore holds in-flight login transactions (memory, 5 min TTL).
+// txStore holds in-flight login transactions (memory, 5 min TTL). Requests run
+// concurrently, so the map is guarded; stale transactions are dropped on put.
 type txStore struct {
-	mu map[string]*loginTransaction
+	lock sync.Mutex
+	mu   map[string]*loginTransaction
 }
 
 func newTxStore() *txStore { return &txStore{mu: map[string]*loginTransaction{}} }
 
-func (t *txStore) put(id string, tx *loginTransaction) { t.mu[id] = tx }
+func (t *txStore) put(id string, tx *loginTransaction) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	for k, v := range t.mu {
+		if time.Since(v.CreatedAt) > 5*time.Minute {
+			delete(t.mu, k)
+		}
+	}
+	t.mu[id] = tx
+}
 
 func (t *txStore) pop(id string) (*loginTransaction, bool) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	tx, ok := t.mu[id]
 	delete(t.mu, id)
 	return tx, ok
@@ -68,6 +82,10 @@ var loginTx = newTxStore()
 // before deny-by-default route matching.
 func (g *Gateway) bff(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if g.store == nil || g.bffID == "" {
+		writeErr(w, 404, "not_found: browser sessions are not configured")
+		return
+	}
 	switch {
 	case path == "/auth/login" && r.Method == http.MethodGet:
 		g.login(w, r)
@@ -77,6 +95,8 @@ func (g *Gateway) bff(w http.ResponseWriter, r *http.Request) {
 		g.logout(w, r)
 	case path == "/auth/session" && r.Method == http.MethodGet:
 		g.session(w, r)
+	case path == "/auth/backchannel-logout" && r.Method == http.MethodPost:
+		g.backchannelLogout(w, r)
 	default:
 		writeErr(w, 404, "not_found")
 	}
@@ -280,6 +300,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request) {
 	ses := &Session{
 		ID:             jwtx.RandB64(32),
 		Sub:            sub,
+		UID:            idString(idClaims, "uid"),
 		ClientID:       g.bffID,
 		CSRF:           jwtx.RandB64(24),
 		OrgID:          idString(idClaims, "org_id"),
@@ -344,7 +365,9 @@ func (g *Gateway) tokenExchange(ctx context.Context, code, verifier, redirectURI
 	if err != nil {
 		return nil, err
 	}
-	htu, err := dpop.CanonicalHTU(g.bffIDP + "/token")
+	// The request goes over the mesh (bffIDP), but the IdP checks htu against its public
+	// issuer URL, so the proof names the issuer's token endpoint.
+	htu, err := dpop.CanonicalHTU(g.cfg.Server.Issuer + "/token")
 	if err != nil {
 		return nil, err
 	}
@@ -414,6 +437,7 @@ func (g *Gateway) revokeRefresh(ctx context.Context, refreshToken string) {
 	form := url.Values{}
 	form.Set("token", refreshToken)
 	form.Set("token_type_hint", "refresh_token")
+	form.Set("client_id", g.bffID)
 	form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
 	form.Set("client_assertion", assertion)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, g.bffIDP+"/revoke",
@@ -436,6 +460,7 @@ func (g *Gateway) session(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"sub":        ses.Sub,
+		"uid":        ses.UID,
 		"client_id":  ses.ClientID,
 		"org_id":     ses.OrgID,
 		"acr":        ses.ACR,
@@ -444,6 +469,72 @@ func (g *Gateway) session(w http.ResponseWriter, r *http.Request) {
 		"csrf":       ses.CSRF,
 		"expires_at": ses.ExpiresAt.Unix(),
 	})
+}
+
+// backchannelLogout receives an OIDC Back-Channel Logout token from the IdP when an
+// account is disabled, reset or has its sessions revoked (idp-rbac-cutover-plan.md P1.6),
+// and revokes every gateway session of that subject. The token is the only credential:
+// signed by the IdP (JWKS), iss = the issuer, aud = this BFF client, fresh, single use.
+func (g *Gateway) backchannelLogout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if err := r.ParseForm(); err != nil {
+		writeErr(w, 400, "invalid_request")
+		return
+	}
+	tok := r.PostFormValue("logout_token")
+	hdr, claims, err := g.jwks.verify(tok)
+	if err != nil {
+		writeErr(w, 400, "invalid_request: logout token signature")
+		return
+	}
+	if typ, _ := hdr["typ"].(string); typ != "logout+jwt" {
+		writeErr(w, 400, "invalid_request: typ must be logout+jwt")
+		return
+	}
+	if jwtx.ClaimString(claims, "iss") != g.cfg.Server.Issuer {
+		writeErr(w, 400, "invalid_request: issuer")
+		return
+	}
+	audOK := false
+	for _, a := range jwtx.ClaimStrings(claims, "aud") {
+		audOK = audOK || a == g.bffID
+	}
+	if !audOK {
+		writeErr(w, 400, "invalid_request: audience")
+		return
+	}
+	now := time.Now().Unix()
+	iat, _ := jwtx.ClaimInt64(claims, "iat")
+	exp, _ := jwtx.ClaimInt64(claims, "exp")
+	if iat == 0 || iat > now+60 || now-iat > 300 || (exp != 0 && now >= exp) {
+		writeErr(w, 400, "invalid_request: stale logout token")
+		return
+	}
+	events, _ := claims["events"].(map[string]any)
+	if _, ok := events["http://schemas.openid.net/event/backchannel-logout"]; !ok {
+		writeErr(w, 400, "invalid_request: not a back-channel logout event")
+		return
+	}
+	if _, has := claims["nonce"]; has {
+		writeErr(w, 400, "invalid_request: logout token must not carry a nonce")
+		return
+	}
+	sub, jti := jwtx.ClaimString(claims, "sub"), jwtx.ClaimString(claims, "jti")
+	if sub == "" || jti == "" {
+		writeErr(w, 400, "invalid_request: sub and jti required")
+		return
+	}
+	if !g.logoutSeen.seenOnce("lt:"+jti, 10*time.Minute) {
+		writeErr(w, 400, "invalid_request: logout token replayed")
+		return
+	}
+	n, err := g.store.RevokeBySub(r.Context(), sub)
+	if err != nil {
+		writeErr(w, 503, "temporarily_unavailable")
+		return
+	}
+	log.Printf("[gateway] back-channel logout: sub=%s uid=%s sessions_revoked=%d", sub, jwtx.ClaimString(claims, "uid"), n)
+	w.WriteHeader(http.StatusOK)
 }
 
 // currentSession loads the session from the __Host-mp_sess cookie.

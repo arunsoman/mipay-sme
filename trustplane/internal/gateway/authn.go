@@ -252,6 +252,7 @@ func hashKey(s string) string {
 
 type identity struct {
 	sub       string
+	uid       string // core user id (idp-rbac-cutover-plan.md P1.7); RBAC subject
 	clientID  string
 	scopes    []string
 	jti       string
@@ -383,6 +384,7 @@ func (g *Gateway) authenticate(r *http.Request) (*identity, int, string) {
 	}
 	id := &identity{
 		sub:       jwtx.ClaimString(claims, "sub"),
+		uid:       jwtx.ClaimString(claims, "uid"),
 		clientID:  jwtx.ClaimString(claims, "client_id"),
 		scopes:    strings.Fields(jwtx.ClaimString(claims, "scope")),
 		jti:       jti,

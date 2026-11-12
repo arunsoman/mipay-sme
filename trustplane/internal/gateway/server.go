@@ -49,6 +49,7 @@ type Gateway struct {
 	intro   *introspector
 	rbac    *rbacClient
 	dpopOK  *replayCache
+	logoutSeen *replayCache // back-channel logout token jti (single use)
 	reqID   uint64
 	reqMu   sync.Mutex
 	secret  []byte
@@ -86,6 +87,7 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		limiter: ratelimit.New(),
 		global:  make(chan struct{}, cfg.Limits.GlobalConcurrency),
 		dpopOK:  newReplayCache(),
+		logoutSeen: newReplayCache(),
 		secret:  secret,
 	}
 	for name, u := range cfg.Upstreams {
@@ -140,6 +142,7 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		if err != nil {
 			return fmt.Errorf("rbac: %w", err)
 		}
+		g.rbac.Warmup(ctx, 30*time.Second)
 		go g.rbac.WatchLoop(ctx)
 	}
 
@@ -523,6 +526,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 			tenant := params["tenant"]
 			allowed, err := g.rbac.Check(r.Context(), principalID(ident), tenant, route.route.Permission, route.route.Fresh)
 			if err != nil {
+				log.Printf("[gateway] rbac check failed (fail closed): sub=%s op=%s tenant=%q: %v", principalID(ident), route.route.Permission, tenant, err)
 				writeAuthError(w, 503, "upstream_unavailable: authorization service unreachable")
 				return
 			}
@@ -537,7 +541,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			c := ctxauth.Context{
-				Sub: ident.sub, ClientID: ident.clientID, TokenID: ident.jti,
+				Sub: ident.sub, UID: ident.uid, ClientID: ident.clientID, TokenID: ident.jti,
 				CertThumb: ident.certThumb, Scopes: ident.scopes, Perms: perms,
 				Tenant: tenant, TS: time.Now().Unix(),
 			}
@@ -563,7 +567,12 @@ func certThumbForProxy(route *Route, thumb string) string {
 	return ""
 }
 
+// principalID is the RBAC subject: the core user id (uid) for user tokens, the client id
+// for client-credential tokens. The IdP account subject is never an RBAC subject (P1.7).
 func principalID(id *identity) string {
+	if id.uid != "" {
+		return id.uid
+	}
 	if id.sub != "" {
 		return id.sub
 	}

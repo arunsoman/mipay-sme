@@ -72,6 +72,23 @@ func dialRBAC(cfg RBACGrpcCfg) (*rbacClient, error) {
 	}, nil
 }
 
+// Warmup opens the mTLS channel and waits until RBAC answers (cold JVM + TLS handshake can
+// exceed the per-decision timeout), so the first routed request does not fail with 503.
+func (c *rbacClient) Warmup(ctx context.Context, max time.Duration) {
+	deadline := time.Now().Add(max)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := c.cc.Ping(pctx, &pb.PingRequest{})
+		cancel()
+		if err == nil {
+			log.Printf("[gateway] rbac decision plane ready")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	log.Printf("[gateway] rbac decision plane not answering after %v; decisions fail closed until it does", max)
+}
+
 // Check decides subject/operation/tenant. fresh=true skips the cache
 // (required for sensitive writes). Dependency failure -> error (caller 503s).
 func (c *rbacClient) Check(ctx context.Context, subject, tenant, op string, fresh bool) (bool, error) {

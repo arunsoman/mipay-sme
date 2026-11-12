@@ -19,5 +19,11 @@ services:
       IDP_ENVIRONMENT: sandbox
   rbac:
     restart: unless-stopped
+    environment:
+      RBAC_ENVIRONMENT: sandbox        # e2e fixtures load (demo orgs prefixed e2e-); production loads none
+  comms:
+    restart: unless-stopped
+    environment:
+      COMMS_ENVIRONMENT: sandbox       # sandbox provider only; real SMS/email providers arrive in comms B1
   pg:
     restart: unless-stopped

@@ -38,16 +38,25 @@ var (
 	clientsF   = envOr("TP_CLIENTS_FILE", "/config/idp/clients.yaml")
 )
 
+// Seed accounts (IDP_SEED_USERS); their uids are the RBAC subjects of fixtures.e2e.yaml.
 var passOf = map[string]string{
-	"rootadmin": envOr("TP_PASS_ROOTADMIN", "rootadmin-pw"),
-	"alice":     envOr("TP_PASS_ALICE", "alice-pw"),
-	"bob":       envOr("TP_PASS_BOB", "bob-pw"),
-	"carol":     envOr("TP_PASS_CAROL", "carol-pw"),
-	"dave":      envOr("TP_PASS_DAVE", "dave-pw"),
-	"saadmin":   envOr("TP_PASS_SAADMIN", "saadmin-pw"),
-	"sbadmin":   envOr("TP_PASS_SBADMIN", "sbadmin-pw"),
-	"priya":     envOr("TP_PASS_PRIYA", "priya-pw"),
+	"rootadmin": envOr("TP_PASS_ROOTADMIN", "rootadmin-pw"), // platform_user_admin
+	"uadmin2":   envOr("TP_PASS_UADMIN2", "uadmin2-pw"),     // second platform_user_admin (four-eyes)
+	"alice":     envOr("TP_PASS_ALICE", "alice-pw"),         // platform_ops_reviewer
+	"mlro1":     envOr("TP_PASS_MLRO1", "mlro1-pw"),         // platform_mlro
+	"selma":     envOr("TP_PASS_SELMA", "selma-pw"),         // org_admin own e2e-oka
+	"tomas":     envOr("TP_PASS_TOMAS", "tomas-pw"),         // org_staff own e2e-oka
+	"jonas":     envOr("TP_PASS_JONAS", "jonas-pw"),         // org_admin subtree e2e-namib
+	"carol":     envOr("TP_PASS_CAROL", "carol-pw"),         // no assignment
+	"mira":      envOr("TP_PASS_MIRA", "mira-pw"),           // merchant, phone OTP
 }
+
+var (
+	idpMesh   = envOr("TP_IDP_MESH", "https://idp:8443")
+	commsMesh = envOr("TP_COMMS_MESH", "https://comms:8443/comms/v1")
+	coreCert  = envOr("TP_CORE_CERT", "/pki/mipay-mesh.pem") + "|" + envOr("TP_CORE_KEY", "/pki/mipay-mesh-key.pem")
+	gwMesh    = "/pki/gateway-mesh.pem|/pki/gateway-mesh-key.pem"
+)
 
 const redirectURI = "http://127.0.0.1:8090/cb"
 
@@ -133,6 +142,10 @@ func call(cl *http.Client, method, rawurl string, hdr map[string]string, body []
 		return 0, nil, "client error: " + err.Error()
 	}
 	for k, v := range hdr {
+		if k == "Host" {
+			req.Host = v // reach the gateway by its mesh name while presenting a public host
+			continue
+		}
 		req.Header.Set(k, v)
 	}
 	if body != nil && req.Header.Get("Content-Type") == "" {
@@ -279,7 +292,7 @@ func runFlow(p *clients.Client, user, pass, scopes, sender string) (*flowResult,
 	st, _, page = postForm(cl, "POST", issuerBase+"/login", url.Values{
 		"request_uri": {parResp.RequestURI}, "username": {user}, "password": {pass},
 	}, nil, "")
-	if st != 200 || strings.Contains(page, "Login failed") {
+	if st != 200 || strings.Contains(page, "Sign-in failed") {
 		return nil, fmt.Sprintf("login failed: %d", st)
 	}
 	csrf := extractInput(page, "csrf")
@@ -418,6 +431,20 @@ func main() {
 	case "suite":
 		s := &suite{reg: reg}
 		s.run()
+	case "role-pack":
+		// Prints the compliance role pack (P2.5a) as rootadmin (platform_user_admin) sees it.
+		s := &suite{reg: reg}
+		fr, errStr := runFlow(s.profile("web-private-key-jwt"), "rootadmin", passOf["rootadmin"], "openid rbac:admin", "dpop")
+		if errStr != "" {
+			fmt.Fprintln(os.Stderr, "login:", errStr)
+			os.Exit(1)
+		}
+		st, _, body := apiCall(fr.AccessToken, fr.TokenType, fr.Key, fr.JWK, "", "GET", rbacBase+"/rbac/admin/export/role-pack", nil)
+		if st != 200 {
+			fmt.Fprintf(os.Stderr, "role pack: %d %s\n", st, body)
+			os.Exit(1)
+		}
+		fmt.Print(body)
 	case "introspect-check":
 		// Debug probe: sign a gw-resource-server assertion exactly like the
 		// gateway's introspector and POST it to /introspect.
@@ -467,7 +494,7 @@ func main() {
 		lp, lerr := cc.ListPermissions(pctx, &pb.ListPermissionsRequest{Subject: "rootadmin", Tenant: ""})
 		fmt.Printf("listPermissions: err=%v ops=%d first=%v\n", lerr, len(lp.GetOperations()), firstOf(lp.GetOperations()))
 	default:
-		fmt.Fprintf(os.Stderr, "usage: fapi-client [suite|introspect-check|probe-rbac]\n")
+		fmt.Fprintf(os.Stderr, "usage: fapi-client [suite|role-pack|introspect-check|probe-rbac]\n")
 		os.Exit(2)
 	}
 }
