@@ -520,9 +520,8 @@ public class OrgOnboardingService {
         if (u.getUsername() != null) {
             u.setUsername(tag);
         }
-        u.setStatus(Enums.UserStatus.SUSPENDED);
-        orgUsers.deleteSessions(u.getId());
-        userRepo.save(u);
+        // session kill + provider disable/unlink queue happen in the lifecycle service
+        userLifecycle.archive(u, "org-onboarding");
     }
 
     // ------------------------------------------------------------------
@@ -604,9 +603,7 @@ public class OrgOnboardingService {
             throw new ConflictException("LAST_ADMIN",
                     "Refusing to deactivate the last active ADMIN of the org");
         }
-        target.setStatus(Enums.UserStatus.SUSPENDED);
-        userRepo.save(target);
-        orgUsers.deleteSessions(target.getId());   // session kill on deactivation
+        userLifecycle.suspend(target.getId(), caller.userId());   // core-first + provider disable/revoke queue
         auditService.record(caller.userId(), caller.role(), "user_deactivated", "user", target.getId(),
                 "ACTIVE", "SUSPENDED", "org=" + target.getOrgId(), false, null);
         return new Dtos.Message("User deactivated; sessions deleted", target.getId());

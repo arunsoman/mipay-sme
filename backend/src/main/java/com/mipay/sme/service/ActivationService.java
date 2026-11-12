@@ -50,6 +50,7 @@ public class ActivationService {
     private final UsernamePolicy usernamePolicy;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
+    private final com.mipay.sme.config.AppProperties properties;
 
     @Value("${app.environment:sandbox}")
     private String environment;
@@ -148,6 +149,13 @@ public class ActivationService {
                         "Activation link is invalid, expired or already used"));
         User user = userRepo.findById(token.getUserId())
                 .orElseThrow(() -> new BadRequestException("ACTIVATION_INVALID", "Activation user missing"));
+
+        if (!properties.getIdentityMode().equals("legacy")) {
+            // gateway mode: activation links are retired — users set up credentials through
+            // the IdP via one-time enrolment links; core status only changes on CREDENTIAL_SET
+            throw new BadRequestException("ACTIVATION_RETIRED",
+                    "Activation links are retired in gateway mode; use the credential setup link");
+        }
 
         // 1) password policy first (at least 12 chars, not the username, not the phone) [H8]
         validatePassword(user, password);

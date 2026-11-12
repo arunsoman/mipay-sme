@@ -70,6 +70,7 @@ public class DataSeeder implements ApplicationRunner {
     private final com.mipay.sme.repository.ConnectorRepository connectorRepo;
     private final com.mipay.sme.service.OrgProvisioningService orgProvisioning;
     private final com.mipay.sme.repository.UserPlatformFunctionRepository platformFunctions;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
 
     private static final String SEED_ACTOR = "seed-runner";
     private static final String OPS = "TPTS_OPS";
@@ -90,6 +91,23 @@ public class DataSeeder implements ApplicationRunner {
         log.info("Sandbox seed complete: users/merchant/supplier/lender/tariffs/rules/limits/inventory ready");
     }
 
+    /** Legacy-mode staff account: ACTIVE with a dev password, bound to the platform root. */
+    private User legacyStaff(String name, String phone, String email, String password,
+                             String username, com.mipay.sme.domain.org.Organization root, Enums.UserRole role) {
+        User user = new User();
+        user.setName(name);
+        user.setPhone(phone);
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setRole(role);
+        user.setStatus(Enums.UserStatus.ACTIVE);
+        user.setUsername(username);
+        user.setOrgId(root.getId());
+        user.setOrgRole(Enums.OrgMemberRole.ADMIN);
+        userRepo.save(user);
+        return user;
+    }
+
     void seed() {
         // ---------------------------------------------------------------- connectors first (C30)
         seedConnector(Enums.ConnectorType.BANK_ISSUER, "NDB Issuer (sandbox)", "https://sim.ndb.mipay.na",
@@ -98,35 +116,50 @@ public class DataSeeder implements ApplicationRunner {
                 Enums.AuthType.API_KEY);
 
         // ---------------------------------------------------------------- staff accounts (X01)
-        User ops = new User();
-        ops.setName("TPTS Ops One");
-        ops.setPhone("0827777777");
-        ops.setEmail("ops@mipay.na");
-        ops.setPasswordHash(passwordEncoder.encode("ops123"));
-        ops.setRole(Enums.UserRole.TPTS_OPS);
-        ops.setStatus(Enums.UserStatus.ACTIVE);
-        userRepo.save(ops);
-
-        User admin = new User();
-        admin.setName("MiNdLABS Admin");
-        admin.setPhone("0819999999");
-        admin.setEmail("admin@mipay.na");
-        admin.setPasswordHash(passwordEncoder.encode("admin123"));
-        admin.setRole(Enums.UserRole.MINDLABS_ADMIN);
-        admin.setStatus(Enums.UserStatus.ACTIVE);
-        userRepo.save(admin);
-
+        boolean gateway = !props.getIdentityMode().equals("legacy");
         // [H6] staff usernames for IdP username login; platform staff bind to the
         // platform root as ADMIN (mirrors the V4 postgres backfill)
         com.mipay.sme.domain.org.Organization root = orgProvisioning.ensurePlatformRoot();
-        ops.setUsername("ops-admin-ops");
-        ops.setOrgId(root.getId());
-        ops.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        userRepo.save(ops);
-        admin.setUsername("ops-admin-mindlabs");
-        admin.setOrgId(root.getId());
-        admin.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        userRepo.save(admin);
+
+        User ops;
+        User admin;
+        if (gateway) {
+            // gateway mode: PENDING platform staff enrolled by the lifecycle service;
+            // their credentials are set up through the issued one-time links, never passwords
+            ops = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    root.getId(), "TPTS Ops One", "ops-admin-ops", "0827777777", "ops@mipay.na",
+                    Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR));
+            admin = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    root.getId(), "MiNdLABS Admin", "ops-admin-mindlabs", "0819999999", "admin@mipay.na",
+                    Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.ADMIN, SEED_ACTOR));
+        } else {
+            ops = new User();
+            ops.setName("TPTS Ops One");
+            ops.setPhone("0827777777");
+            ops.setEmail("ops@mipay.na");
+            ops.setPasswordHash(passwordEncoder.encode("ops123"));
+            ops.setRole(Enums.UserRole.TPTS_OPS);
+            ops.setStatus(Enums.UserStatus.ACTIVE);
+            userRepo.save(ops);
+
+            admin = new User();
+            admin.setName("MiNdLABS Admin");
+            admin.setPhone("0819999999");
+            admin.setEmail("admin@mipay.na");
+            admin.setPasswordHash(passwordEncoder.encode("admin123"));
+            admin.setRole(Enums.UserRole.MINDLABS_ADMIN);
+            admin.setStatus(Enums.UserStatus.ACTIVE);
+            userRepo.save(admin);
+
+            ops.setUsername("ops-admin-ops");
+            ops.setOrgId(root.getId());
+            ops.setOrgRole(Enums.OrgMemberRole.ADMIN);
+            userRepo.save(ops);
+            admin.setUsername("ops-admin-mindlabs");
+            admin.setOrgId(root.getId());
+            admin.setOrgRole(Enums.OrgMemberRole.ADMIN);
+            userRepo.save(admin);
+        }
 
         // §9 platform functions: reviewers act on staging tasks through user_platform_functions.
         // MINDLABS_ADMIN intentionally holds no review function (the design's invariant).
@@ -137,17 +170,12 @@ public class DataSeeder implements ApplicationRunner {
 
         // §6.6: one compliance user holds COMPLIANCE_OFFICER + MLRO; MINDLABS_ADMIN
         // intentionally holds no review function (the design's invariant).
-        User comp = new User();
-        comp.setName("Compliance Officer (sandbox)");
-        comp.setPhone("0834444444");
-        comp.setEmail("compliance@mipay.na");
-        comp.setPasswordHash(passwordEncoder.encode("compliance123"));
-        comp.setRole(Enums.UserRole.TPTS_OPS);
-        comp.setStatus(Enums.UserStatus.ACTIVE);
-        comp.setUsername("compliance-admin");
-        comp.setOrgId(root.getId());
-        comp.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        userRepo.save(comp);
+        User comp = gateway
+                ? userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                        root.getId(), "Compliance Officer (sandbox)", "compliance-admin", "0834444444",
+                        "compliance@mipay.na", Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR))
+                : legacyStaff("Compliance Officer (sandbox)", "0834444444", "compliance@mipay.na",
+                        "compliance123", "compliance-admin", root, Enums.UserRole.TPTS_OPS);
         com.mipay.sme.domain.kyc.UserPlatformFunction cf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
         cf.setUserId(comp.getId());
         cf.setFunction("COMPLIANCE_OFFICER");
@@ -157,31 +185,34 @@ public class DataSeeder implements ApplicationRunner {
         mf.setFunction("MLRO");
         platformFunctions.save(mf);
 
-        User senior = new User();
-        senior.setName("Senior Approver (sandbox)");
-        senior.setPhone("0835555555");
-        senior.setEmail("senior@mipay.na");
-        senior.setPasswordHash(passwordEncoder.encode("senior123"));
-        senior.setRole(Enums.UserRole.TPTS_OPS);
-        senior.setStatus(Enums.UserStatus.ACTIVE);
-        senior.setUsername("senior-admin");
-        senior.setOrgId(root.getId());
-        senior.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        userRepo.save(senior);
+        User senior = gateway
+                ? userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                        root.getId(), "Senior Approver (sandbox)", "senior-admin", "0835555555",
+                        "senior@mipay.na", Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.ADMIN, SEED_ACTOR))
+                : legacyStaff("Senior Approver (sandbox)", "0835555555", "senior@mipay.na",
+                        "senior123", "senior-admin", root, Enums.UserRole.TPTS_OPS);
         com.mipay.sme.domain.kyc.UserPlatformFunction sf = new com.mipay.sme.domain.kyc.UserPlatformFunction();
         sf.setUserId(senior.getId());
         sf.setFunction("SENIOR_APPROVER");
         platformFunctions.save(sf);
 
         // ---------------------------------------------------------------- lender (L01)
-        User lenderUser = new User();
-        lenderUser.setName("FNB Credit SME");
-        lenderUser.setPhone("0813333333");
-        lenderUser.setEmail("lender@mipay.na");
-        lenderUser.setPasswordHash(passwordEncoder.encode("lender123"));
-        lenderUser.setRole(Enums.UserRole.LENDER);
-        lenderUser.setStatus(Enums.UserStatus.ACTIVE);
-        userRepo.save(lenderUser);
+        User lenderUser;
+        if (gateway) {
+            // the lender org does not exist yet: pre-binding user, bound (and enrolled)
+            // when the entity's org is ensured below
+            lenderUser = userLifecycle.createPreBinding(Enums.UserRole.LENDER, "FNB Credit SME",
+                    "0813333333", "lender@mipay.na", SEED_ACTOR);
+        } else {
+            lenderUser = new User();
+            lenderUser.setName("FNB Credit SME");
+            lenderUser.setPhone("0813333333");
+            lenderUser.setEmail("lender@mipay.na");
+            lenderUser.setPasswordHash(passwordEncoder.encode("lender123"));
+            lenderUser.setRole(Enums.UserRole.LENDER);
+            lenderUser.setStatus(Enums.UserStatus.ACTIVE);
+            userRepo.save(lenderUser);
+        }
 
         Lender lender = new Lender();
         lender.setName("FNB SME Credit (SIMULATED lender)");
@@ -193,6 +224,7 @@ public class DataSeeder implements ApplicationRunner {
         lender.setMaxDailyDeduction(new BigDecimal("2000"));
         lender.setLenderLimit(new BigDecimal("25000"));
         lenderRepo.save(lender);
+        if (gateway) orgProvisioning.ensureEntityOrg(Enums.OrgType.LENDER, lender.getId(), lender.getName(), lenderUser.getId());
 
         // ---------------------------------------------------------------- merchant scene 1 (TC-SET-01, TC-ONB-01)
         onboardingService.registerMerchant(new Dtos.RegisterMerchantRequest(
@@ -211,9 +243,11 @@ public class DataSeeder implements ApplicationRunner {
                 "0852222222", "Nam Wholesale CC (Otjiwarongo)", "Pieter Visagie",
                 "REG-2024-000222", "Bank Windhoek", "3001122334", "Nam Wholesale CC"));
         Supplier supplier = supplierRepo.findByOwnerPhone("0852222222").orElseThrow();
-        User supplierUser = userRepo.findByPhone("0852222222").orElseThrow();
-        supplierUser.setPasswordHash(passwordEncoder.encode("supplier123"));
-        userRepo.save(supplierUser);
+        if (!gateway) {
+            User supplierUser = userRepo.findByPhone("0852222222").orElseThrow();
+            supplierUser.setPasswordHash(passwordEncoder.encode("supplier123"));
+            userRepo.save(supplierUser);
+        }
         // first bank account auto-approved by the seeder acting as an independent approver
         var pendingAccount = onboardingService.bankQueue().stream().findFirst().orElse(null);
         if (pendingAccount != null) {

@@ -43,6 +43,8 @@ import java.util.List;
 public class OnboardingService {
 
     private final UserRepository userRepo;
+    private final com.mipay.sme.config.AppProperties properties;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
     private final MerchantRepository merchantRepo;
     private final SupplierRepository supplierRepo;
     private final OrgBankAccountRepository bankAccountRepo;
@@ -66,12 +68,20 @@ public class OnboardingService {
         if (userRepo.existsByPhone(req.phone())) {
             throw new ConflictException("Phone already registered");
         }
-        User user = new User();
-        user.setName(req.ownerName());
-        user.setPhone(req.phone());
-        user.setRole(Enums.UserRole.MERCHANT);
-        user.setStatus(Enums.UserStatus.ACTIVE);
-        userRepo.save(user);
+        User user;
+        if (properties.getIdentityMode().equals("legacy")) {
+            user = new User();
+            user.setName(req.ownerName());
+            user.setPhone(req.phone());
+            user.setRole(Enums.UserRole.MERCHANT);
+            user.setStatus(Enums.UserStatus.ACTIVE);
+            userRepo.save(user);
+        } else {
+            // gateway mode: PENDING pre-binding user — the entity's org binding (below)
+            // enrols it, exactly like the seeder's lender path
+            user = userLifecycle.createPreBinding(Enums.UserRole.MERCHANT, req.ownerName(),
+                    req.phone(), null, "self-registration");
+        }
 
         Merchant m = new Merchant();
         m.setUserId(user.getId());
@@ -97,12 +107,18 @@ public class OnboardingService {
         if (userRepo.existsByPhone(req.phone())) {
             throw new ConflictException("Phone already registered");
         }
-        User user = new User();
-        user.setName(req.ownerName());
-        user.setPhone(req.phone());
-        user.setRole(Enums.UserRole.SUPPLIER);
-        user.setStatus(Enums.UserStatus.ACTIVE);
-        userRepo.save(user);
+        User user;
+        if (properties.getIdentityMode().equals("legacy")) {
+            user = new User();
+            user.setName(req.ownerName());
+            user.setPhone(req.phone());
+            user.setRole(Enums.UserRole.SUPPLIER);
+            user.setStatus(Enums.UserStatus.ACTIVE);
+            userRepo.save(user);
+        } else {
+            user = userLifecycle.createPreBinding(Enums.UserRole.SUPPLIER, req.ownerName(),
+                    req.phone(), null, "self-registration");
+        }
 
         Supplier s = new Supplier();
         s.setUserId(user.getId());

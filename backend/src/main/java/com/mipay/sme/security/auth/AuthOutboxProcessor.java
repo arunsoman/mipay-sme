@@ -65,15 +65,39 @@ public class AuthOutboxProcessor {
         switch (cmd.getCommand()) {
             case "ENROL" -> enrol(cmd, provider, p, deliveries);
             case "RESET_LINK" -> resetLink(cmd, provider, p, deliveries);
-            case "DISABLE" -> provider.disable(str(p, "subject"), str(p, "reason"));
-            case "ENABLE" -> provider.enable(str(p, "subject"));
+            case "DISABLE" -> {
+                provider.disable(str(p, "subject"), str(p, "reason"));
+                markLink(str(p, "user_id"), str(p, "subject"), IdentityLink.Status.DISABLED);
+            }
+            case "ENABLE" -> {
+                provider.enable(str(p, "subject"));
+                markLink(str(p, "user_id"), str(p, "subject"), IdentityLink.Status.ACTIVE);
+            }
             case "REVOKE_SESSIONS" -> provider.revokeSessions(str(p, "subject"));
             case "UPDATE_LOGIN" -> provider.updateLoginName(str(p, "subject"), str(p, "login_name"), str(p, "phone"));
             case "SET_MFA" -> provider.setMfaProfile(str(p, "subject"),
                     AuthPluginContracts.MfaProfile.valueOf(str(p, "mfa_profile")), Boolean.TRUE.equals(p.get("org_requires_mfa")));
-            case "UNLINK" -> provider.unlink(str(p, "subject"));
+            case "UNLINK" -> {
+                provider.unlink(str(p, "subject"));
+                markLink(str(p, "user_id"), str(p, "subject"), IdentityLink.Status.REVOKED);
+            }
             default -> outbox.failTerminal(cmd.getId(), "unknown outbox command " + cmd.getCommand());
         }
+    }
+
+    /**
+     * Keeps the core link row in step with a completed provider command. The subject in the
+     * payload must own the row: a drifted command never mutates the wrong user's link.
+     */
+    private void markLink(String uid, String subject, IdentityLink.Status status) {
+        if (subject == null || subject.isBlank()) return;
+        links.findByUserId(uid == null ? "" : uid).stream()
+                .filter(l -> subject.equals(l.getSubject()))
+                .findFirst()
+                .ifPresent(link -> {
+                    link.setStatus(status);
+                    links.save(link);
+                });
     }
 
     private void enrol(AuthOutbox cmd, AuthProvider provider, Map<String, Object> p, List<LinkDelivery> deliveries) {

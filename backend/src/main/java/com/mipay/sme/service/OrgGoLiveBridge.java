@@ -30,6 +30,7 @@ public class OrgGoLiveBridge {
     private final OnboardingRequestRepository onboardingRepo;
     private final ComplianceService complianceService;
     private final ProvisioningService provisioningService;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
 
     /** Provisioning for an org that just passed the KYC gate. */
     public void provisioningApproved(Organization org, String approverId, String approverRole) {
@@ -88,9 +89,9 @@ public class OrgGoLiveBridge {
     private void archiveUser(User u) {
         String tag = "arch-" + u.getId().substring(0, Math.min(5, u.getId().length()))
                 + "-" + Long.toString(System.currentTimeMillis(), 36);
-        u.setStatus(Enums.UserStatus.SUSPENDED);
         if (u.getUsername() == null) u.setUsername(tag);
         else u.setUsername("arch-" + u.getUsername());
-        userRepo.save(u);
+        // status + session kill + provider commands happen in the lifecycle service
+        userLifecycle.archive(u, "kyc-golive-bridge");
     }
 }

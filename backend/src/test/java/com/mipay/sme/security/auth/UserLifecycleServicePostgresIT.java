@@ -122,10 +122,17 @@ class UserLifecycleServicePostgresIT {
                 "lnk" + user.getId().substring(0, 28), user.getId());
         lifecycle.updateLoginContact(user.getId(), "lifecycle.it.2", "+264811000007", null);
         assertEquals(1, jdbc.queryForObject(
-                "SELECT count(*) FROM auth_outbox WHERE user_id=? AND command='UPDATE_LOGIN' AND dedupe_key=?",
-                Integer.class, user.getId(), "login:" + user.getId() + ":lifecycle.it.2:+264811000007"));
+                "SELECT count(*) FROM auth_outbox WHERE user_id=? AND command='UPDATE_LOGIN'",
+                Integer.class, user.getId()));
+        // the dedup key is state-fresh (monotonic), so flipping back to an older contact value
+        // must still enqueue — a DONE row with a historical key never blocks a real change
+        lifecycle.updateLoginContact(user.getId(), "lifecycle.it.2", "+264811000006x", null);
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT count(*) FROM auth_outbox WHERE user_id=? AND command='UPDATE_LOGIN'",
+                Integer.class, user.getId()));
         Map<String, Object> payload = jdbc.queryForMap(
-                "SELECT payload::text AS p FROM auth_outbox WHERE user_id=? AND command='UPDATE_LOGIN'", user.getId());
+                "SELECT payload::text AS p FROM auth_outbox WHERE user_id=? AND command='UPDATE_LOGIN' "
+                        + "ORDER BY available_at DESC LIMIT 1", user.getId());
         assertTrue(payload.get("p").toString().contains("lifecycle.it.2"));
     }
 

@@ -31,6 +31,7 @@ public class OrgProvisioningService {
     private final OrgClosureRepository closureRepo;
     private final OrgRightRepository rightRepo;
     private final UserRepository ownerRepo;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
 
     @Transactional(propagation = Propagation.REQUIRED)
     public Organization ensureEntityOrg(Enums.OrgType type, String entityId, String name) {
@@ -44,14 +45,8 @@ public class OrgProvisioningService {
         Organization org = orgRepo.findByOrgTypeAndEntityId(type, entityId)
                 .orElseGet(() -> create(type, entityId, name, root));
         if (ownerUserId != null) {
-            ownerRepo.findById(ownerUserId).ifPresent(u -> {
-                if (u.getOrgId() == null) {
-                    u.setOrgId(org.getId());
-                    if (u.getOrgRole() == null) u.setOrgRole(Enums.OrgMemberRole.ADMIN);
-                    u.setCreatedBy("system:binding");
-                    ownerRepo.save(u);
-                }
-            });
+            // the only org-binding writer (gateway mode additionally enrols the now-eligible user)
+            userLifecycle.bindToOrg(ownerUserId, org.getId(), Enums.OrgMemberRole.ADMIN, "system:binding");
         }
         return org;
     }
