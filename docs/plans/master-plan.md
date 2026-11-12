@@ -2,7 +2,7 @@
 
 Status: **living document** · last updated 2026-11-12
 
-afriqpay runs `432ed6e` (KYC v3 with onboarding opening on KYC section 1, OA1/OA2, **RBAC enforcing** with legacy-parity roles; deployed 2026-11-12, rollback tags `:pre-onbkyc-20261112` / `:pre-enforce-20261112`, or `APP_RBAC_MODE=shadow`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
+afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RBAC enforcing** with legacy-parity roles; deployed 2026-11-12, rollback tags `:pre-kycux-20261112` (portals) / `:pre-onbkyc-20261112` / `:pre-enforce-20261112`, or `APP_RBAC_MODE=shadow`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
 
 ## 1. Plans with work left
 
