@@ -101,7 +101,21 @@ public class PlatformRbacController {
     public List<Dtos.RbacResourceView> resources() {
         return rbac.platformResources().stream().map(m -> new Dtos.RbacResourceView(String.valueOf(m.get("id")),
                 String.valueOf(m.get("service")), String.valueOf(m.getOrDefault("description", "")),
-                strings(m.get("used")), strings(m.get("tenant_types")))).toList();
+                strings(m.get("used")), strings(m.get("tenant_types")), endpoints(m.get("endpoints")))).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Dtos.RbacEndpointView> endpoints(Object o) {
+        if (!(o instanceof List<?> l)) return List.of();
+        List<Dtos.RbacEndpointView> out = new ArrayList<>();
+        for (Object x : l) {
+            if (x instanceof Map<?, ?> e) {
+                Map<String, Object> m = (Map<String, Object>) e;
+                out.add(new Dtos.RbacEndpointView(String.valueOf(m.get("verb")), String.valueOf(m.get("method")),
+                        String.valueOf(m.get("path")), m.get("handler") == null ? "" : String.valueOf(m.get("handler"))));
+            }
+        }
+        return out;
     }
 
     /** Sets the role's OWN cells; RBAC applies the grid save rules (409 SOD_CONFLICT, 400 cell_not_used). */

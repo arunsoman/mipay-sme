@@ -260,12 +260,16 @@ export interface RbacRoleUpdate {
 }
 
 /** A grid row; only the verbs in `used` exist as cells. */
+export interface RbacEndpointView { verb: string; method: string; path: string; handler: string; }
+
 export interface RbacResourceView {
   id: string;
   service: string;
   description: string;
   used: string[];
   tenantTypes: string[];
+  /** The endpoints guarded by this row's cells (handler "Controller#method"). */
+  endpoints?: RbacEndpointView[];
 }
 
 export interface RbacUserView {

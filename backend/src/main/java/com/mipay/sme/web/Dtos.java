@@ -717,7 +717,10 @@ public final class Dtos {
 
     /** A grid row: the verbs some endpoint uses (other cells don't exist) and the org types it applies to. */
     public record RbacResourceView(String id, String service, String description, List<String> used,
-                                   List<String> tenantTypes) { }
+                                   List<String> tenantTypes, List<RbacEndpointView> endpoints) { }
+
+    /** An endpoint guarded by one cell of a row: {verb, method, path, handler "Controller#method"}. */
+    public record RbacEndpointView(String verb, String method, String path, String handler) { }
 
     /** A core user as the access screens show it (RBAC subject = core user id). */
     public record RbacUserView(String id, String displayName, String orgId, String kind, String status) { }

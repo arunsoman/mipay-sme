@@ -215,7 +215,66 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       <!-- ============ overview: rows × roles of this org type ============ -->
       <div class="panel">
         @if (scopeNote(); as n) {<div class="muted small note">{{ n }}</div>}
-        <div class="muted small note">{{ rowCount() }} rows × {{ scopeRoles().length }} roles · click a role to edit it</div>
+        <div class="viewbar">
+          <div class="seg" role="tablist" aria-label="View">
+            <button type="button" role="tab" [class.on]="view() === 'controller'" (click)="view.set('controller')">By controller</button>
+            <button type="button" role="tab" [class.on]="view() === 'permission'" (click)="view.set('permission')">By permission</button>
+          </div>
+          @if (view() === 'controller') {
+            <span class="muted small">{{ controllers().length }} controllers · {{ endpointCount() }} endpoints × {{ scopeRoles().length }} roles</span>
+            <span class="grow"></span>
+            <button type="button" class="ghost sm" (click)="expandAll()">Expand all</button>
+            <button type="button" class="ghost sm" (click)="collapseAll()">Collapse all</button>
+          } @else {
+            <span class="muted small">{{ rowCount() }} rows × {{ scopeRoles().length }} roles · click a role to edit it</span>
+          }
+        </div>
+        @if (view() === 'controller') {
+        <div class="overview-wrap">
+          <table class="overview ctl">
+            <thead>
+              <tr>
+                <th class="resource-col">Endpoint</th>
+                <th class="perm-col">Needs</th>
+                @for (r of scopeRoles(); track r.name) {
+                  <th class="rolehead" [title]="r.name + ': ' + r.description">
+                    <button type="button" class="rolebtn" (click)="openRole(r.name)"><span>{{ roleLabel(r.name) }}</span></button>
+                  </th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of controllers(); track c.name) {
+                @let open = openCtl().has(c.name) || !!q().trim();
+                <tr class="ctlhead" (click)="toggleCtl(c.name)" [attr.aria-expanded]="open">
+                  <td [attr.colspan]="scopeRoles().length + 2">
+                    <span class="caret">{{ open ? '▾' : '▸' }}</span>
+                    <b>{{ c.name }}</b>
+                    <span class="muted small"> · {{ c.endpoints.length }} endpoint{{ c.endpoints.length === 1 ? '' : 's' }}</span>
+                  </td>
+                </tr>
+                @if (open) {
+                  @for (e of c.endpoints; track e.method + e.path) {
+                    <tr class="eprow">
+                      <td class="resource-cell"><span class="m {{ e.method.toLowerCase() }}">{{ e.method }}</span>
+                        <span class="mono">{{ e.path }}</span>
+                        <span class="muted small hname">{{ e.method_name }}</span></td>
+                      <td class="perm-cell"><span class="rdesc">{{ e.rowDesc }}</span>
+                        <span class="chip-v own">{{ verbLabel($any(e.verb)) }}</span>
+                        <span class="mono muted small">{{ e.cell }}</span></td>
+                      @for (r of scopeRoles(); track r.name) {
+                        <td class="ov-cell">@if (r.permissions.includes(e.cell)) {<span class="tick">✓</span>} @else {<span class="none">—</span>}</td>
+                      }
+                    </tr>
+                  }
+                }
+              } @empty {
+                <tr><td class="muted pad" [attr.colspan]="scopeRoles().length + 2">No endpoints match.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        } @else {
         <div class="overview-wrap">
           <table class="overview">
             <thead>
@@ -255,10 +314,27 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             </tbody>
           </table>
         </div>
+        }
       </div>
     }
   `,
   styles: [`
+    .viewbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .viewbar .grow { flex: 1; }
+    .seg { display: inline-flex; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; }
+    .seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 7px; font-size: 13.5px; color: var(--a-dim); }
+    .seg button.on { background: #262626; color: var(--a-text); font-weight: 600; }
+    button.sm { padding: 5px 12px; font-size: 12.5px; }
+    .ctlhead td { cursor: pointer; padding: 10px 12px; background: #141414; border-top: 1px solid #222; font-size: 14px; }
+    .ctlhead:hover td { background: #1a1a1a; }
+    .caret { display: inline-block; width: 18px; color: var(--a-dim); }
+    .eprow .resource-cell { display: table-cell; }
+    .m { display: inline-block; min-width: 54px; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--a-dim); }
+    .m.get { color: var(--a-green); } .m.post { color: var(--a-teal); } .m.put, .m.patch { color: var(--a-amber); } .m.delete { color: var(--a-red); }
+    .hname { margin-left: 8px; }
+    .perm-col { min-width: 220px; text-align: left; }
+    .perm-cell .rdesc { margin-right: 6px; }
+    .tick { color: var(--a-green); font-weight: 700; }
     .rbac-status { margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d6a43a; border-radius: 6px; color: #f4d58d; background: #302713; font-size: 13px; }
     .seeded-warning { margin: 8px 0; padding: 8px 10px; border-left: 3px solid #d6a43a; color: #f4d58d; background: #302713; font-size: 12px; }
     .head { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
@@ -342,6 +418,35 @@ export class PermissionMatrix implements OnInit {
   readonly scope = signal<ScopeId>('PLATFORM');
   readonly q = signal('');
   readonly showAll = signal(false);
+  /** Overview: grouped by controller (each expandable) or the permission grid. */
+  readonly view = signal<'controller' | 'permission'>('controller');
+  readonly openCtl = signal<Set<string>>(new Set());
+  readonly controllers = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    const by = new Map<string, { name: string; endpoints: { method: string; path: string; verb: string; cell: string;
+      rowDesc: string; method_name: string }[] }>();
+    for (const row of this.resources()) {
+      for (const e of row.endpoints ?? []) {
+        const [ctl, fn] = (e.handler || 'Other#').split('#');
+        const cell = row.id + ':' + e.verb;
+        const ep = { method: e.method, path: e.path, verb: e.verb, cell, rowDesc: row.description || row.id, method_name: fn ?? '' };
+        if (q && ![ctl, e.path, cell, ep.rowDesc].some((x) => x.toLowerCase().includes(q))) continue;
+        const g = by.get(ctl) ?? { name: ctl, endpoints: [] };
+        g.endpoints.push(ep);
+        by.set(ctl, g);
+      }
+    }
+    for (const g of by.values()) g.endpoints.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+    return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
+  });
+  readonly endpointCount = computed(() => this.controllers().reduce((n, c) => n + c.endpoints.length, 0));
+  toggleCtl(name: string) {
+    const s = new Set(this.openCtl());
+    if (s.has(name)) s.delete(name); else s.add(name);
+    this.openCtl.set(s);
+  }
+  expandAll() { this.openCtl.set(new Set(this.controllers().map((c) => c.name))); }
+  collapseAll() { this.openCtl.set(new Set()); }
   readonly editingName = signal<string | null>(null);
   /** The edited role's own cells (all rows, not only the visible ones). */
   readonly work = signal<Set<string>>(new Set());
