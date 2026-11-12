@@ -50,6 +50,7 @@ const HINTS: Record<string, string> = {
               <td class="mono">{{ u.email ?? 'hidden' }}</td>
               <td class="acts">
                 @if (u.status === 'ACTIVE' && u.id !== auth.me()?.userId) {
+                  <button class="ghost" (click)="resetCredential(u)" [disabled]="busy()">Reset credential</button>
                   <button class="danger" (click)="deactivate(u)" [disabled]="busy()">Deactivate</button>
                 }
                 @if (u.status === 'PENDING') {
@@ -178,6 +179,16 @@ export class Users implements OnInit {
   resend(u: OrgUserRow) {
     void this.act(async () => (await firstValueFrom(
       this.http.post<MessageView>(`/api/orgs/users/${u.id}/resend-activation`, {}))).message);
+  }
+
+  resetCredential(u: OrgUserRow) {
+    const orgId = this.orgId();
+    if (!orgId || !confirm(`Send ${u.name} a credential reset link? Their current password and sessions will stop working after the reset is processed.`)) return;
+    void this.act(async () => {
+      await firstValueFrom(this.http.post<{ enqueued: boolean }>(
+        `/api/orgs/${encodeURIComponent(orgId)}/auth/users/${encodeURIComponent(u.id)}/reset-credential`, {}));
+      return `Credential reset link queued for ${u.name}.`;
+    });
   }
 
   async addStaff() {
