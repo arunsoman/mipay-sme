@@ -665,67 +665,54 @@ public abstract class UatSupport {
         }
     }
 
-    /** A schema-valid NA/PSP/BUSINESS document; values are unique per seq(). */
+    /** A schema-valid NA/PSP/BUSINESS v3 document (merchant data capture spec); values are unique per seq(). */
     protected Map<String, Object> kycDoc(String orgId) {
-        String orgTypeName = orgs.findById(orgId).orElseThrow().getOrgType().name();
         int n = seq();
-        boolean merchant = "MERCHANT".equals(orgTypeName);
-        boolean supplier = "SUPPLIER".equals(orgTypeName);
-        boolean trader = "MANUFACTURER".equals(orgTypeName) || "DISTRIBUTOR".equals(orgTypeName) || supplier;
         String tin = "10" + String.format("%06d", n % 1_000_000);
+        String legal = "UAT KYC Entity " + n;
         Map<String, Object> doc = new java.util.LinkedHashMap<>();
         Map<String, Object> businessProfile = new java.util.LinkedHashMap<>();
-        businessProfile.put("entityType", "PRIVATE_COMPANY");
-        businessProfile.put("legalBusinessName", "UAT KYC Entity " + n);
+        businessProfile.put("legalBusinessName", legal);
+        businessProfile.put("tradingName", "UAT Store " + n);
+        businessProfile.put("entityType", "PRIVATE_LIMITED");
         businessProfile.put("registrationNumber", "CC/2019/" + String.format("%06d", n % 1_000_000));
         businessProfile.put("incorporationDate", "2019-03-14");
         businessProfile.put("taxIdentificationNumber", tin);
-        businessProfile.put("countryOfRegistration", "NA");
         doc.put("businessProfile", businessProfile);
 
         Map<String, Object> operations = new java.util.LinkedHashMap<>();
-        operations.put("industryVertical", "WHOLESALE_DISTRIBUTION");
-        if (merchant) {
-            operations.put("mcc", "5411");
-            operations.put("expectedMonthlyVolume", "50K_250K");
-            operations.put("averageTicketSize", 1200);
-            operations.put("storefrontDetails", "Counter 3, Windhoek");
-        } else if (supplier) {
-            operations.put("expectedMonthlyVolume", "50K_250K");
-            operations.put("tradingRole", "WHOLESALER");
-        } else if (trader) {
-            operations.put("tradingRole", "DISTRIBUTOR");
-            operations.put("annualTurnover", "UNDER_1M");
-        }
-        if (!operations.isEmpty()) doc.put("operationalDetails", operations);
+        operations.put("mcc", "5411");
+        operations.put("websiteOrStorefront", "https://uat-store-" + n + ".example.na");
+        operations.put("expectedMonthlyVolume", "50K_250K");
+        operations.put("averageTicketSize", 1200);
+        doc.put("operationalDetails", operations);
 
         Map<String, Object> address = new java.util.LinkedHashMap<>();
         address.put("addressType", "REGISTERED");
         address.put("streetLine", "12 Sam Nujoma Drive");
         address.put("town", "Windhoek");
-        address.put("region", "KHOMAS");
+        address.put("region", "Khomas");
+        address.put("postalCode", "9000");
         address.put("country", "NA");
         doc.put("addresses", List.of(address));
 
         Map<String, Object> ubo = new java.util.LinkedHashMap<>();
         ubo.put("fullLegalName", "Owner Holder " + n);
-        ubo.put("roles", List.of("SHAREHOLDER", "DIRECTOR"));
         ubo.put("dateOfBirth", "1985-04-12");
         ubo.put("nationality", "NA");
+        ubo.put("residentialAddress", "4 Robert Mugabe Ave, Windhoek");
         ubo.put("identificationType", "NATIONAL_ID");
         ubo.put("identificationNumber", "85041200123");
-        ubo.put("ownershipType", "DIRECT");
         ubo.put("ownershipPercentage", 100);
         ubo.put("politicallyExposedPerson", false);
         doc.put("ubos", List.of(ubo));
 
         Map<String, Object> bank = new java.util.LinkedHashMap<>();
-        bank.put("beneficiaryName", "UAT KYC Entity " + n);
+        bank.put("beneficiaryName", legal);
         bank.put("bankCode", "BANK_WINDHOEK");
-        bank.put("branch", "WINDHOEK");
+        bank.put("institutionCode", "481972");
         bank.put("accountNumber", "8" + String.format("%09d", n % 1_000_000_000));
         bank.put("accountType", "CURRENT");
-        bank.put("currency", "NAD");
         doc.put("bankAccounts", List.of(bank));
         return doc;
     }

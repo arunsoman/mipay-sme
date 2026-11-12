@@ -59,27 +59,26 @@ class TUat19KycApplicationTests extends UatSupport {
     /** A shape-correct but incomplete document: saves as a draft, cannot be submitted. */
     private static final String SPARSE_JSON = """
         {"businessProfile":{"legalBusinessName":"Sparse Holding %s (Pty) Ltd",
-          "entityType":"PRIVATE_COMPANY","registrationNumber":"CC/2020/%s",
-          "taxIdentificationNumber":"20%s","countryOfRegistration":"NA"}}
+          "entityType":"PRIVATE_LIMITED","registrationNumber":"CC/2020/%s",
+          "taxIdentificationNumber":"20%s"}}
         """;
 
     private Map<String, Object> validDoc() throws Exception {
         return om.readValue("""
             {
               "businessProfile": {"legalBusinessName": "Namib Distribution %d (Pty) Ltd", "tradingName": "Namib Dist",
-                "entityType": "PRIVATE_COMPANY", "registrationNumber": "CC/2019/%06d",
-                "incorporationDate": "2019-03-14", "taxIdentificationNumber": "10%06d",
-                "countryOfRegistration": "NA"},
+                "entityType": "PRIVATE_LIMITED", "registrationNumber": "CC/2019/%06d",
+                "incorporationDate": "2019-03-14", "taxIdentificationNumber": "10%06d"},
+              "operationalDetails": {"mcc": "5199", "websiteOrStorefront": "https://namib-dist.example.na",
+                "expectedMonthlyVolume": "250K_1M", "averageTicketSize": 5400},
               "addresses": [{"addressType": "REGISTERED", "streetLine": "12 Sam Nujoma Dr", "town": "Windhoek",
-                "region": "KHOMAS", "postalCode": "10005", "country": "NA"}],
+                "region": "Khomas", "postalCode": "10005", "country": "NA"}],
               "ubos": [{"fullLegalName": "Petrus Haufiku", "dateOfBirth": "1985-04-12", "nationality": "NA",
-                "identificationType": "NATIONAL_ID",
-                "identificationNumber": "85041200123",
-                "ownershipType": "DIRECT", "ownershipPercentage": 60, "politicallyExposedPerson": false,
-                "roles": ["SHAREHOLDER", "DIRECTOR"]}],
+                "residentialAddress": "7 Nelson Mandela Ave, Windhoek",
+                "identificationType": "NATIONAL_ID", "identificationNumber": "85041200123",
+                "ownershipPercentage": 60, "politicallyExposedPerson": false}],
               "bankAccounts": [{"beneficiaryName": "Namib Distribution %d (Pty) Ltd", "bankCode": "BANK_WINDHOEK",
-                "branch": "WINDHOEK", "accountNumber": "8001234567",
-                "accountType": "CURRENT", "currency": "NAD"}]
+                "institutionCode": "481972", "accountNumber": "8001234567", "accountType": "CURRENT"}]
             }""".formatted(seq(), seq(), seq(), seq(), seq()), new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
     }
 
@@ -165,7 +164,7 @@ class TUat19KycApplicationTests extends UatSupport {
         // stored as (encrypted) JSON in the row
         KycApplication stored = open(supOrg);
         JsonNode rawDoc = om.readTree(stored.getApplicationJson());
-        assertThat(rawDoc.at("/businessProfile/entityType").asText()).isEqualTo("PRIVATE_COMPANY");
+        assertThat(rawDoc.at("/businessProfile/entityType").asText()).isEqualTo("PRIVATE_LIMITED");
 
         // submit lists every reason the sparse document is not acceptable
         MvcResult sub = bearerPost("/api/orgs/" + supOrg + "/kyc/submit", token, null).andReturn();
@@ -195,8 +194,10 @@ class TUat19KycApplicationTests extends UatSupport {
         List<Object> addresses = new java.util.ArrayList<>(listOf(twoRegistered, "addresses"));
         Map<String, Object> copy = new java.util.LinkedHashMap<>();
         copy.put("addressType", "REGISTERED");
-        copy.put("streetLine", "x");
-        copy.put("town", "y");
+        copy.put("streetLine", "1 Other Street");
+        copy.put("town", "Swakopmund");
+        copy.put("region", "Erongo");
+        copy.put("postalCode", "9000");
         copy.put("country", "NA");
         addresses.add(copy);
         twoRegistered.put("addresses", addresses);
@@ -205,6 +206,15 @@ class TUat19KycApplicationTests extends UatSupport {
         assertThat(twice.getResponse().getStatus()).isEqualTo(400);
         assertThat(om.readTree(twice.getResponse().getContentAsString()).get("detail").asText())
                 .contains("at most 1 matching addressType=[REGISTERED] allowed");
+
+        // the account holder must strictly match the legal business name (spec §5): an error, not a warning
+        Map<String, Object> mismatch = kycDoc(supOrg);
+        ((Map<String, Object>) listOf(mismatch, "bankAccounts").get(0)).put("beneficiaryName", "Somebody Else");
+        kycApps.saveDraft(principalOf(distAdmin), supOrg, mismatch, null);
+        MvcResult holder = bearerPost("/api/orgs/" + supOrg + "/kyc/submit", token, null).andReturn();
+        assertThat(holder.getResponse().getStatus()).isEqualTo(400);
+        assertThat(om.readTree(holder.getResponse().getContentAsString()).get("detail").asText())
+                .contains("account holder must match the legal business name");
 
         // the full document passes; sendToChecker=false lands in the ops-review stage
         mockMvc.perform(MockMvcRequestBuilders.put("/api/orgs/" + supOrg + "/kyc")
@@ -233,23 +243,27 @@ class TUat19KycApplicationTests extends UatSupport {
                     assertThat(e.getMessage()).contains("unknown keys");
                 });
 
-        // a bank branch that does not belong to the selected bank is refused (§5.2 list parent)
-        Map<String, Object> wrongBranch = kycDoc(supOrg);
-        Map<String, Object> bank = listOf(wrongBranch, "bankAccounts").stream()
+        // an account type outside the spec's choices (Checking / Current, Savings) is refused
+        Map<String, Object> wrongChoice = kycDoc(supOrg);
+        Map<String, Object> bank = listOf(wrongChoice, "bankAccounts").stream()
                 .map(o -> (Map<String, Object>) o).findFirst().orElseThrow();
-        bank.put("bankCode", "FNB_NAMIBIA");
-        assertThatThrownBy(() -> kycApps.saveDraft(principalOf(distAdmin), supOrg, wrongBranch, null))
+        bank.put("accountType", "TRANSMISSION");
+        assertThatThrownBy(() -> kycApps.saveDraft(principalOf(distAdmin), supOrg, wrongChoice, null))
                 .isInstanceOfSatisfying(BadRequestException.class,
                         e -> assertThat(e.getMessage()).contains("not a valid choice"));
 
-        // a malformed registration number fails the master's BIPA pattern even on drafts
-        Map<String, Object> badPattern = kycDoc(supOrg);
-        Map<String, Object> bp = java.util.Objects.requireNonNull(
-                (Map<String, Object>) badPattern.get("businessProfile"));
-        bp.put("registrationNumber", "1234-BAD");
-        assertThatThrownBy(() -> kycApps.saveDraft(principalOf(distAdmin), supOrg, badPattern, null))
+        // an ownership percentage above 100 fails the master's range even on drafts
+        Map<String, Object> badRange = kycDoc(supOrg);
+        ((Map<String, Object>) listOf(badRange, "ubos").get(0)).put("ownershipPercentage", 150);
+        assertThatThrownBy(() -> kycApps.saveDraft(principalOf(distAdmin), supOrg, badRange, null))
                 .isInstanceOfSatisfying(BadRequestException.class,
-                        e -> assertThat(e.getMessage()).contains("invalid format"));
+                        e -> assertThat(e.getMessage()).contains("must be at most 100"));
+
+        // fields the specification dropped are unknown now (e.g. v2's VAT number)
+        Map<String, Object> dropped = kycDoc(supOrg);
+        ((Map<String, Object>) dropped.get("businessProfile")).put("vatNumber", "123");
+        assertThatThrownBy(() -> kycApps.saveDraft(principalOf(distAdmin), supOrg, dropped, null))
+                .isInstanceOfSatisfying(BadRequestException.class, e -> assertThat(e.getMessage()).contains("unknown keys"));
     }
 
     @Test

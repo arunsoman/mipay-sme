@@ -192,26 +192,48 @@ public final class KycRuleValidators {
         }
     }
 
-    /** NAME_MATCH: bank account holder should match the legal or trading name (warning). */
+    /**
+     * NAME_MATCH: the bank account holder matches one of the {@code against} names. Optional
+     * {@code soleProprietor: {section, field}}: for a sole proprietor, any person's name in
+     * that list section also matches. {@code severity: "ERROR"} makes a mismatch block submit
+     * (default: warning).
+     */
     @Component
     public static class NameMatch implements KycRuleValidator {
         public String key() { return "NAME_MATCH"; }
 
+        @SuppressWarnings("unchecked")
         public void validate(Map<String, Object> params, KycValidationContext ctx) {
             String section = str(params.getOrDefault("section", "bankAccounts"));
             String nameField = str(params.getOrDefault("nameField", "beneficiaryName"));
-            List<Object> against = valueList(params.get("against"));
+            boolean error = "ERROR".equalsIgnoreCase(str(params.get("severity")));
+            List<String> names = new java.util.ArrayList<>();
+            for (Object a : valueList(params.get("against"))) {
+                Object v = KycConditionEvaluator.resolve(str(a), null, ctx.doc);
+                if (v != null && !v.toString().isBlank()) names.add(KycNormalizer.name(v.toString()));
+            }
+            boolean sole = false;
+            if (params.get("soleProprietor") instanceof Map<?, ?> sp) {
+                Object entity = KycConditionEvaluator.resolve("businessProfile.entityType", null, ctx.doc);
+                if ("SOLE_PROPRIETOR".equals(entity == null ? null : entity.toString())) {
+                    sole = true;
+                    String ps = str(((Map<String, Object>) sp).getOrDefault("section", "ubos"));
+                    String pf = str(((Map<String, Object>) sp).getOrDefault("field", "fullLegalName"));
+                    for (Map<String, Object> person : items(ctx, ps)) {
+                        Object v = person.get(pf);
+                        if (v != null && !v.toString().isBlank()) names.add(KycNormalizer.name(v.toString()));
+                    }
+                }
+            }
             for (int i = 0; i < items(ctx, section).size(); i++) {
                 Map<String, Object> item = items(ctx, section).get(i);
                 String holder = str(item.get(nameField));
                 if (holder == null || holder.isBlank()) continue;
-                String norm = KycNormalizer.name(holder);
-                boolean match = against.stream().map(a -> KycConditionEvaluator.resolve(str(a), null, ctx.doc))
-                        .anyMatch(v -> v != null && KycNormalizer.name(v.toString()).equals(norm));
-                if (!match) {
-                    ctx.warning(section + "[" + i + "]." + nameField,
-                            "account holder does not match the legal or trading name");
-                }
+                if (names.contains(KycNormalizer.name(holder))) continue;
+                String msg = "account holder must match the legal business name"
+                        + (sole ? " or the sole proprietor's name" : "");
+                if (error) ctx.error(section + "[" + i + "]." + nameField, msg);
+                else ctx.warning(section + "[" + i + "]." + nameField, msg);
             }
         }
     }

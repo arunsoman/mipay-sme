@@ -56,7 +56,7 @@ public class KycMasterSeed implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         if (schemas.findByCodeAndVersion("NA-PSP-BUSINESS", 1).isPresent()) return;
         seed();
-        log.info("KYC master seed complete: 18 lists, 1 schema, 7 sections, 48 fields, 12 rules, 5 profiles");
+        log.info("KYC master seed complete: v1 + v3 (merchant data capture spec); profiles on v3");
     }
 
     void seed() {
@@ -414,6 +414,9 @@ public class KycMasterSeed implements ApplicationRunner {
                 "{\"section\":\"ubos\",\"field\":\"identificationNumber\",\"tag\":\"UBO_ID_NUMBER\",\"severity\":\"WARNING\"}",
                 "This identity number already appears in the platform (warning).");
 
+        // the form in use: v3, the merchant data capture specification (V19 on Postgres)
+        KycSchemaVersion v3 = seedV3();
+
         // ---------------------------------------------------------------- profiles (one per org type)
         String workflowConfig = ("{\"approvalRequired\":true,\"entryCheck\":\"OPTIONAL\","
                 + "\"verification\":[\"IDENTITY\",\"SANCTIONS\",\"PEP\"],"
@@ -428,7 +431,7 @@ public class KycMasterSeed implements ApplicationRunner {
             p.setSubjectType("BUSINESS");
             p.setEntityType(null);
             p.setOrgType(orgType);
-            p.setSchemaVersionId(sv.getId());
+            p.setSchemaVersionId(v3.getId());
             p.setWorkflowKey("configurable");
             p.setWorkflowVersion(1);
             p.setWorkflowConfig(workflowConfig);
@@ -496,6 +499,128 @@ public class KycMasterSeed implements ApplicationRunner {
         });
         i.setAttributes(json(Map.of("vertical", vertical, "risk", risk)));
         items.save(i);
+    }
+
+    /** NA-PSP-BUSINESS v3: exactly the merchant data capture specification (mirrors V19). */
+    private KycSchemaVersion seedV3() {
+        list("KYC_ENTITY_TYPE", null, "Entity type / legal structure (merchant data capture spec)",
+                "SOLE_PROPRIETOR|Sole Proprietorship", "PARTNERSHIP|Partnership", "PRIVATE_LIMITED|Private Limited / LLC",
+                "PUBLIC_CORPORATION|Public Corporation", "TRUST_NGO|Trust / NGO");
+        list("KYC_ADDRESS_TYPE", null, "Registered office or operational / store address",
+                "REGISTERED|Registered office address", "OPERATING|Operational / store address");
+        list("KYC_ID_DOC_TYPE", null, "Government-issued identification document type",
+                "PASSPORT|Passport", "NATIONAL_ID|National ID", "DRIVING_LICENCE|Driver's License");
+        list("KYC_ACCOUNT_TYPE", null, "Settlement account type",
+                "CURRENT|Checking / Current", "SAVINGS|Savings");
+
+        KycSchemaVersion sv = new KycSchemaVersion();
+        sv.setCode("NA-PSP-BUSINESS");
+        sv.setVersion(3);
+        sv.setStatus(KycSchemaVersion.Status.PUBLISHED);
+        sv.setPublishedAt(Instant.now());
+        schemas.save(sv);
+
+        KycSection bp = section(sv, "businessProfile", "Business Profile & General Information", 1, KycSection.Kind.OBJECT, null, null, 10);
+        KycSection op = section(sv, "operationalDetails", "Operational & Store Details", 2, KycSection.Kind.OBJECT, null, null, 20);
+        KycSection ad = section(sv, "addresses", "Registered & Operational Address", 3, KycSection.Kind.LIST, 1, 2, 30);
+        KycSection ub = section(sv, "ubos", "Ultimate Beneficial Owners (UBO) & Key Management", 4, KycSection.Kind.LIST, 1, 20, 40);
+        KycSection ba = section(sv, "bankAccounts", "Settlement & Payout Bank Account Details", 5, KycSection.Kind.LIST, 1, 1, 50);
+
+        // 1. Business Profile & General Information
+        fld(bp, "legalBusinessName", "Legal Business Name", 10)
+                .help("Exact registered name as listed in legal government tax registries.").len(2, 200).tag("LEGAL_NAME");
+        fld(bp, "tradingName", "Doing Business As (DBA) / Trading Name", 20)
+                .help("Public-facing store or brand name displayed to customers on checkout pages and bank statements.").len(1, 200);
+        fld(bp, "entityType", "Entity Type / Legal Structure", 30)
+                .help("Sole Proprietorship, Partnership, Private Limited / LLC, Public Corporation, or Trust / NGO.")
+                .type(KycField.DataType.ENUM, "KYC_ENTITY_TYPE");
+        fld(bp, "registrationNumber", "Business Registration / Corporate ID Number", 40)
+                .help("Official registration number (e.g. CIN, Company Registration No.).")
+                .normalize(KycField.Normalize.PUNCT).len(3, 32).tag("REG_NUMBER");
+        fld(bp, "incorporationDate", "Date of Incorporation / Establishment", 50)
+                .help("Date the business was legally formed (DD/MM/YYYY).")
+                .type(KycField.DataType.DATE, null).dateRule(KycField.DateRule.PAST);
+        fld(bp, "taxIdentificationNumber", "Tax Identification Number (TIN / EIN / GSTIN / VAT ID)", 60)
+                .help("Primary tax registration identifier.").len(5, 32).tag("TAX_ID")
+                .sens(KycField.Sensitivity.SECRET, KycField.Mask.LAST4);
+        // 2. Operational & Store Details
+        fld(op, "mcc", "Merchant Category Code (MCC) / Industry Vertical", 10)
+                .help("4-digit classification code (e.g. Retail, SaaS, Travel, F&B).")
+                .type(KycField.DataType.ENUM, "MCC").len(4, 4).tag("MCC");
+        fld(op, "websiteOrStorefront", "Website URL / Mobile App Link / Storefront Details", 20)
+                .help("Digital footprint or physical store location used for products and terms verification.").len(3, 500);
+        fld(op, "expectedMonthlyVolume", "Expected Monthly Processing Volume", 30)
+                .help("Estimated monetary volume used to configure initial risk limits and pricing tiers.")
+                .type(KycField.DataType.ENUM, "NA_VOLUME_BAND").tag("EXPECTED_MONTHLY_VOLUME");
+        fld(op, "averageTicketSize", "Average Ticket Size / Transaction Value", 40)
+                .help("Typical value of a single consumer transaction.")
+                .type(KycField.DataType.MONEY, null).len(null, 14).range("0", null);
+        // 3. Registered & Operational Address
+        fld(ad, "addressType", "Address", 10)
+                .help("Registered office address (matching official registration documents); add an operational / store address only if it is different.")
+                .type(KycField.DataType.ENUM, "KYC_ADDRESS_TYPE");
+        fld(ad, "streetLine", "Street Line", 20).len(2, 200).sens(KycField.Sensitivity.PII, null);
+        fld(ad, "town", "City", 30).len(2, 100);
+        fld(ad, "region", "State / Province", 40).len(2, 100);
+        fld(ad, "postalCode", "Postal Code", 50).len(2, 10);
+        fld(ad, "country", "Country", 60).type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2);
+        // 4. Ultimate Beneficial Owners (UBO) & Key Management
+        fld(ub, "fullLegalName", "Full Legal Name", 10).help("Complete legal name of Directors, Partners, or UBOs.")
+                .len(2, 200).tag("UBO_NAME").sens(KycField.Sensitivity.PII, null);
+        fld(ub, "dateOfBirth", "Date of Birth (DOB)", 20).type(KycField.DataType.DATE, null)
+                .dateRule(KycField.DateRule.PAST).tag("UBO_DOB").sens(KycField.Sensitivity.PII, KycField.Mask.HIDE);
+        fld(ub, "nationality", "Nationality", 30).type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2).tag("UBO_NATIONALITY");
+        fld(ub, "residentialAddress", "Residential Address", 40).help("Current home address of key personnel.")
+                .len(5, 300).tag("UBO_ADDRESS").sens(KycField.Sensitivity.PII, KycField.Mask.HIDE);
+        fld(ub, "identificationType", "Government-Issued ID: Document Type", 50)
+                .help("Passport, National ID, or Driver's License.").type(KycField.DataType.ENUM, "KYC_ID_DOC_TYPE").tag("UBO_ID_TYPE");
+        fld(ub, "identificationNumber", "Government-Issued ID: ID Number", 60).len(5, 32).tag("UBO_ID_NUMBER")
+                .sens(KycField.Sensitivity.SECRET, KycField.Mask.LAST4);
+        fld(ub, "identificationExpiryDate", "Government-Issued ID: Expiry Date", 70)
+                .help("Leave empty only for a national ID without an expiry date.")
+                .type(KycField.DataType.DATE, null).dateRule(KycField.DateRule.FUTURE)
+                .reqWhen("WHEN", not("item.identificationType", "NATIONAL_ID")).tag("UBO_ID_EXPIRY");
+        fld(ub, "ownershipPercentage", "Ownership Percentage", 80)
+                .help("Shareholding or voting rights distribution (≥ 10% to 25% threshold). Enter 0 for directors without a share.")
+                .type(KycField.DataType.PERCENT, null).len(null, 6).range("0", "100").tag("UBO_OWNERSHIP");
+        fld(ub, "politicallyExposedPerson", "Politically Exposed Person (PEP) Declaration", 90)
+                .help("Does the individual or a close associate hold public office?")
+                .type(KycField.DataType.BOOLEAN, null).tag("UBO_PEP");
+        // 5. Settlement & Payout Bank Account Details
+        fld(ba, "beneficiaryName", "Beneficiary / Account Holder Name", 10)
+                .help("Must strictly match the Legal Business Name or the Sole Proprietor's name.").len(2, 200).tag("BANK_BENEFICIARY");
+        fld(ba, "bankCode", "Bank Name", 20).type(KycField.DataType.ENUM, "NA_BANK").tag("BANK_CODE");
+        fld(ba, "institutionCode", "Branch / Institution Code", 30)
+                .help("Institution identifier (e.g. IFSC, Sort Code, Routing Number, SWIFT).").len(3, 34).tag("BANK_BRANCH");
+        fld(ba, "accountNumber", "Account Number / IBAN", 40).help("Destination account for settlement payouts.")
+                .len(6, 34).tag("BANK_ACCOUNT_NUMBER").sens(KycField.Sensitivity.SECRET, KycField.Mask.LAST4);
+        fld(ba, "accountType", "Account Type", 50).help("Checking / Current vs. Savings.")
+                .type(KycField.DataType.ENUM, "KYC_ACCOUNT_TYPE");
+        flushFields();
+
+        rule(sv, "REG_ADDRESS_EXACT_ONE", KycRule.Phase.SUBMIT, "LIST_COUNT",
+                "{\"section\":\"addresses\",\"field\":\"addressType\",\"value\":[\"REGISTERED\"],\"min\":1,\"max\":1}",
+                "Exactly one registered office address is required.");
+        rule(sv, "OPERATING_ADDRESS_AT_MOST_ONE", KycRule.Phase.SUBMIT, "LIST_COUNT",
+                "{\"section\":\"addresses\",\"field\":\"addressType\",\"value\":[\"OPERATING\"],\"min\":0,\"max\":1}",
+                "Add at most one operational / store address.");
+        rule(sv, "OWNERSHIP_SUM_MAX", KycRule.Phase.SUBMIT, "SUM_MAX",
+                "{\"section\":\"ubos\",\"field\":\"ownershipPercentage\",\"max\":100}",
+                "The combined ownership percentages cannot exceed 100%.");
+        rule(sv, "BENEFICIARY_NAME_MATCH", KycRule.Phase.SUBMIT, "NAME_MATCH",
+                "{\"section\":\"bankAccounts\",\"nameField\":\"beneficiaryName\",\"against\":[\"businessProfile.legalBusinessName\"],"
+                        + "\"soleProprietor\":{\"section\":\"ubos\",\"field\":\"fullLegalName\"},\"severity\":\"ERROR\"}",
+                "The account holder name must match the legal business name or the sole proprietor's name.");
+        rule(sv, "UNIQUE_REGISTRATION", KycRule.Phase.SUBMIT, "UNIQUE_IN_PLATFORM",
+                "{\"section\":\"businessProfile\",\"field\":\"registrationNumber\",\"tag\":\"REG_NUMBER\",\"normalize\":\"PUNCT\",\"severity\":\"ERROR\"}",
+                "This registration number is already used by another active organization.");
+        rule(sv, "UNIQUE_TIN", KycRule.Phase.SUBMIT, "UNIQUE_IN_PLATFORM",
+                "{\"section\":\"businessProfile\",\"field\":\"taxIdentificationNumber\",\"tag\":\"TAX_ID\",\"severity\":\"ERROR\"}",
+                "This tax identification number is already used by another active organization.");
+        rule(sv, "OWNER_ID_UNIQUE", KycRule.Phase.SUBMIT, "UNIQUE_IN_PLATFORM",
+                "{\"section\":\"ubos\",\"field\":\"identificationNumber\",\"tag\":\"UBO_ID_NUMBER\",\"severity\":\"WARNING\"}",
+                "This identity number already appears in the platform (warning).");
+        return sv;
     }
 
     private KycSection section(KycSchemaVersion sv, String key, String title, int step,
