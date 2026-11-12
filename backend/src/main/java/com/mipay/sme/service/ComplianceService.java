@@ -12,6 +12,7 @@ import com.mipay.sme.repository.DsarRequestRepository;
 import com.mipay.sme.repository.KycCheckRepository;
 import com.mipay.sme.repository.SarReportRepository;
 import com.mipay.sme.repository.PaymentRepository;
+import com.mipay.sme.repository.OrganizationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,8 @@ public class ComplianceService {
     private final SarReportRepository sarRepo;
     private final DsarRequestRepository dsarRepo;
     private final PaymentRepository paymentRepo;
+    private final OrganizationRepository orgRepo;
+    private final com.mipay.sme.security.auth.AuthSyncService authSync;
     private final com.mipay.sme.repository.InvoiceRepository invoiceRepo;
     private final com.mipay.sme.repository.CreditConsentRepository consentRepo;
     private final com.mipay.sme.repository.WithdrawalRepository withdrawalRepo;
@@ -216,6 +219,9 @@ public class ComplianceService {
         m.setKycRiskRating(rating);
         int cycleMonths = rating == Enums.KycRiskRating.HIGH ? 12 : rating == Enums.KycRiskRating.MEDIUM ? 24 : 36;
         m.setKycNextReviewDate(java.time.LocalDate.now().plusMonths(cycleMonths));
+        // a completed review lifts the periodic-review hold (§3.3d); manual holds persist
+        orgRepo.findByOrgTypeAndEntityId(Enums.OrgType.MERCHANT, m.getId())
+                .ifPresent(org -> authSync.liftKycLapses(org.getId(), actorId));
         auditService.record(actorId, actorRole, "kyc_risk_rated", "merchant", m.getId(),
                 null, rating.name(), "review cycle " + cycleMonths + "m (KYC spec §5)", false, null);
     }

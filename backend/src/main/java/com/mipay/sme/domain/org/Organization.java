@@ -95,4 +95,8 @@ public class Organization {
         if (id == null) id = UUID.randomUUID().toString().toLowerCase();
         if (createdAt == null) createdAt = Instant.now();
     }
+
+    /** Org policy: this org's users need MFA on the IdP (2fa-design §5.1; reconciled by AuthSyncService). */
+    @Column(name = "mfa_required", nullable = false)
+    private boolean mfaRequired = false;
 }

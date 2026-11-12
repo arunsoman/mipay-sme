@@ -11,6 +11,7 @@ import com.mipay.sme.repository.OnboardingRequestRepository;
 import com.mipay.sme.repository.SupplierRepository;
 import com.mipay.sme.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,9 @@ public class OrgGoLiveBridge {
     private final ComplianceService complianceService;
     private final ProvisioningService provisioningService;
     private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
+    private final com.mipay.sme.repository.OrgClosureRepository closureRepo;
+    private final com.mipay.sme.config.AppProperties properties;
+    private final com.mipay.sme.security.rbac.RbacMeshClient rbac;
 
     /** Provisioning for an org that just passed the KYC gate. */
     public void provisioningApproved(Organization org, String approverId, String approverRole) {
@@ -43,9 +47,7 @@ public class OrgGoLiveBridge {
         provisioningApprovedPrivate(org, approverId, approverRole);
     }
 
-    public void archivePendingUsers(Organization org) {
-        userRepo.findByOrgIdAndStatus(org.getId(), Enums.UserStatus.PENDING).forEach(this::archiveUser);
-    }
+    // archivePendingUsers lives below (§3.3c full-subtree semantics in gateway mode)
 
     private void provisioningApprovedPrivate(Organization org, String reviewerId, String reviewerRole) {
         if (org.getEntityId() == null) return;
@@ -83,6 +85,33 @@ public class OrgGoLiveBridge {
                     r.setNote("approved via KYC workflow (go-live gate)");
                     onboardingRepo.save(r);
                 });
+    }
+
+    /**
+     * §3.3c: termination is terminal — gateway mode archives ALL users of the org's subtree
+     * (not only the pending ones), queues DISABLE+UNLINK for their credentials and revokes the
+     * org tenant's RBAC assignments and grants. Legacy mode keeps historic behaviour.
+     */
+    public void archivePendingUsers(Organization org) {
+        if (!properties.getIdentityMode().equals("legacy")) {
+            List<String> subtree = closureRepo.findSubtree(org.getId()).stream()
+                    .map(r -> r.getOrg().getId()).toList();
+            List<String> orgIds = subtree.isEmpty() ? List.of(org.getId()) : subtree;
+            for (User u : userRepo.findByOrgIdIn(orgIds)) archiveUser(u);
+            try {
+                if (rbac.configured()) rbac.revokeAll(org.getId(), "org rejected/closed: subtree archived");
+            } catch (Exception e) {
+                // assignments are reconcilable: the log records the drift, the next run repairs
+                log.warn("rbac revoke-all failed for {}: {}", org.getId(), e.getMessage());
+            }
+            return;
+        }
+        archivePendingOnly(org);
+    }
+
+    /** Legacy behaviour kept verbatim: only the org's own PENDING members are archived. */
+    private void archivePendingOnly(Organization org) {
+        userRepo.findByOrgIdAndStatus(org.getId(), Enums.UserStatus.PENDING).forEach(this::archiveUser);
     }
 
     /** [M7]: pending members are archived with an audit-tagged username. */

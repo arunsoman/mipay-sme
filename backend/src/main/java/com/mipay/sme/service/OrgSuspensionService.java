@@ -49,6 +49,7 @@ public class OrgSuspensionService {
     private final OrgAccess orgAccess;
     private final AuditService auditService;
     private final OrgCallerService caller;
+    private final com.mipay.sme.security.auth.AuthSyncService authSync;
     private final org.springframework.context.ApplicationEventPublisher events;
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
@@ -87,6 +88,7 @@ public class OrgSuspensionService {
         kycApplications.syncSuspension(org.getId());   // isSuspended for the whole subtree
         // RBAC refuses the held subtree before the gateway routes (cut-over P2.6a); runs after commit
         events.publishEvent(new com.mipay.sme.security.rbac.OrgTreeSyncService.OrgTreeChanged(org.getId()));
+        reconcileAfterCommit(org.getId());
         return new Dtos.SuspensionRow(s.getId(), s.getEntityType().name(), s.getEntityId(), reason,
                 s.getSuspendedAt(), null);
     }
@@ -110,6 +112,7 @@ public class OrgSuspensionService {
                     "SUSPENDED", "ACTIVE", null, false, null);
             kycApplications.syncSuspension(s.getOrgId());   // other holds may keep parts suspended
             events.publishEvent(new com.mipay.sme.security.rbac.OrgTreeSyncService.OrgTreeChanged(s.getOrgId()));
+            if (s.getOrgId() != null) reconcileAfterCommit(s.getOrgId());
         }
         return suspensions();
     }
@@ -198,5 +201,27 @@ public class OrgSuspensionService {
 
     private boolean platformStaff(Current.Principal actor) {
         return caller.platformStaff(actor);
+    }
+
+    /**
+     * The IdP follows core state (§3.3b): once the suspension transaction commits, the
+     * subtree's links are disabled — on lift they are re-enabled so far as core permits.
+     */
+    private void reconcileAfterCommit(String orgId) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            authSync.reconcileOrg(orgId);
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            authSync.reconcileOrg(orgId);
+                        } catch (Exception e) {
+                            // the nightly repair covers anything this pass could not finish
+                        }
+                    }
+                });
     }
 }

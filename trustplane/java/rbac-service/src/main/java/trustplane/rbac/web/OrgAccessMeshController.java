@@ -29,6 +29,8 @@ import java.util.Set;
 public class OrgAccessMeshController {
 
     static final String SOURCE = "core_portal";
+    private static final java.util.Set<String> SYSTEM_SOURCES =
+            java.util.Set.copyOf(trustplane.rbac.core.AccessService.SYSTEM_SOURCES);
 
     private final RbacStore store;
     private final AccessService access;
@@ -41,7 +43,7 @@ public class OrgAccessMeshController {
                            List<String> base_roles, Map<String, List<String>> grid, List<String> permissions) {}
 
     public record AssignBody(String actor, Boolean core_authorized, String subject, String role, String scope,
-                             String expires_at, String reason) {}
+                             String expires_at, String reason, String source) {}
 
     public record DecideBody(String actor, Boolean core_authorized, String reason) {}
 
@@ -131,9 +133,12 @@ public class OrgAccessMeshController {
         core(req, svc);
         if (b == null) throw ApiException.badRequest("body required");
         String actor = actorOf(b.actor());
+        // the core decides its own writes (backfill, KYC go-live, user lifecycle): when the core
+        // names a system source the decision flows as the core made it, otherwise core_portal
+        String source = b.source() != null && SYSTEM_SOURCES.contains(b.source()) ? b.source() : SOURCE;
         return access.request(actor, new AccessService.AssignRequest(b.subject(), b.role(), tenant,
                         b.scope() == null || b.scope().isBlank() ? "own" : b.scope(), WebSupport.instant(b.expires_at()), b.reason()),
-                SOURCE, Boolean.TRUE.equals(b.core_authorized()));
+                source, Boolean.TRUE.equals(b.core_authorized()));
     }
 
     @PublicEndpoint("mesh: the core revokes a role assignment in the org on behalf of an org admin")

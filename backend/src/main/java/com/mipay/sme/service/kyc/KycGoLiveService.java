@@ -42,6 +42,8 @@ public class KycGoLiveService {
     private final AuditService auditService;
     private final OrgGoLiveBridge goLiveBridge;
     private final OrgRightsService rights;
+    private final com.mipay.sme.security.auth.AuthSyncService authSync;
+    private final com.mipay.sme.config.AppProperties properties;
 
     /**
      * Runs when the KYC workflow's last stage APPROVEs (or auto-approval fires).
@@ -86,7 +88,14 @@ public class KycGoLiveService {
             goLiveBridge.provisioningApproved(org, actorId, "TPTS_OPS");
             writeOutcome(org, app);
             markRequestApproved(org.getId(), actorId);
-            activation.issue(admin, actorId);
+            if (properties.getIdentityMode().equals("legacy")) {
+                activation.issue(admin, actorId);
+            } else {
+                // gateway mode: the applicant admin was enrolled at creation — go-live swaps
+                // their kyc_applicant assignment for org_admin; the set-up link already went out
+                authSync.applicantBecomesAdmin(org.getId(), admin.getId(), actorId);
+            }
+            authSync.reconcileOrg(org.getId());   // the ACTIVE org re-enables its users (no-op safe)
             auditService.record(actorId, "TPTS_OPS", "kyc_approved_go_live", "organization",
                     org.getId(), "PENDING", "ACTIVE", "application " + app.getId(), false, null);
             log.info("KYC go-live: org {} activated via application {}", org.getId(), app.getId());
@@ -159,6 +168,9 @@ public class KycGoLiveService {
         orgRepo.save(org);
         markRequestForced(org.getId(), target, reason, actorId);
         goLiveBridge.archivePendingUsers(org);
+        // §3.3c: termination is terminal — the whole subtree's links are reconciled after
+        // the archive (disable + revoke for anything the archive itself did not cover)
+        authSync.reconcileOrg(org.getId());
     }
 
     private void markRequestForced(String orgId, Enums.OrgStatus target, String reason, String actorId) {

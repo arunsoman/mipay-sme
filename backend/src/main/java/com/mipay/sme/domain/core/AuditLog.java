@@ -49,6 +49,18 @@ public class AuditLog {
     @Column(columnDefinition = "varchar(1000)")
     private String meta;
 
+    /** What the actor IS (platform staff, org admin of type X, system), not the string role. */
+    @Column(name = "actor_kind", length = 24)
+    private String actorKind;
+
+    /** The identity link used for the acting session, when the actor acted through the IdP. */
+    @Column(name = "link_id", length = 36)
+    private String linkId;
+
+    /** Authentication assurance of the acting session (acr), when available. */
+    @Column(name = "acr", length = 16)
+    private String acr;
+
     @Column(columnDefinition = "boolean default false")
     private Boolean simulated = false;
 

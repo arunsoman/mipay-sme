@@ -63,6 +63,9 @@ public class OrgTreeSyncService {
         return t;
     });
     private final AtomicBoolean pending = new AtomicBoolean(false);
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.core.env.Environment env;
     private volatile String lastFingerprint = "";
     private volatile String rbacUrl;
 
@@ -78,12 +81,18 @@ public class OrgTreeSyncService {
     @EventListener(ApplicationReadyEvent.class)
     public void syncAtBoot() {
         String url = System.getenv("APP_RBAC_REGISTRY_URL");
+        if (url == null || url.isBlank()) url = env.getProperty("app.rbac-url");   // property fallback
         if (url == null || url.isBlank()) {
             log.info("[rbac-sync] APP_RBAC_REGISTRY_URL not set - skipping org tree sync");
             return;
         }
-        // registry URL is .../permissions/register; sync endpoint is .../orgs/sync
-        rbacUrl = url.replace("/permissions/register", "/orgs/sync");
+        // registry URL is .../permissions/register; sync endpoint is .../rbac/internal/orgs/sync
+        String u = System.getenv("APP_RBAC_REGISTRY_URL");
+        if (u == null || u.isBlank()) u = env == null ?null : env.getProperty("app.rbac-url");
+        String base = u == null ? "" : u.replaceAll("/+$", "");
+        if (base.endsWith("/rbac/internal")) base = base.substring(0, base.length() - "/rbac/internal".length());
+        int i = base.indexOf("/rbac/");
+        rbacUrl = (i < 0 ? base + "/rbac/internal" : base.substring(0, i) + "/rbac/internal") + "/orgs/sync";
         requestSync();
         timer.scheduleWithFixedDelay(this::syncIfChanged, 15, 15, TimeUnit.SECONDS);
     }

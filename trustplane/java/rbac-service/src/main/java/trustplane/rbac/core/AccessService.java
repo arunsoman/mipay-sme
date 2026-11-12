@@ -39,7 +39,7 @@ import java.util.Set;
 public class AccessService {
 
     public static final String SYSTEM = "system:mipay";
-    private static final Set<String> SYSTEM_SOURCES = Set.of("backfill", "kyc_go_live", "org_onboarding", "user_lifecycle", "fixture");
+    public static final Set<String> SYSTEM_SOURCES = Set.of("backfill", "kyc_go_live", "org_onboarding", "user_lifecycle", "fixture");
 
     private final JdbcTemplate db;
     private final Policy policy;

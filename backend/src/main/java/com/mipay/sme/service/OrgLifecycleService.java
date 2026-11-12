@@ -1,6 +1,8 @@
 package com.mipay.sme.service;
 
 import com.mipay.sme.domain.Enums;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.mipay.sme.domain.credit.Lender;
 import com.mipay.sme.domain.core.Merchant;
 import com.mipay.sme.domain.core.Supplier;
@@ -25,6 +27,7 @@ public class OrgLifecycleService {
     private final SupplierRepository supplierRepo;
     private final LenderRepository lenderRepo;
     private final AuditService auditService;
+    private final com.mipay.sme.security.auth.AuthSyncService authSync;
 
     @Transactional
     public Organization transition(Organization org, Enums.OrgStatus to, String actorId) {
@@ -33,7 +36,30 @@ public class OrgLifecycleService {
         orgRepoMirror(org, to, actorId);
         auditService.record(actorId, "SYSTEM", "org_lifecycle", "organization", org.getId(),
                 from == null ? null : from.name(), to.name(), null, false, null);
+        reconcileAfterCommit(org, to);
         return org;
+    }
+
+    /**
+     * The IdP follows core state (§3.3b): once a lifecycle transition commits, the subtree's
+     * links are brought in step (ACTIVE orgs re-enable, others disable). Idempotent.
+     */
+    private void reconcileAfterCommit(Organization target, Enums.OrgStatus to) {
+        final String orgId = target.getId();
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            authSync.reconcileOrg(orgId);   // no surrounding tx (tests, seeds): reconcile directly
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    authSync.reconcileOrg(orgId);
+                } catch (Exception e) {
+                    // the nightly repair covers anything this pass could not finish
+                }
+            }
+        });
     }
 
     private void orgRepoMirror(Organization org, Enums.OrgStatus to, String actorId) {

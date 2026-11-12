@@ -40,12 +40,17 @@ public class RbacMeshClient {
     private static final ObjectMapper JSON = new ObjectMapper();
     private volatile HttpClient client;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.core.env.Environment env;
+
     public boolean configured() {
         return base() != null;
     }
 
     String base() {
+        // env first (deployment wiring), then the app property (tests and single-process setups)
         String url = System.getenv("APP_RBAC_REGISTRY_URL");
+        if (url == null || url.isBlank()) url = env.getProperty("app.rbac-url");
         if (url == null || url.isBlank()) return null;
         int i = url.indexOf("/rbac/");
         return i < 0 ? url.replaceAll("/+$", "") : url.substring(0, i);
@@ -77,6 +82,12 @@ public class RbacMeshClient {
 
     public Map<String, Object> revoke(String tenant, String id, Map<String, Object> body) {
         return call("POST", "/rbac/internal/tenants/" + enc(tenant) + "/assignments/" + enc(id) + "/revoke", body, new TypeReference<>() { });
+    }
+
+    /** Revokes every grant and assignment in the tenant (org rejection/closure, §3.3c). */
+    public Map<String, Object> revokeAll(String tenant, String reason) {
+        return call("POST", "/rbac/internal/tenants/" + enc(tenant) + "/revoke-all",
+                Map.of("reason", reason == null ? "org archived" : reason), new TypeReference<>() { });
     }
 
     public List<Map<String, Object>> approvals(String tenant, String actor) {
