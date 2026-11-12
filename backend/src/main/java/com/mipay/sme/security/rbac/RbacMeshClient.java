@@ -76,8 +76,29 @@ public class RbacMeshClient {
         return call("GET", "/rbac/internal/tenants/" + enc(tenant) + "/assignments", null, new TypeReference<>() { });
     }
 
+    /** A user's assignments across all tenants (reconcile, backfill, 2FA profile). */
+    public List<Map<String, Object>> assignmentsFor(String subject) {
+        return call("GET", "/rbac/internal/assignments?subject=" + enc(subject), null, new TypeReference<>() { });
+    }
+
+    /** Direct entitlement grant on one tenant (onboarding rights, P3.11 backfill). */
+    public Map<String, Object> grant(String tenant, String permission, List<String> allowedValues,
+                                     String scope, boolean canDelegate) {
+        return call("POST", "/rbac/internal/grants", Map.of(
+                "tenant", tenant, "permission", permission,
+                "allowed_values", allowedValues == null ? List.of() : allowedValues,
+                "scope", scope, "can_delegate", canDelegate), new TypeReference<>() { });
+    }
+
     public Map<String, Object> assign(String tenant, Map<String, Object> body) {
         return call("POST", "/rbac/internal/tenants/" + enc(tenant) + "/assignments", body, new TypeReference<>() { });
+    }
+
+    /** A system write decided by the core (backfill, reconcile): no actor, source names the process. */
+    public Map<String, Object> assignSystem(String subject, String role, String tenant, String scope, String reason) {
+        return call("POST", "/rbac/internal/assignments", Map.of(
+                "subject", subject, "role", role, "tenant", tenant, "scope", scope,
+                "reason", reason == null ? "" : reason, "source", "backfill"), new TypeReference<>() { });
     }
 
     public Map<String, Object> revoke(String tenant, String id, Map<String, Object> body) {
