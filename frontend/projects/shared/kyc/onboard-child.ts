@@ -8,12 +8,14 @@ import { Modal } from '../ui/modal';
 
 interface Draft {
   name: string; registrationNumber: string; businessType: string; ownerName: string;
+  tradingName: string; entityType: string; incorporationDate: string; taxIdentificationNumber: string;
   phone: string; username: string; email: string;
   bankName: string; accountNumber: string; accountHolder: string;
   supplierType: string; ownerIdNumber: string; licenceRef: string;
 }
 
 const emptyDraft = (): Draft => ({
+  tradingName: '', entityType: '', incorporationDate: '', taxIdentificationNumber: '',
   name: '', registrationNumber: '', businessType: '', ownerName: '', phone: '', username: '', email: '',
   bankName: '', accountNumber: '', accountHolder: '', supplierType: '', ownerIdNumber: '', licenceRef: '',
 });
@@ -51,7 +53,7 @@ const emptyDraft = (): Draft => ({
     </section>
 
     <mp-modal [open]="open()" size="wide"
-              [eyebrow]="created() ? 'Step 2 of 2' : 'Step 1 of 2'"
+              [eyebrow]="created() ? 'KYC · continue from section 2' : 'New organization · KYC section 1'"
               [title]="created() ? 'KYC for ' + created()!.name : 'Onboard an organization'"
               [dirty]="created() ? (kycEditor()?.isDirty() ?? false) : dirty()" [discardText]="created() ? 'Close without saving? The organization exists; unsaved KYC changes will be lost (you can finish later from the KYC page).' : 'Discard this organization? Nothing has been created yet.'"
               (closed)="onClosed()">
@@ -61,33 +63,35 @@ const emptyDraft = (): Draft => ({
               administrator the activation link. You can save a draft and finish later from the KYC page.</div>
             <mp-kyc-application #kycEditor [orgId]="c.orgId" (changed)="kycChanged.emit(c.orgId)" />
           } @else if (grantable(); as g) {
-            <div class="types">
-              @for (c of g.children; track c.type) {
-                <button type="button" [class.sel]="childType() === c.type" (click)="pickType(c)">{{ title(c.type) }}</button>
-              }
-            </div>
-            @if (child(); as c) {
-              <form (ngSubmit)="submit()" class="form">
+            <form #f="ngForm" (ngSubmit)="submit()" class="form">
+              <label class="typepick">Organization type *
+                <select name="otype" [ngModel]="childType()" (ngModelChange)="pickTypeByName($event)" required>
+                  @for (c of g.children; track c.type) {<option [value]="c.type">{{ title(c.type) }}</option>}
+                </select></label>
+              @if (child(); as c) {
                 <fieldset>
-                  <legend>Organization</legend>
+                  <legend>KYC · 1. Business Profile &amp; General Information</legend>
                   <div class="fields">
-                    <label>{{ c.type === 'MERCHANT' || c.type === 'SUPPLIER' ? 'Business name' : 'Legal name' }} *
-                      <input name="name" [(ngModel)]="d.name" required /></label>
-                    <label>Registration number {{ needsReg(c.type) ? '*' : '' }}
-                      <input name="reg" [(ngModel)]="d.registrationNumber" [required]="needsReg(c.type)" /></label>
-                    @if (c.type === 'MERCHANT') {
-                      <label>Business type
-                        <select name="btype" [(ngModel)]="d.businessType">
-                          <option value="">—</option>
-                          @for (b of businessTypes; track b) {<option [value]="b">{{ b }}</option>}
-                        </select></label>
-                    }
-                    @if (c.type === 'SUPPLIER') {
-                      <label>Supplier type <input name="stype" [(ngModel)]="d.supplierType" placeholder="e.g. WHOLESALE" /></label>
-                      <label>Owner ID number <input name="oid" [(ngModel)]="d.ownerIdNumber" /></label>
-                    }
+                    <label>Legal Business Name *
+                      <input name="legalName" [(ngModel)]="d.name" required minlength="2" maxlength="200" />
+                      <span class="help">Exact registered name as listed in legal government tax registries.</span></label>
+                    <label>Doing Business As (DBA) / Trading Name *
+                      <input name="trading" [(ngModel)]="d.tradingName" required maxlength="200" />
+                      <span class="help">Public-facing name shown to customers and on bank statements.</span></label>
+                    <label>Entity Type / Legal Structure *
+                      <select name="entity" [(ngModel)]="d.entityType" required>
+                        <option value="">—</option>
+                        @for (e of entityTypes(); track e.value) {<option [value]="e.value">{{ e.label }}</option>}
+                      </select></label>
+                    <label>Business Registration / Corporate ID Number *
+                      <input name="reg" [(ngModel)]="d.registrationNumber" required minlength="3" maxlength="32" />
+                      <span class="help">Official registration number (e.g. CIN, Company Registration No.).</span></label>
+                    <label>Date of Incorporation / Establishment *
+                      <input name="incorp" type="date" [(ngModel)]="d.incorporationDate" [max]="today" required /></label>
+                    <label>Tax Identification Number (TIN / EIN / GSTIN / VAT ID) *
+                      <input name="tin" [(ngModel)]="d.taxIdentificationNumber" required minlength="5" maxlength="32" autocomplete="off" /></label>
                     @if (c.type === 'LENDER') {
-                      <label>Licence reference <input name="lic" [(ngModel)]="d.licenceRef" /></label>
+                      <label>Lending licence reference * <input name="lic" [(ngModel)]="d.licenceRef" required /></label>
                     }
                   </div>
                 </fieldset>
@@ -95,26 +99,14 @@ const emptyDraft = (): Draft => ({
                 <fieldset>
                   <legend>Administrator (gets their MiPay username and activation link by email once KYC is approved)</legend>
                   <div class="fields">
-                    <label>Full name {{ needsOwner(c.type) ? '*' : '' }}
-                      <input name="owner" [(ngModel)]="d.ownerName" [required]="needsOwner(c.type)" /></label>
+                    <label>Full name * <input name="owner" [(ngModel)]="d.ownerName" required /></label>
                     <label>Phone * <input name="phone" [(ngModel)]="d.phone" placeholder="08x…" required /></label>
-                    <label>Email * <input name="email" type="email" [(ngModel)]="d.email" required /></label>
-                    <label>Username <input name="user" value="" readonly tabindex="-1" class="ro"
-                                           placeholder="created by MiPay · emailed to the address above" /></label>
+                    <label>Email * <input name="email" type="email" [(ngModel)]="d.email" required email /></label>
                   </div>
                 </fieldset>
 
-                @if (c.type === 'SUPPLIER') {
-                  <fieldset>
-                    <legend>Payout bank account (approved separately)</legend>
-                    <div class="fields">
-                      <label>Bank * <input name="bank" [(ngModel)]="d.bankName" required /></label>
-                      <label>Account number * <input name="acct" [(ngModel)]="d.accountNumber" required /></label>
-                      <label>Account holder * <input name="holder" [(ngModel)]="d.accountHolder" required /></label>
-                    </div>
-                  </fieldset>
-                }
-
+                <details class="access">
+                  <summary>Access for {{ d.name || 'this organization' }} <span class="muted small">(defaults applied; open to change)</span></summary>
                 @if (g.roles?.length) {
                   <fieldset>
                     <legend>Which roles may {{ d.name || 'this organization' }} use?</legend>
@@ -162,12 +154,15 @@ const emptyDraft = (): Draft => ({
                   <div class="hint">{{ title(c.type) }} organizations cannot onboard others.</div>
                 }
 
+                </details>
+
                 <div class="row">
-                  <button class="primary" type="submit" [disabled]="busy()">Create and continue to KYC</button>
+                  <button class="primary" type="submit" [disabled]="busy() || !!f.invalid">Save and continue with KYC</button>
                   <button class="ghost" type="button" (click)="resetDraft()">Clear</button>
+                  @if (f.invalid && f.submitted) {<span class="err">Fill in the fields marked *</span>}
                 </div>
-              </form>
-            }
+              }
+            </form>
           }
         @if (created()) {
           <div modal-footer><button type="button" (click)="finish()">Done</button></div>
@@ -180,8 +175,12 @@ const emptyDraft = (): Draft => ({
 
     .ptitle { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
     .step { font-size: var(--fs-sm); color: var(--a-teal); margin-bottom: 8px; }
-    .types { display: flex; gap: 8px; flex-wrap: wrap; }
-    .types button.sel { border-color: var(--a-teal); color: var(--a-teal); }
+    .typepick { max-width: 320px; font-weight: 600; color: var(--a-text, inherit); }
+    .help { font-size: var(--fs-xs); color: var(--a-dim); }
+    details.access { border: 1px solid var(--a-border); border-radius: 8px; padding: 10px 12px; }
+    details.access summary { cursor: pointer; font-size: var(--fs-sm); }
+    details.access[open] { display: grid; gap: 12px; }
+    .muted { color: var(--a-dim); }
     .form { display: grid; gap: 12px; }
     fieldset { border: 1px solid var(--a-border); border-radius: 8px; padding: 12px; margin: 0; min-width: 0; }
     legend { color: var(--a-dim); font-size: var(--fs-sm); padding: 0 6px; }
@@ -228,6 +227,12 @@ export class OnboardChild implements OnInit {
   d: Draft = emptyDraft();
 
   readonly title = titleCase;
+  readonly entityTypes = signal<{ value: string; label: string }[]>([]);
+  readonly today = new Date().toISOString().slice(0, 10);
+  pickTypeByName(t: string) {
+    const c = this.grantable()?.children.find((x) => x.type === t);
+    if (c) this.pickType(c);
+  }
   needsReg(t: string) { return t === 'MANUFACTURER' || t === 'DISTRIBUTOR'; }
   needsOwner(t: string) { return t === 'MERCHANT' || t === 'SUPPLIER'; }
   allowedSummary(g: GrantableView) { return g.children.map((c) => this.title(c.type)).join(', '); }
@@ -242,13 +247,16 @@ export class OnboardChild implements OnInit {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refresh);
     });
+    firstValueFrom(this.http.get<{ items: { value: string; label: string }[] }>('/api/kyc/lists/KYC_ENTITY_TYPE'))
+      .then((r) => this.entityTypes.set(r.items ?? [])).catch(() => this.entityTypes.set([]));
     await this.loadGrantable();
   }
 
   /** Something typed in step 1 that closing would lose. */
   dirty() {
     const d = this.d;
-    return !!(d.name || d.phone || d.ownerName || d.registrationNumber || d.email || d.username);
+    return !!(d.name || d.phone || d.ownerName || d.registrationNumber || d.email || d.username
+      || d.tradingName || d.taxIdentificationNumber);
   }
 
   onClosed() {
@@ -368,13 +376,25 @@ export class OnboardChild implements OnInit {
         name: blank(d.name), registrationNumber: blank(d.registrationNumber),
         businessType: blank(d.businessType), ownerName: blank(d.ownerName),
         phone: blank(d.phone), username: null, email: blank(d.email),   // username generated by the backend, emailed
-        bankName: blank(d.bankName), accountNumber: blank(d.accountNumber), accountHolder: blank(d.accountHolder),
-        supplierType: blank(d.supplierType), ownerIdNumber: blank(d.ownerIdNumber), licenceRef: blank(d.licenceRef),
+        bankName: null, accountNumber: null, accountHolder: null,   // the KYC bank section captures these
+        supplierType: null, ownerIdNumber: null, licenceRef: blank(d.licenceRef),
         rightsDirect: [...this.direct()], rightsCeiling: [...this.ceiling()],
         ...this.roleCeilingBody(),
       }));
+      // section 1 goes straight into the new org's KYC draft; the editor continues from there
+      let saved = true;
+      try {
+        await firstValueFrom(this.http.put(`/api/kyc/orgs/${res.orgId}`, { businessProfile: {
+          legalBusinessName: d.name.trim(), tradingName: d.tradingName.trim(), entityType: d.entityType,
+          registrationNumber: d.registrationNumber.trim(), incorporationDate: d.incorporationDate,
+          taxIdentificationNumber: d.taxIdentificationNumber.trim(),
+        } }));
+      } catch (e) {
+        saved = false;
+        this.flash.set({ kind: 'bad', text: `${d.name.trim()} was created, but its Business Profile was not saved: ${refusal(e, KYC_HINTS)}. Correct it below.` });
+      }
       this.created.set({ orgId: res.orgId, name: d.name.trim() });
-      this.flash.set({ kind: 'ok', text: `${d.name.trim()} created (PENDING). Now complete its KYC.` });
+      if (saved) this.flash.set({ kind: 'ok', text: `${d.name.trim()} created (PENDING) with its Business Profile. Continue with the next KYC sections.` });
       this.onboarded.emit(res);
     } catch (e) {
       this.flash.set({ kind: 'bad', text: refusal(e, KYC_HINTS) });

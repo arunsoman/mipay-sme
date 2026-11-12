@@ -208,7 +208,8 @@ public class OrgOnboardingService {
 
 
         // 5) supplier bank account (independent approval still applies downstream)
-        if (childType == OrgType.SUPPLIER) {
+        // optional since the onboarding screen became KYC section 1: the bank account is KYC section 5
+        if (childType == OrgType.SUPPLIER && present(spec.bankName()) && present(spec.accountNumber())) {
             OrgBankAccount account = new OrgBankAccount();
             account.setOrg(org);
             account.setBankName(required(spec.bankName(), "bankName"));
@@ -277,14 +278,21 @@ public class OrgOnboardingService {
             case MANUFACTURER, DISTRIBUTOR -> required(spec.registrationNumber(), "registrationNumber");
             case SUPPLIER -> {
                 required(spec.ownerName(), "ownerName");
-                required(spec.bankName(), "bankName");
-                required(spec.accountNumber(), "accountNumber");
-                required(spec.accountHolder(), "accountHolder");
+                // a payout account given here must be complete; leaving it out is fine (KYC section 5)
+                if (present(spec.bankName()) || present(spec.accountNumber()) || present(spec.accountHolder())) {
+                    required(spec.bankName(), "bankName");
+                    required(spec.accountNumber(), "accountNumber");
+                    required(spec.accountHolder(), "accountHolder");
+                }
             }
             case MERCHANT -> required(spec.ownerName(), "ownerName");
             case LENDER -> required(spec.licenceRef(), "licenceRef");
             default -> { }
         }
+    }
+
+    private static boolean present(String v) {
+        return v != null && !v.isBlank();
     }
 
     private String required(String v, String field) {
