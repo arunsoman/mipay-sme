@@ -1,6 +1,7 @@
 package com.mipay.sme.security.rbac;
 
 import com.mipay.sme.domain.ops.Suspension;
+import com.mipay.sme.domain.org.Organization;
 import com.mipay.sme.domain.org.OrgRoleCeiling;
 import com.mipay.sme.repository.OrgClosureRepository;
 import com.mipay.sme.repository.OrgRoleCeilingRepository;
@@ -129,6 +130,10 @@ public class OrgTreeSyncService {
                 String.class);
     }
 
+    static boolean snapshotCountMatches(long expected, long actual) {
+        return expected >= 0 && expected == actual;
+    }
+
     void syncIfChanged() {
         try {
             if (!fingerprint().equals(lastFingerprint)) sync();
@@ -142,7 +147,22 @@ public class OrgTreeSyncService {
         if (rbacUrl == null || rbacUrl.isBlank()) return;
         try {
             String fp = fingerprint();
-            List<Map<String, Object>> closure = closureRepo.findAll().stream()
+            List<Organization> sourceOrgs = orgRepo.findAll();
+            long expectedOrgCount = jdbc.queryForObject("SELECT count(*) FROM organizations", Long.class);
+            if (!snapshotCountMatches(expectedOrgCount, sourceOrgs.size())
+                    || sourceOrgs.stream().anyMatch(o -> o.getId() == null || o.getId().isBlank())
+                    || sourceOrgs.stream().map(Organization::getId).distinct().count() != sourceOrgs.size()) {
+                log.error("[rbac-sync] refusing incomplete org snapshot: database={}, rows={}", expectedOrgCount, sourceOrgs.size());
+                return;
+            }
+
+            var sourceClosure = closureRepo.findAll();
+            long expectedClosureCount = jdbc.queryForObject("SELECT count(*) FROM org_closures", Long.class);
+            if (!snapshotCountMatches(expectedClosureCount, sourceClosure.size())) {
+                log.error("[rbac-sync] refusing incomplete closure snapshot: database={}, rows={}", expectedClosureCount, sourceClosure.size());
+                return;
+            }
+            List<Map<String, Object>> closure = sourceClosure.stream()
                     .map(c -> {
                         Map<String, Object> m = new LinkedHashMap<>();
                         m.put("ancestor", c.getAncestorId());
@@ -161,8 +181,7 @@ public class OrgTreeSyncService {
             }
             Map<String, OrgRoleCeiling> ceilings = new HashMap<>();
             for (OrgRoleCeiling c : ceilingRepo.findAll()) ceilings.put(c.getOrgId(), c);
-            List<Map<String, Object>> orgs = orgRepo.findAll().stream()
-                    .filter(o -> o.getId() != null)
+            List<Map<String, Object>> orgs = sourceOrgs.stream()
                     .map(o -> {
                         Map<String, Object> m = new LinkedHashMap<>();
                         m.put("id", o.getId());          // tenant id == org id
