@@ -37,6 +37,8 @@ const (
 	EventCredentialReset   = "CREDENTIAL_RESET"
 	EventLocked            = "LOCKED"
 	EventUnlocked          = "UNLOCKED"
+	EventMFAEnrolled       = "MFA_ENROLLED"
+	EventMFARemoved        = "MFA_REMOVED"
 	EventRecoveryRequested = "ASSISTED_RECOVERY_REQUESTED"
 )
 

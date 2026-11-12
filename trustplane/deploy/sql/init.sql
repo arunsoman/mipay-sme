@@ -2,4 +2,4 @@
 CREATE DATABASE idp;
 CREATE DATABASE rbac;
 CREATE DATABASE gateway;
-CREATE DATABASE comms;   -- volumes created before comms existed: the service creates it at boot
+CREATE DATABASE comms;   -- existing development volumes need this database created once manually

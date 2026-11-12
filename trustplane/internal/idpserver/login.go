@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -48,6 +49,9 @@ func (s *Server) currentSession(r *http.Request) (*idpSession, bool) {
 		WHERE s.session_id=$1 AND s.expires_at > now()`, c.Value).
 		Scan(&ss.subject, &ss.csrf, &ss.amr, &ss.authTime)
 	if err != nil {
+		return nil, false
+	}
+	if s.cfg.MFAMode == "enforce" && assuranceFor(ss.amr) != "aal2" {
 		return nil, false
 	}
 	return ss, true
@@ -108,6 +112,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.passwordOK(ctx, a, err == nil, r.PostFormValue("password")) {
 		s.renderLogin(w, r, p, http.StatusUnauthorized, loginFailMsg)
 		return
+	}
+	if s.cfg.MFAMode == "enforce" {
+		s.beginMFA(w, r, p, a, "pwd")
+		return
+	}
+	if s.cfg.MFAMode == "shadow" {
+		log.Printf("[mfa-shadow] subject=%s profile=%s would_require_second_factor=true", a.Subject, a.MFAProfile)
 	}
 	ss, err := s.createSession(w, r, a.Subject, "pwd")
 	if err != nil {
@@ -443,6 +454,13 @@ func (s *Server) otpVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordSuccess(ctx, a)
+	if s.cfg.MFAMode == "enforce" {
+		s.beginMFA(w, r, p, a, "sms")
+		return
+	}
+	if s.cfg.MFAMode == "shadow" {
+		log.Printf("[mfa-shadow] subject=%s profile=%s would_require_second_factor=true", a.Subject, a.MFAProfile)
+	}
 	ss, err := s.createSession(w, r, a.Subject, "sms")
 	if err != nil {
 		errorPage(w, 500, "Storage failure", "try again")

@@ -1,6 +1,12 @@
 # Plan: login as a plugin, users owned by the core, permissions in RBAC
 
 Status: **draft for review** · 2026-11-11
+
+Implementation note (2026-11-12): the development comms service now runs in
+Java (`trustplane/java/comms-service`). The IdP has a guarded `enforce` login mode
+for TOTP and password-plus-SMS; the broader 2FA and P3 work remains open. Existing
+test users and orgs are disposable, so `_goal.md` replaces the historical P3
+backfill requirements for designated test environments.
 Design background: [`fapi2-design.md`](fapi2-design.md) (§3–5 gateway and FAPI flows, §9 and Appendices F–G RBAC). That document has been revised to match this plan: decisions I5, I6, I9, §6 "The IdP becomes a credential plugin", and §8 steps 1–2.
 
 **Goal:** the MiPay backend stops storing passwords, issuing tokens and hard-coding roles, but it **stays the owner of who is a legitimate user**, because onboarding and KYC decide that.
@@ -300,7 +306,7 @@ The IdP holds **credential accounts**, not users. It has no org, role, KYC or bu
 | 1.1 accounts | `accounts` table replaces `users` (dropped at boot). Seeded demo accounts (dev/sandbox only) get a stable subject `acc_seed_…`; `IDP_SEED_USERS` takes `name:pw:scopes[:uid[:phone[:mfa profile]]]` (scopes ignored: accounts carry no authority) |
 | 1.2 login + lockout | Login name (case-insensitive) or phone. DISABLED, ENROLLING, unknown and locked all get the same message and the same bcrypt cost. After `IDP_LOCK_AFTER` (5) consecutive failures the account locks for `IDP_LOCK_BASE` (15 min), doubling per further lock up to `IDP_LOCK_MAX` (24 h); a locked account keeps counting failures. Emits `LOCKED` / `UNLOCKED` |
 | 1.3 enrolment API | `/accounts…` on the IdP's mesh listener; caller must present the core's mesh certificate (`IDP_CORE_CN`, default `sme-mipay-mesh`); the gateway has **no route** to it (e2e checks both). `POST /accounts` is idempotent while ENROLLING (outbox retries get the same subject and a fresh link). Also `GET /accounts?uid=` for reconciliation and `PUT /accounts/{subject}/mfa-profile` (`setMfaProfile`) |
-| 1.4 links | Stored as SHA-256 only; single use; a new link of the same purpose kills the previous one. Three purposes: `SETUP` (72 h), `RESET` (self-service, 1 h), `RECOVERY` (core FULL reset, 72 h). Completing a reset ends every session and emits `CREDENTIAL_RESET` with `cooling_off_until`: **72 h** after assisted recovery, **24 h** after a self-service reset (2fa-design §9.5; 2FA is off, so every self-service reset is "proved by a link only"). `reset-link` scope `MFA` removes nothing until 2FA phase 1 exists (returns `factors_removed: 0`) |
+| 1.4 links | Stored as SHA-256 only; single use; a new link of the same purpose kills the previous one. Three purposes: `SETUP` (72 h), `RESET` (self-service, 1 h), `RECOVERY` (core FULL reset, 72 h). Completing a reset ends every session and emits `CREDENTIAL_RESET` with `cooling_off_until`. `reset-link` scope `MFA` now removes the TOTP factor and revokes sessions; wider recovery policy remains in the 2FA plan. |
 | 1.4a CommsClient | Three implementations: the comms plane (`IDP_COMMS_URL`, mTLS, capabilities cached 60 s); the sandbox (`sim_outbox`, dev/sandbox only); and *none* (uat/production before comms is configured: nothing is live, so OTP and Forgot password are hidden). The IdP addresses `user:<uid>` only |
 | 1.5 events | Written to an `outbound` table in the same transaction as the change; a worker POSTs each as a JWT signed by the IdP (`typ auth-event+jwt`, `aud mipay-core`, `jti` = event id for de-duplication) to `IDP_CORE_EVENTS_URL`, retrying with back-off (2 s doubling to 10 min). **Until the core's endpoint exists (P3.6) the URL is unset and events wait in the queue**; they are delivered once it is set. New event type `ASSISTED_RECOVERY_REQUESTED` ("Can't get in?") added to the contract (§1.2) |
 | 1.6 back-channel logout | disable, revoke-sessions, FULL reset, password reset and delete end IdP sessions, revoke refresh tokens, make introspection refuse tokens issued before the change (`tokens_valid_after`), and queue an OIDC back-channel logout token for every client with a `backchannel_logout_uri` (the BFF: `https://gateway:8443/auth/backchannel-logout`). The gateway verifies signature, iss, aud, freshness, the event claim and jti single use, then revokes the subject's sessions |

@@ -69,6 +69,25 @@ var DDL = []string{
 		used_at TIMESTAMPTZ,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
 	`CREATE INDEX IF NOT EXISTS otp_challenges_subject_idx ON otp_challenges (subject, created_at)`,
+	`CREATE TABLE IF NOT EXISTS mfa_factors(
+		subject TEXT PRIMARY KEY REFERENCES accounts(subject) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind='TOTP'),
+		secret BYTEA NOT NULL,
+		last_step BIGINT NOT NULL DEFAULT -1,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE TABLE IF NOT EXISTS mfa_login(
+		id TEXT PRIMARY KEY,
+		subject TEXT NOT NULL REFERENCES accounts(subject) ON DELETE CASCADE,
+		request_uri TEXT NOT NULL,
+		first_method TEXT NOT NULL,
+		method TEXT NOT NULL CHECK (method IN ('TOTP','TOTP_ENROLL','SMS')),
+		secret BYTEA,
+		code_hash TEXT,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		expires_at TIMESTAMPTZ NOT NULL,
+		used_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE INDEX IF NOT EXISTS mfa_login_subject_recent_idx ON mfa_login(subject,created_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS outbound(
 		id TEXT PRIMARY KEY,
 		target TEXT NOT NULL CHECK (target IN ('core','logout')),
@@ -217,6 +236,9 @@ func (s *Server) Handler() http.Handler {
 	// P1: credential plugin
 	mux.HandleFunc("/login/otp/start", s.otpStart)
 	mux.HandleFunc("/login/otp/verify", s.otpVerify)
+	mux.HandleFunc("/login/mfa/verify", s.mfaVerify)
+	mux.HandleFunc("/login/mfa/switch", s.mfaSwitchToAuthenticator)
+	mux.HandleFunc("/mfa/readiness", s.mfaReadiness)
 	mux.HandleFunc("/account/setup", s.accountSetup)
 	mux.HandleFunc("/account/forgot", s.accountForgot)
 	mux.HandleFunc("/account/help", s.accountHelp)
@@ -467,7 +489,9 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 		"request_parameter_supported":                      false,
 		"subject_types_supported":                          []string{"public"},
 		"claims_supported":                                 []string{"sub", "uid", "acr", "amr", "auth_time", "sid", "name"},
-		"acr_values_supported":                             []string{"aal1"},
+		"acr_values_supported":                             []string{"aal1", "aal2"},
+		"mfa_mode":                                         s.cfg.MFAMode,
+		"step_up_acr":                                      stepUpACR(s.cfg.MFAMode),
 		"backchannel_logout_supported":                     true,
 		"backchannel_logout_session_supported":             false,
 	}
@@ -717,7 +741,7 @@ func (s *Server) tokenSubject(ctx context.Context, sub string, issuedAfter time.
 // subject, uid the core user id; acr/amr/auth_time describe the login; sid the IdP session.
 func userClaims(a *Account, amr string, authTime int64, sid string) map[string]any {
 	return map[string]any{
-		"sub": a.Subject, "uid": a.UID, "acr": "aal1", "amr": strings.Split(amr, " "),
+		"sub": a.Subject, "uid": a.UID, "acr": assuranceFor(amr), "amr": strings.Split(amr, " "),
 		"auth_time": authTime, "sid": sid,
 	}
 }
@@ -749,6 +773,10 @@ func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clien
 		Scan(&clientID, &redirectStored, &scope, &nonce, &challenge, &sid, &amr, &authTime, &exp)
 	if err != nil {
 		oauthErr(w, 400, "invalid_grant", "unknown or already used code")
+		return
+	}
+	if s.cfg.MFAMode == "enforce" && assuranceFor(amr) != "aal2" {
+		oauthErr(w, 400, "invalid_grant", "second factor required")
 		return
 	}
 	if clientID != cl.ID {
@@ -851,6 +879,10 @@ func (s *Server) grantRefresh(w http.ResponseWriter, r *http.Request, cl *client
 	}
 	if revoked || time.Now().After(exp) {
 		oauthErr(w, 400, "invalid_grant", "refresh token expired or revoked")
+		return
+	}
+	if s.cfg.MFAMode == "enforce" && assuranceFor(amr) != "aal2" {
+		oauthErr(w, 400, "invalid_grant", "second factor required")
 		return
 	}
 	acct, err := s.tokenSubject(ctx, sub, time.Unix(authTime, 0))
@@ -956,6 +988,10 @@ func (s *Server) introspect(w http.ResponseWriter, r *http.Request) {
 	// Access tokens are JWTs; refresh tokens are opaque.
 	_, claims, err := jwtx.VerifyJWS(token, jwtx.AllowedJWSAlgs(), s.keyringKeyFn)
 	if err == nil {
+		if s.cfg.MFAMode == "enforce" && jwtx.ClaimString(claims, "acr") != "aal2" {
+			jsonBytes(w, 200, inactive)
+			return
+		}
 		jti := jwtx.ClaimString(claims, "jti")
 		exp, _ := jwtx.ClaimInt64(claims, "exp")
 		if jti == "" || time.Now().Unix() >= exp {
@@ -1133,6 +1169,7 @@ func (s *Server) SweepLoop(ctx context.Context) {
 				`DELETE FROM revoked_jti WHERE expires_at < now() - interval '1 hour'`,
 				`DELETE FROM refresh_tokens WHERE expires_at < now() - interval '1 day'`,
 				`DELETE FROM otp_challenges WHERE expires_at < now() - interval '1 day'`,
+				`DELETE FROM mfa_login WHERE expires_at < now() - interval '1 day'`,
 				`DELETE FROM account_links WHERE expires_at < now() - interval '30 days'`,
 				`DELETE FROM outbound WHERE delivered_at < now() - interval '30 days'`,
 				`DELETE FROM sim_outbox WHERE created_at < now() - interval '30 days'`,

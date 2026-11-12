@@ -12,4 +12,4 @@ pluginManagement {
 
 rootProject.name = "trustplane-java"
 
-include("shared-lib", "rbac-service")
+include("shared-lib", "rbac-service", "comms-service")

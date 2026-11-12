@@ -108,6 +108,9 @@ partner_cert cert-b "partner-cli-b"
 if [ ! -f "$PKI/comms-data-key" ]; then
   openssl rand -hex 32 > "$PKI/comms-data-key"
 fi
+if [ ! -f "$PKI/idp-mfa-key" ]; then
+  openssl rand -hex 32 > "$PKI/idp-mfa-key"
+fi
 
 # ---- gateway context HMAC secret -------------------------------------------
 if [ ! -f "$PKI/ctx-secret" ]; then
@@ -117,7 +120,7 @@ fi
 
 # service containers run as uid 10001: they must be able to read their keys
 chown -R 10001:10001 "$PKI" 2>/dev/null || true
-chmod 640 "$PKI"/*-key.pem "$PKI"/signing/*.pem "$PKI"/clients/*.pem "$PKI"/ctx-secret "$PKI"/comms-data-key 2>/dev/null || true
+chmod 640 "$PKI"/*-key.pem "$PKI"/signing/*.pem "$PKI"/clients/*.pem "$PKI"/ctx-secret "$PKI"/comms-data-key "$PKI"/idp-mfa-key 2>/dev/null || true
 chmod 755 "$PKI" "$PKI/signing" "$PKI/clients"
 
 echo "[pki] ready:"

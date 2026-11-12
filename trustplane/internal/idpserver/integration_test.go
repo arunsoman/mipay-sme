@@ -15,6 +15,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base32"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -63,7 +65,7 @@ func newHarness(t *testing.T, mut func(*Config)) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	for _, tbl := range []string{"otp_challenges", "account_links", "outbound", "sim_outbox", "sessions", "pars", "auth_codes",
+	for _, tbl := range []string{"mfa_login", "mfa_factors", "otp_challenges", "account_links", "outbound", "sim_outbox", "sessions", "pars", "auth_codes",
 		"jti_seen", "revoked_jti", "refresh_tokens", "accounts"} {
 		_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+tbl+" CASCADE")
 	}
@@ -433,6 +435,117 @@ func TestFullResetIsAssistedRecovery(t *testing.T) {
 	if code, _ := h.api("GET", "/accounts/"+sub, ""); code != 404 {
 		t.Fatalf("deleted account still there: %d", code)
 	}
+}
+
+func TestEnforcedMFATOTPWithoutComms(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mfa-key")
+	if err := os.WriteFile(keyFile, []byte(hex.EncodeToString([]byte(strings.Repeat("k", 32)))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(c *Config) { c.MFAMode = "enforce"; c.MFAKeyFile = keyFile })
+	h.s.SetComms(noComms{})
+	_, link := h.enrol("u-mfa", "mfa-user", "")
+	if w := h.setPassword(link, "correct-password-123"); w.Code != 200 {
+		t.Fatalf("password setup: %d", w.Code)
+	}
+	w, uri := h.login("mfa-user", "correct-password-123")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Set up your authenticator") {
+		t.Fatalf("login: %d %s", w.Code, w.Body.String())
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("session created before second factor")
+	}
+	challenge := regexp.MustCompile(`name="challenge" value="([^"]+)"`).FindStringSubmatch(w.Body.String())[1]
+	encoded := regexp.MustCompile(`<code>([A-Z2-7]+)</code>`).FindStringSubmatch(w.Body.String())[1]
+	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {"000000"}})
+	if wrong.Code != 401 {
+		t.Fatalf("wrong code: %d", wrong.Code)
+	}
+	code := totpAt(secret, time.Now().Unix()/30)
+	verified := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {code}})
+	if verified.Code != 200 || !strings.Contains(verified.Body.String(), "Authorize application") {
+		t.Fatalf("verified: %d %s", verified.Code, verified.Body.String())
+	}
+	if len(verified.Result().Cookies()) == 0 {
+		t.Fatal("no session after second factor")
+	}
+	if replay := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {code}}); replay.Code != 401 {
+		t.Fatalf("replayed challenge: %d", replay.Code)
+	}
+	second, uri2 := h.login("mfa-user", "correct-password-123")
+	if second.Code != 200 || strings.Contains(second.Body.String(), "Set up your authenticator") {
+		t.Fatalf("existing factor: %d %s", second.Code, second.Body.String())
+	}
+	challenge2 := regexp.MustCompile(`name="challenge" value="([^"]+)"`).FindStringSubmatch(second.Body.String())[1]
+	if replay := h.form("/login/mfa/verify", url.Values{"request_uri": {uri2}, "challenge": {challenge2}, "code": {code}}); replay.Code != 401 {
+		t.Fatalf("replayed TOTP step: %d", replay.Code)
+	}
+}
+
+func TestEnforcedMFASMSAfterPassword(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mfa-key")
+	if err := os.WriteFile(keyFile, []byte(hex.EncodeToString([]byte(strings.Repeat("k", 32)))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(c *Config) { c.MFAMode = "enforce"; c.MFAKeyFile = keyFile })
+	h.s.SetComms(&sandboxComms{pool: h.s.pool, live: map[string]bool{"sms": true}})
+	_, link := h.enrol("u-sms-mfa", "sms-mfa-user", "+264810000055")
+	if w := h.setPassword(link, "correct-password-123"); w.Code != 200 {
+		t.Fatalf("password setup: %d", w.Code)
+	}
+	w, uri := h.login("sms-mfa-user", "correct-password-123")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Verify your identity") {
+		t.Fatalf("login: %d %s", w.Code, w.Body.String())
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("session issued before SMS verification")
+	}
+	challenge := regexp.MustCompile(`name="challenge" value="([^"]+)"`).FindStringSubmatch(w.Body.String())[1]
+	var data []byte
+	if err := h.s.pool.QueryRow(context.Background(), `SELECT data FROM sim_outbox WHERE event_code='auth.otp.sms' ORDER BY created_at DESC LIMIT 1`).Scan(&data); err != nil {
+		t.Fatal(err)
+	}
+	var msg map[string]string
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if wrong := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {"000000"}}); wrong.Code != 401 {
+		t.Fatalf("wrong SMS: %d", wrong.Code)
+	}
+	verified := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {msg["code"]}})
+	if verified.Code != 200 || len(verified.Result().Cookies()) == 0 {
+		t.Fatalf("verified SMS: %d %s", verified.Code, verified.Body.String())
+	}
+	var amr string
+	if err := h.s.pool.QueryRow(context.Background(), `SELECT amr FROM sessions WHERE user_id=(SELECT subject FROM accounts WHERE uid='u-sms-mfa')`).Scan(&amr); err != nil {
+		t.Fatal(err)
+	}
+	if assuranceFor(amr) != "aal2" {
+		t.Fatalf("amr=%s", amr)
+	}
+}
+
+func TestEnforcedMFASMSCanSwitchToAuthenticator(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mfa-key")
+	if err := os.WriteFile(keyFile, []byte(hex.EncodeToString([]byte(strings.Repeat("k", 32)))), 0o600); err != nil { t.Fatal(err) }
+	h := newHarness(t, func(c *Config) { c.MFAMode = "enforce"; c.MFAKeyFile = keyFile })
+	h.s.SetComms(&sandboxComms{pool: h.s.pool, live: map[string]bool{"sms":true}})
+	_, link := h.enrol("u-switch", "switch-user", "+264810000056")
+	if w := h.setPassword(link,"correct-password-123"); w.Code != 200 { t.Fatalf("password setup: %d",w.Code) }
+	w, uri := h.login("switch-user","correct-password-123")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Set up an authenticator instead") { t.Fatalf("SMS page: %d %s",w.Code,w.Body.String()) }
+	challenge := regexp.MustCompile(`name="challenge" value="([^"]+)"`).FindStringSubmatch(w.Body.String())[1]
+	switched := h.form("/login/mfa/switch",url.Values{"request_uri":{uri},"challenge":{challenge}})
+	if switched.Code != 200 || !strings.Contains(switched.Body.String(), "Set up your authenticator") { t.Fatalf("switch: %d %s",switched.Code,switched.Body.String()) }
+	secretText := regexp.MustCompile(`<code>([A-Z2-7]+)</code>`).FindStringSubmatch(switched.Body.String())[1]
+	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secretText)
+	if err != nil { t.Fatal(err) }
+	verified := h.form("/login/mfa/verify",url.Values{"request_uri":{uri},"challenge":{challenge},"code":{totpAt(secret,time.Now().Unix()/30)}})
+	if verified.Code != 200 || len(verified.Result().Cookies()) == 0 { t.Fatalf("verified: %d %s",verified.Code,verified.Body.String()) }
 }
 
 func TestPhoneOTPForMerchants(t *testing.T) {

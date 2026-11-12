@@ -2,6 +2,17 @@ package idpserver
 
 import "testing"
 
+func TestMFAModeFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		mode   string
+		wantOK bool
+	}{{"off", true}, {"shadow", true}, {"enforce", true}, {"on", false}, {"", false}} {
+		if err := (Config{MFAMode: tc.mode}).validateMFAMode(); (err == nil) != tc.wantOK {
+			t.Errorf("mode %q: err=%v, want success=%v", tc.mode, err, tc.wantOK)
+		}
+	}
+}
+
 func TestValidateEnvironment(t *testing.T) {
 	const seed = "alice:alice-pw:openid"
 	cases := []struct {

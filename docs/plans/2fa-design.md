@@ -1,6 +1,42 @@
 # Two-factor authentication: push with number matching, authenticator app, passkeys and step-up
 
-Status: **draft for review** · 2026-11-11 · **revised 2026-11-11** to match [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) and [`fapi2-design.md`](fapi2-design.md)
+> **Implementation status (2026-11-12):** `IDP_MFA_MODE=off|shadow|enforce` is
+> available. In `enforce`, a password or merchant SMS login creates a five-minute
+> challenge and no session. A TOTP authenticator can be enrolled and verified;
+> password users with an eligible phone may instead use a separate SMS code through
+> Java comms. Tokens issued after verification carry `acr=aal2` and both methods in
+> `amr`. Existing AAL1 sessions, codes and refresh tokens cannot be reused in
+> enforce mode. The IdP publishes `mfa_mode` and `step_up_acr` in discovery and a
+> core-only `/mfa/readiness` endpoint. This is the login MFA slice of the design.
+> WebAuthn, native push, recovery codes, remembered devices, RAR-bound step-up,
+> cooling-off and the core/portal workflows below remain to be implemented.
+> Comms sandbox delivery by itself never approves a challenge.
+
+## Current implementation by method (2026-11-12)
+
+This table describes the code and development configuration today. It is not a
+claim that the full design in later sections is complete.
+
+| Method or capability | State today | Simulation and practical effect |
+|---|---|---|
+| Password | Implemented first factor | The IdP verifies bcrypt credentials. With `IDP_MFA_MODE=enforce`, a correct password creates a pending MFA challenge, not a session. |
+| Authenticator app (TOTP) | Implemented second factor for login | A user with no enrolled factor can add a 160-bit secret at their next enforced login and confirm a six-digit code. The secret is AES-GCM encrypted; verification allows ±1 time step, blocks replay and creates an `aal2` session. Works without comms or a simulator. |
+| SMS after password | Implemented second factor for login where SMS is available | The IdP stores a hashed, five-minute challenge and verifies the user's code before creating an `aal2` session. Java comms currently delivers it only to the development sandbox outbox and prints it in development logs. A real person or test must submit the code; a delivery receipt never approves it. If SMS delivery is unavailable, the login remains blocked and the user can switch to authenticator setup. |
+| Merchant phone OTP login | Implemented first factor | It proves control of the registered phone and is `aal1` by itself. Under `enforce`, the user must also complete TOTP. The IdP's fixed `IDP_DEV_OTP=123456` is available only in development; otherwise delivery uses comms. |
+| Java comms SMS/email sandbox | Implemented delivery simulator, not an MFA factor | It accepts messages over mTLS, keeps queued secrets encrypted, reports capabilities and writes/prints rendered messages in development. SMS can carry an MFA code; email currently carries reset and setup links or notices, not an email MFA factor. `production` refuses sandbox providers. With no provider, the channel reports unavailable and messages are suppressed; the IdP does not skip MFA. |
+| Shadow mode | Implemented basic logging | It logs that a successful first-factor login would need MFA, while issuing the ordinary `aal1` session. Full per-profile rollout analytics are still planned. |
+| Passkey / WebAuthn | Design only | No enrolment, assertion verification or simulated passkey is wired into the IdP. |
+| Native push with number matching | Design only | No device pairing, signed approval or push transport exists. The comms plane reports push unavailable. |
+| Recovery codes and remembered devices | Design only | No recovery-code sign-in or trusted-device exemption is wired in. The core-only MFA reset removes a TOTP factor and revokes sessions. |
+| Transaction PIN and action step-up | Design only | No PIN verifier or RAR-bound payout/KYC step-up is wired through the gateway, backend and portals. `aal2` currently describes a verified login, not authorisation for a specific sensitive action. |
+
+Development run mode: `cd trustplane && make up-mfa`, or set
+`IDP_MFA_MODE=enforce` when starting Compose. The normal `make up` defaults to
+`off` for existing FAPI tests. The IdP refuses enforced startup without its
+`IDP_MFA_KEY_FILE`. The Java comms sandbox can be absent: TOTP enrolment and
+login continue, and SMS-dependent paths fail closed.
+
+Status: **draft for review** · 2026-11-11 · **revised 2026-11-12** to record the current implementation and match [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) and [`fapi2-design.md`](fapi2-design.md)
 
 > **Where this runs, in one paragraph.**
 > - 2FA is built in the **trustplane IdP**, the credential plugin. Browsers reach it through the gateway acting as a FAPI 2.0 BFF.

@@ -26,6 +26,10 @@ type Config struct {
 	SeedUsers   string
 	// Environment: dev | sandbox | uat | production (IDP_ENVIRONMENT, default dev).
 	Environment string
+	// MFAMode is explicitly validated so a requested enforcement mode can never
+	// silently result in password-only authentication.
+	MFAMode    string
+	MFAKeyFile string
 
 	ParTTL     time.Duration
 	CodeTTL    time.Duration
@@ -99,6 +103,8 @@ func FromEnv() (Config, error) {
 		ClientsFile:  envOr("IDP_CLIENTS_FILE", "/config/idp/clients.yaml"),
 		SigningDir:   envOr("IDP_SIGNING_DIR", "/pki/signing"),
 		SeedUsers:    envOr("IDP_SEED_USERS", ""),
+		MFAMode:      envOr("IDP_MFA_MODE", "off"),
+		MFAKeyFile:   envOr("IDP_MFA_KEY_FILE", "/pki/idp-mfa-key"),
 		ParTTL:       120 * time.Second, // FAPI: <= 600s
 		CodeTTL:      30 * time.Second,  // FAPI: <= 60s, single use
 		AccessTTL:    300 * time.Second,
@@ -139,7 +145,26 @@ func FromEnv() (Config, error) {
 	if err := c.validateEnvironment(); err != nil {
 		return c, err
 	}
+	if err := c.validateMFAMode(); err != nil {
+		return c, err
+	}
+	if c.MFAMode == "enforce" {
+		if _, err := readMFAKey(c.MFAKeyFile); err != nil {
+			return c, fmt.Errorf("idp: MFA key: %w", err)
+		}
+	}
 	return c, nil
+}
+
+// Authentication currently issues a session immediately after the first factor.
+// Refuse modes that would imply otherwise until their full login path exists.
+func (c Config) validateMFAMode() error {
+	switch c.MFAMode {
+	case "off", "shadow", "enforce":
+		return nil
+	default:
+		return fmt.Errorf("idp: IDP_MFA_MODE %q must be off, shadow, or enforce", c.MFAMode)
+	}
 }
 
 // devEnvironments may carry demo seed users and an internal (*.local) issuer.

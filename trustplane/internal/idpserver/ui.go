@@ -57,6 +57,19 @@ var pages = template.Must(template.New("base").Parse(`
 <div class="links"><a href="/authorize?client_id={{.ClientID}}&amp;request_uri={{.RequestURI}}">Use a password instead</a></div>
 {{template "foot"}}{{end}}
 
+{{define "mfa"}}{{template "head" .}}
+{{if .Secret}}<p class="sub">Add this secret to an authenticator app, then enter its current six-digit code:</p>
+<p><code>{{.Secret}}</code></p>{{end}}
+<form method="POST" action="/login/mfa/verify">
+<input type="hidden" name="request_uri" value="{{.RequestURI}}"><input type="hidden" name="challenge" value="{{.Challenge}}">
+<label for="mfa-code">{{if .Secret}}Authenticator code{{else}}Security code{{end}}</label>
+<input id="mfa-code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus>
+<button>Verify and continue</button></form>
+{{if .CanSwitch}}<form method="POST" action="/login/mfa/switch">
+<input type="hidden" name="request_uri" value="{{.RequestURI}}"><input type="hidden" name="challenge" value="{{.Challenge}}">
+<button class="secondary">Set up an authenticator instead</button></form>{{end}}
+{{template "foot"}}{{end}}
+
 {{define "consent"}}{{template "head" .}}
 <p><b>{{.ClientName}}</b> requests access on your behalf:</p><ul class="scopes">{{range .Scopes}}<li><code>{{.Name}}</code>: {{.Desc}}</li>{{end}}</ul>
 <form method="POST" action="/consent"><input type="hidden" name="request_uri" value="{{.RequestURI}}"><input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -96,6 +109,8 @@ type pageData struct {
 	RequestURI, ClientID      string
 	OTP, Forgot               bool
 	Challenge, Token, CSRF    string
+	Secret                    string
+	CanSwitch                 bool
 	ClientName                string
 	Scopes                    []scopeView
 }

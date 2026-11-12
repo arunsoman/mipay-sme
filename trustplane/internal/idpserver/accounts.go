@@ -207,6 +207,9 @@ func (s *Server) revokeAll(ctx context.Context, tx pgx.Tx, a *Account, reason st
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, a.Subject); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM mfa_login WHERE subject=$1`, a.Subject); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE refresh_tokens SET revoked=TRUE WHERE sub=$1 AND NOT revoked`, a.Subject); err != nil {
 		return err
 	}
@@ -476,7 +479,7 @@ func errBody(code, desc string) map[string]string {
 }
 
 // apiResetLink: LINK re-issues the set-up link of an ENROLLING account; MFA removes second
-// factors (none exist until 2FA phase 1); FULL removes the password too, ends every session
+// factors; FULL removes the password too, ends every session
 // and issues a reset link (2fa-design.md §9).
 func (s *Server) apiResetLink(w http.ResponseWriter, r *http.Request, subject string) {
 	var b struct {
@@ -498,8 +501,14 @@ func (s *Server) apiResetLink(w http.ResponseWriter, r *http.Request, subject st
 			}
 			return 200, map[string]any{"subject": a.Subject, "scope": "LINK", "link": link, "expires_at": exp.Format(time.RFC3339)}
 		case "MFA":
-			// No second factors exist before 2FA phase 1 (2fa-design.md); nothing to remove.
-			return 200, map[string]any{"subject": a.Subject, "scope": "MFA", "factors_removed": 0}
+			deleted, err := tx.Exec(ctx, `DELETE FROM mfa_factors WHERE subject=$1`, a.Subject)
+			if err != nil || s.revokeAll(ctx, tx, a, "mfa_reset") != nil {
+				return 500, errBody("server_error", "storage failure")
+			}
+			if deleted.RowsAffected() > 0 && s.emitEvent(ctx, tx, a, EventMFARemoved, map[string]any{"method": "TOTP"}) != nil {
+				return 500, errBody("server_error", "storage failure")
+			}
+			return 200, map[string]any{"subject": a.Subject, "scope": "MFA", "factors_removed": deleted.RowsAffected()}
 		case "FULL":
 			if a.State == StateDisabled {
 				return 409, errBody("account_disabled", "enable the account before resetting it")
@@ -509,6 +518,9 @@ func (s *Server) apiResetLink(w http.ResponseWriter, r *http.Request, subject st
 				return 500, errBody("server_error", "storage failure")
 			}
 			if err := s.revokeAll(ctx, tx, a, "credential_reset"); err != nil {
+				return 500, errBody("server_error", "storage failure")
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM mfa_factors WHERE subject=$1`, a.Subject); err != nil {
 				return 500, errBody("server_error", "storage failure")
 			}
 			link, exp, err := s.issueLink(ctx, tx, a.Subject, PurposeRecovery, s.cfg.LinkTTL)

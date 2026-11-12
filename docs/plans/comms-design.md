@@ -1,6 +1,23 @@
 # Comms Plane: email, SMS, push, WhatsApp and in-app as a service
 
-> Status: **PLAN**, not built. Date: 2026-11-11.
+> **Implementation status (2026-11-12):** The development Compose service now builds
+> `trustplane/java/comms-service` (Java 21 / Spring Boot 4). Its B0 mesh API accepts
+> messages and core-owned contacts, encrypts contact addresses and queued data,
+> processes a leased Postgres job, reports channel capabilities and writes/prints
+> simulated SMS/email deliveries. It uses the same mTLS identity and data-key format
+> as the former Go service. No live SMS/email provider is configured; `production`
+> refuses sandbox providers. The broader APIs and providers in this design remain
+> planned. The old Go source remains temporarily for comparison and tests.
+
+> **Tests without a simulator:** Unit tests must use explicit provider fakes and
+> never require a simulator process. Integration tests must cover absent providers,
+> timeouts, expiry and unavailable channels as well as sandbox success; an unavailable
+> channel reports not live and must not silently complete a challenge. Tests of real
+> 2FA must exercise the IdP's challenge verification rather than infer authentication
+> from a delivery receipt. Sandbox end-to-end tests are a separate, explicitly enabled
+> suite, and a skipped database or simulator suite must be reported as skipped.
+
+> Status: **PARTIALLY IMPLEMENTED**. Date: 2026-11-11; implementation inventory updated 2026-11-12.
 > Scope: one internal service that every MiPay component (SME backend, IdP/2FA, KYC,
 > payments, inventory, portals) uses to send messages to people, plus the partner-facing
 > APIs a tenant needs to send its own messages.
@@ -172,19 +189,12 @@ deployments when the load needs it.)
 | `realtime` (in-app WebSocket/SSE fan-out) | sticky sessions | connected clients |
 
 ### 3.1 Language and placement
-**As built (B0):** Go, as recommended, but inside the trustplane Go module (`trustplane/cmd/comms`,
-`trustplane/internal/commsplane`). Go's internal-package rule stops a sibling `commsplane/` module from
-importing `trustplane/internal/{breaker,mtlsx,dbx}`, which was the reason for choosing Go. It is its own
-container (`comms`) on the trust-plane mesh, with its own database (`comms`), certificate (`sme-comms`)
-and data key (`comms-data-key`).
-
-**Recommendation: Go service `commsplane/`, next to `trustplane/`.** Each dispatcher is
-mostly I/O waiting on providers, and Go's goroutines plus small memory use fit the one-CPU,
-768 MB box. It can reuse `trustplane/internal/{breaker,ratelimit,mtlsx,dbx}` as is, and it
-joins the existing mesh CA. The Java backend talks to it through a small
-`CommsClient` (it replaces direct writes to `notification_messages`). Java 21 with
-virtual threads would also work. The reason to choose Go is reuse and footprint, not
-capability.
+**As built for development (B0):** Java in `trustplane/java/comms-service`, using
+Spring Boot 4, JDBC, Postgres, the existing mesh CA and `comms-data-key`. The
+`comms` Compose service builds `Dockerfile.java`. The previous Go implementation
+is retained as a reference until the remaining B0 parity tests and API callers
+are moved. The Java service is allocated 256 MB in Compose; its actual memory and
+throughput need measurement before sizing production.
 
 ### 3.2 Queue: start on Postgres, keep the interface
 - **Phase 1:** a Postgres queue (`comms_jobs` with `FOR UPDATE SKIP LOCKED`, partitioned by
@@ -421,36 +431,18 @@ notices) are published. The IdP caches it for 60 s and offers a 2FA factor only 
 
 | Phase | Delivers | Exit test |
 |---|---|---|
-| **P0 – foundations** ✅ 2026-11-12 | service skeleton in mesh, schema, PG queue, outbox relay, idempotency, state machine, sandbox provider, `POST /messages`, status API, metrics | activation and OTP flows pass the UAT pack through comms in sandbox |
+| **P0 – foundations** in progress | service skeleton in mesh, schema, PG queue, outbox relay, idempotency, state machine, sandbox provider, `POST /messages`, status API, metrics | activation and OTP flows pass the UAT pack through Java comms in sandbox |
 | **P1 – real channels** | SMS (local aggregator + international failover), email (provider API, tenant domain + DKIM), DLR/bounce ingest, suppression, retries/DLQ, breakers, template versions + preview | chaos test: kill the primary SMS provider mid-load, with zero lost messages and failover in under 30 s |
 | **P2 – push and in-app** | FCM/APNs/Web Push, device registry, 2FA push approval with cancel push, inbox + SSE in portals | push approval end-to-end in under 3 s at p95 |
 | **P3 – policy** | preferences page, consents, quiet hours, frequency caps, fallback chains, digests, per-tenant BYO provider, usage and cost | Khata reminder respects consent, STOP, and quiet hours |
 | **P4 – scale and engagement** | broadcasts with lazy expansion, A/B, WhatsApp, speaker/MQTT, NATS JetStream swap, split deployments, load test at 10× forecast | 100k-recipient broadcast while CRITICAL p95 stays within target |
 
 
-**P0 as built (2026-11-12):**
-- **Mesh API** (mTLS, caller = certificate CN): `POST /comms/v1/messages` (≤ 100 `user:<id>` recipients; `Idempotency-Key`
-  per caller for 24 h; variables validated against the templates at accept time → `422 REJECTED`), `GET /messages/{id}`,
-  `GET /messages/{id}/events`, `GET /requests/{id}` (a caller sees only its own messages), `PUT|GET /subjects/{ref}/contacts`
-  (sms and email in P0; **only the core writes**), `GET /capabilities`, `GET /sandbox/outbox` (not served in production), `GET /metrics`.
-- **Callers and event codes** come from `config/comms/comms.yaml`: the IdP may send `auth.*`; the core `account.*`, `kyc.*`, `org.*`,
-  `payment.*` and `auth.security.*`.
-- **Pipeline:** message + outbox row in one transaction → relay → `jobs` (Postgres, `FOR UPDATE SKIP LOCKED`, behind a `Queue`
-  interface) → planner (first channel of the event's chain with a contact, a healthy provider and a published template;
-  otherwise `SUPPRESSED`) → dispatchers per lane (CRITICAL 4 workers, TRANSACTIONAL 2, BULK 1) → sandbox provider.
-  State machine as §4.1; `EXPIRED` messages are never sent late; transient errors retry with full-jitter back-off, permanent
-  ones fail at once; past the lane's attempts (3 / 6 / 10) the job goes to the DLQ with its payload wiped.
-- **Secrets:** variable values travel AES-GCM sealed (key derived from `comms-data-key`); `messages` stores only variable
-  names; payloads are wiped on every terminal state; contacts are stored encrypted with a blind-index hash and a masked form.
-- **Templates:** the platform defaults in `comms.yaml` are imported as PUBLISHED v1; changing a default publishes v2 and archives v1.
-- **Capabilities:** a channel is live when its provider is configured, its breaker is closed and every `auth.*` event that
-  may use the channel has a published template for it. The sandbox provider is refused when `COMMS_ENVIRONMENT=production`,
-  so production has no live channel until B1 configures real providers (and the IdP hides OTP and Forgot password until then).
-- **Deferred to the phase that owns them:** per-tenant weighted fairness and fallback on failure (B1/B3), provider DLR ingest,
-  real SMS/email providers and the DLQ UI (B1), push and in-app (B2), preferences, consent and quiet hours (B3).
-- **Exit test met:** in the sandbox, the e2e suite sends a set-up link through comms and completes activation with it, and
-  signs a merchant in with a phone OTP delivered through comms (`trustplane/cmd/fapi-client`, S21 and S24), plus the reset
-  link (S25) and the B0 checks (S26). Go integration tests: `TEST_COMMS_DSN`.
+**Java P0 inventory (2026-11-12):**
+- **Working:** an mTLS mesh API with certificate-CN caller rules; `POST /comms/v1/messages` (up to 100 `user:<id>` recipients), `GET /requests/{id}`, `GET /messages/{id}`, `GET /messages/{id}/events`, core-only `PUT|GET /subjects/{ref}/contacts`, `GET /capabilities`, and development-only `GET /sandbox/outbox`. Event prefixes and templates come from `config/comms/comms.yaml`. The Java service encrypts queued variables and contact addresses, masks contacts in API responses, and handles idempotency keys.
+- **Delivery:** a Postgres job row is committed with each message. A scheduled worker leases rows, checks expiry, picks the first configured channel with a contact and matching template, writes a sandbox delivery, and marks the message `DELIVERED`. A message with no usable channel becomes `SUPPRESSED`; transient errors retry up to three attempts and then become `FAILED`. Sandbox output is for development/UAT and is refused in production.
+- **Still required for the full P0 exit gate:** Java end-to-end activation, merchant OTP and reset-link checks through the gateway; `/metrics`; 24-hour idempotency retention; versioned published templates; lane-specific workers and retry budgets; a durable dead-letter queue; provider health and breakers. The existing Go P0 suite covers much of the former implementation, but does not prove Java parity. The Java scratch-database tests cover sandbox delivery, encryption, idempotency, caller rules and absent-provider suppression.
+- **Later phases:** real SMS/email providers, delivery receipts and failover (P1); push and in-app (P2); preferences and consent (P3); scale and engagement features (P4).
 ---
 
 ## 13. Sizing model (assumed — revise with real numbers)
@@ -514,7 +506,7 @@ Consequences for the design:
 | D4 | **Email: Amazon SES in `af-south-1` (Cape Town)** as primary, with a second provider configured cold for failover. A dedicated sending subdomain `mail.afriqpay.com` with SPF, DKIM and DMARC (`p=quarantine` → `reject`). | About 25 k emails a day is small; SES is the cheapest and the region is close. A cold standby is enough at this volume. |
 | D5 | **Push: FCM (Android and web) + APNs + Web Push (VAPID) for the portals.** The policy is push-first for merchants, with SMS as fallback after 60 s without a delivery receipt (CRITICAL) or never (receipts). | Android dominates the market, and push is about free while SMS costs N$ 0.50–1.00. |
 | D6 | **WhatsApp is not in v1.** Evaluate it in P3 for Khata reminders and payer receipts: compare utility-template cost per message against SMS, and check opt-in rates. | It is widely used, but it needs a BSP contract, Meta template approval and opt-in flows. SMS covers v1. |
-| D7 | **Service in Go (`commsplane/`)**, as in §3.1. | It reuses trustplane's breaker, rate-limit and mTLS code and fits the 768 MB box. |
+| D7 | **Service in Java (`trustplane/java/comms-service`)** for the active development stack. | Uses the existing mesh CA, Postgres and data key; Compose builds the Java service. Resource sizing and provider adapters still need validation. |
 | D8 | **No tenant consumer marketing in v1.** Tenants may broadcast to their **own org tree** (merchants, distributors, suppliers) over email and in-app. Khata reminders are allowed as transactional, but need recorded consent and STOP. | Namibia's Data Protection Bill has not been enacted and there is no supervisory authority yet. Consumer marketing waits for the law plus our consent tooling (P3). Until then we build to GDPR/POPIA-style principles so we are not caught out when it passes. |
 | D9 | **Retention:** secret values are never stored; non-secret bodies are kept 90 days; message metadata and events are kept **5 years** where they relate to a payment, KYC or account action, and 1 year otherwise; Khata consent records are kept for the life of the consent plus 5 years. | The Financial Intelligence Act 2012 (s. 27) requires records to be kept for at least 5 years per secondary sources. **Compliance must confirm this against the statute and Bank of Namibia determinations.** |
 | D10 | **Data location:** primary in the existing afriqpay host. Use providers with African regions (SES `af-south-1`) where possible, and keep a provider-by-provider list of where data goes for the coming data-protection law. | This keeps a cross-border transfer register ready for the law. |

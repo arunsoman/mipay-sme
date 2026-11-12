@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down clean logs ps e2e smoke test vet test-integration role-pack
+.PHONY: up up-mfa down clean logs ps e2e smoke test vet test-integration role-pack
 
 ## Build + start every container (pki-init generates all certs/keys first)
 up:
@@ -9,7 +9,13 @@ up:
 	@echo "Gateway:      https://localhost:8443  (add hosts entries: see README)"
 	@echo "  idp vhost:  https://idp.fapi.local:8443/.well-known/openid-configuration"
 	@echo "  rbac vhost: https://rbac.fapi.local:8443/rbac/admin/roles"
-	@echo "  trust plane: idp + gateway (Go) | rbac (Java 21 / Spring Boot 4)"
+	@echo "  trust plane: idp + gateway (Go) | rbac + comms (Java 21 / Spring Boot 4)"
+
+## Dev/sandbox login requires TOTP or password + SMS. This is a separate run mode
+## so legacy FAPI e2e tests can still exercise the off mode.
+up-mfa:
+	IDP_MFA_MODE=enforce docker compose up -d --build
+	@echo "IdP MFA: enforce (TOTP or password + SMS through Java comms)"
 
 down:
 	docker compose down
@@ -33,11 +39,13 @@ e2e:
 role-pack:
 	@docker compose --profile e2e run --rm -T fapi-client role-pack
 
-## Go + Java integration tests against a scratch Postgres (databases idp, comms, rbac):
+## Go + Java integration tests against disposable Postgres databases.
+## These suites drop their tables; create idp_test, comms_test and rbac_test first.
 ##   make test-integration PG=postgres://user:pw@127.0.0.1:5432
 test-integration:
-	TEST_IDP_DSN="$(PG)/idp?sslmode=disable" TEST_COMMS_DSN="$(PG)/comms?sslmode=disable" go test ./... -count=1
-	cd java && TEST_RBAC_DSN="$(PG)/rbac?sslmode=disable" ./gradlew :rbac-service:test
+	TEST_IDP_DSN="$(PG)/idp_test?sslmode=disable" TEST_COMMS_DSN="$(PG)/comms_test?sslmode=disable" go test -p 1 ./... -count=1
+	cd java && TEST_RBAC_DSN="$(PG)/rbac_test?sslmode=disable" ./gradlew :rbac-service:test
+	cd java && TEST_COMMS_DSN="$(PG)/comms_test?sslmode=disable" ./gradlew :comms-service:test --rerun-tasks
 
 ## Host-side smoke test (needs /etc/hosts entries, see README)
 smoke:

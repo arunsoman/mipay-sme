@@ -63,6 +63,8 @@ services:
       # Their uids are the RBAC subjects of config/rbac/fixtures.e2e.yaml.
       IDP_SEED_USERS: "rootadmin:rootadmin-pw:openid|uadmin2:uadmin2-pw:openid|alice:alice-pw:openid|mlro1:mlro1-pw:openid|selma:selma-pw:openid|tomas:tomas-pw:openid|jonas:jonas-pw:openid|carol:carol-pw:openid|mira:mira-pw:openid:mira:+264810000042:MERCHANT_OTP"
       IDP_ENVIRONMENT: ${IDP_ENVIRONMENT:-dev}
+      IDP_MFA_MODE: ${IDP_MFA_MODE:-off}
+      IDP_MFA_KEY_FILE: /pki/idp-mfa-key
       IDP_DEV_OTP: "123456"                                   # fixed phone OTP, dev/sandbox only (refused elsewhere)
       IDP_COMMS_URL: https://comms:8443/comms/v1              # login OTP and reset links go through the comms plane
       IDP_CORE_CN: sme-mipay-mesh                             # the only caller of the enrolment API
@@ -87,10 +89,10 @@ services:
 
   comms:
     build:
-      <<: *build
-      args: {SERVICE: comms}
+      <<: *java-build
+      args: {MODULE: comms-service}
     image: trustplane/comms
-    mem_limit: 64m
+    mem_limit: 256m
     cpus: 0.25
     depends_on:
       pki-init:
@@ -105,15 +107,16 @@ services:
       COMMS_INTERNAL_CA: /pki/platform-ca.pem
       COMMS_CONFIG: /config/comms/comms.yaml
       COMMS_DATA_KEY_FILE: /pki/comms-data-key
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70 -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
     volumes:
       - pki:/pki:ro
       - ./config:/config:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8081/healthz | grep -q ok"]
+      test: ["CMD-SHELL", "curl -fsSk --cert /pki/gateway-mesh.pem --key /pki/gateway-mesh-key.pem https://127.0.0.1:8443/comms/v1/healthz | grep -q ok"]
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 5s
+      start_period: 60s
     networks:
       internal:
       data:

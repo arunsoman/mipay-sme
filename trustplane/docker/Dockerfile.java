@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Java service (RBAC decision/admin plane) — Java 21, Spring Boot 4, Gradle build
+# Java trustplane services — Java 21, Spring Boot 4, Gradle build
 ARG MODULE
 
 FROM gradle:8.14.3-jdk21 AS build
@@ -9,6 +9,7 @@ COPY java/settings.gradle.kts java/gradle.properties java/build.gradle.kts java/
 COPY java/gradle ./gradle
 COPY java/shared-lib ./shared-lib
 COPY java/rbac-service ./rbac-service
+COPY java/comms-service ./comms-service
 RUN --mount=type=cache,target=/home/gradle/.gradle \
     --mount=type=cache,target=/root/.gradle \
     gradle --no-daemon -q :${MODULE}:bootJar -x test
