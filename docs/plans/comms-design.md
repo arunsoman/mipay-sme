@@ -172,6 +172,12 @@ deployments when the load needs it.)
 | `realtime` (in-app WebSocket/SSE fan-out) | sticky sessions | connected clients |
 
 ### 3.1 Language and placement
+**As built (B0):** Go, as recommended, but inside the trustplane Go module (`trustplane/cmd/comms`,
+`trustplane/internal/commsplane`). Go's internal-package rule stops a sibling `commsplane/` module from
+importing `trustplane/internal/{breaker,mtlsx,dbx}`, which was the reason for choosing Go. It is its own
+container (`comms`) on the trust-plane mesh, with its own database (`comms`), certificate (`sme-comms`)
+and data key (`comms-data-key`).
+
 **Recommendation: Go service `commsplane/`, next to `trustplane/`.** Each dispatcher is
 mostly I/O waiting on providers, and Go's goroutines plus small memory use fit the one-CPU,
 768 MB box. It can reuse `trustplane/internal/{breaker,ratelimit,mtlsx,dbx}` as is, and it
@@ -415,12 +421,36 @@ notices) are published. The IdP caches it for 60 s and offers a 2FA factor only 
 
 | Phase | Delivers | Exit test |
 |---|---|---|
-| **P0 – foundations** | service skeleton in mesh, schema, PG queue, outbox relay, idempotency, state machine, sandbox provider, `POST /messages`, status API, metrics | activation and OTP flows pass the UAT pack through comms in sandbox |
+| **P0 – foundations** ✅ 2026-11-12 | service skeleton in mesh, schema, PG queue, outbox relay, idempotency, state machine, sandbox provider, `POST /messages`, status API, metrics | activation and OTP flows pass the UAT pack through comms in sandbox |
 | **P1 – real channels** | SMS (local aggregator + international failover), email (provider API, tenant domain + DKIM), DLR/bounce ingest, suppression, retries/DLQ, breakers, template versions + preview | chaos test: kill the primary SMS provider mid-load, with zero lost messages and failover in under 30 s |
 | **P2 – push and in-app** | FCM/APNs/Web Push, device registry, 2FA push approval with cancel push, inbox + SSE in portals | push approval end-to-end in under 3 s at p95 |
 | **P3 – policy** | preferences page, consents, quiet hours, frequency caps, fallback chains, digests, per-tenant BYO provider, usage and cost | Khata reminder respects consent, STOP, and quiet hours |
 | **P4 – scale and engagement** | broadcasts with lazy expansion, A/B, WhatsApp, speaker/MQTT, NATS JetStream swap, split deployments, load test at 10× forecast | 100k-recipient broadcast while CRITICAL p95 stays within target |
 
+
+**P0 as built (2026-11-12):**
+- **Mesh API** (mTLS, caller = certificate CN): `POST /comms/v1/messages` (≤ 100 `user:<id>` recipients; `Idempotency-Key`
+  per caller for 24 h; variables validated against the templates at accept time → `422 REJECTED`), `GET /messages/{id}`,
+  `GET /messages/{id}/events`, `GET /requests/{id}` (a caller sees only its own messages), `PUT|GET /subjects/{ref}/contacts`
+  (sms and email in P0; **only the core writes**), `GET /capabilities`, `GET /sandbox/outbox` (not served in production), `GET /metrics`.
+- **Callers and event codes** come from `config/comms/comms.yaml`: the IdP may send `auth.*`; the core `account.*`, `kyc.*`, `org.*`,
+  `payment.*` and `auth.security.*`.
+- **Pipeline:** message + outbox row in one transaction → relay → `jobs` (Postgres, `FOR UPDATE SKIP LOCKED`, behind a `Queue`
+  interface) → planner (first channel of the event's chain with a contact, a healthy provider and a published template;
+  otherwise `SUPPRESSED`) → dispatchers per lane (CRITICAL 4 workers, TRANSACTIONAL 2, BULK 1) → sandbox provider.
+  State machine as §4.1; `EXPIRED` messages are never sent late; transient errors retry with full-jitter back-off, permanent
+  ones fail at once; past the lane's attempts (3 / 6 / 10) the job goes to the DLQ with its payload wiped.
+- **Secrets:** variable values travel AES-GCM sealed (key derived from `comms-data-key`); `messages` stores only variable
+  names; payloads are wiped on every terminal state; contacts are stored encrypted with a blind-index hash and a masked form.
+- **Templates:** the platform defaults in `comms.yaml` are imported as PUBLISHED v1; changing a default publishes v2 and archives v1.
+- **Capabilities:** a channel is live when its provider is configured, its breaker is closed and every `auth.*` event that
+  may use the channel has a published template for it. The sandbox provider is refused when `COMMS_ENVIRONMENT=production`,
+  so production has no live channel until B1 configures real providers (and the IdP hides OTP and Forgot password until then).
+- **Deferred to the phase that owns them:** per-tenant weighted fairness and fallback on failure (B1/B3), provider DLR ingest,
+  real SMS/email providers and the DLQ UI (B1), push and in-app (B2), preferences, consent and quiet hours (B3).
+- **Exit test met:** in the sandbox, the e2e suite sends a set-up link through comms and completes activation with it, and
+  signs a merchant in with a phone OTP delivered through comms (`trustplane/cmd/fapi-client`, S21 and S24), plus the reset
+  link (S25) and the B0 checks (S26). Go integration tests: `TEST_COMMS_DSN`.
 ---
 
 ## 13. Sizing model (assumed — revise with real numbers)

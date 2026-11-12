@@ -1,6 +1,6 @@
 # Master plan: the order everything is built in
 
-Status: **living document**, maintained alongside every plan below · last updated 2026-11-11
+Status: **living document**, maintained alongside every plan below · last updated 2026-11-12
 
 This file decides **what is built in what order, and why**. It doesn't repeat the plans: each row points to the plan and phase that holds the detail. When a plan changes, its row here changes in the same commit (§7).
 
@@ -14,9 +14,9 @@ This file decides **what is built in what order, and why**. It doesn't repeat th
 | Org hierarchy (V4 migrations, `OrgTreeService`, suspensions) | org tree, closure, holds, onboarding rights | ✅ built |
 | [`kyc-design.md`](kyc-design.md) | KYC master, validation, workflow, providers | 🟡 **built in-process** (phases 1, 2, 3, 5, 7 in core: `KycMasterService`, `KycSecretProtector`, `KycWorkflowEngine`, built-in providers, shared editor). **Not done:** phase 0 (separate `kyc-service`), phase 4 (cross-service go-live gate), phase 6 (EMI profile; verify) |
 | [`fapi2-design.md`](fapi2-design.md) | the identity, FAPI and RBAC **design** (the "why") | 📘 design, revised to the agreed model. It is built through the cut-over plan, plus its §8 steps 7–8 |
-| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | login as a plugin, users owned by the core, RBAC decides (P0–P7) | 🟡 **P0 done** (`1c12e52`, `eb3bd7f`); P1–P7 not started; decisions D1–D10 agreed; `@Perm` catalogue and org-tree sync already done |
+| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | login as a plugin, users owned by the core, RBAC decides (P0–P7) | 🟡 **P0, P1, P2 done** (P0 `1c12e52`, `eb3bd7f`; P1 `76e1e0a`; P2 `16374fa`; gateway + e2e `a6c9b84`); P3–P7 not started; decisions D1–D10 agreed |
 | [`2fa-design.md`](2fa-design.md) | 2FA in the IdP, shipped `off`, factors light up with comms (phases 1–5) | 📝 planned; all items decided; break-glass names are placeholders |
-| [`comms-design.md`](comms-design.md) | the comms plane: email, SMS, push, WhatsApp, in-app (P0–P4) | 📝 planned (uncommitted draft); §14 decisions are assumed |
+| [`comms-design.md`](comms-design.md) | the comms plane: email, SMS, push, WhatsApp, in-app (P0–P4) | 🟡 **B0 done** (`c19d0c5`, wiring `a6c9b84`; sandbox provider only); B1–B4 planned; §14 decisions are assumed |
 | [`inventory-plugin.md`](inventory-plugin.md) | the **plugin framework** (§1) and the Inventory plugin | 📝 planned; its prerequisite (org hierarchy) is done |
 | [`plugins/*`](plugins/README.md) | 23 org plugins, one page each | 💡 ideas: one-page briefs, no detailed plans yet |
 
@@ -37,7 +37,7 @@ This file decides **what is built in what order, and why**. It doesn't repeat th
 ## 3. Dependency map
 
 ```
-DONE: trustplane · org hierarchy · KYC v2 (in-process) · @Perm catalogue + org-tree sync
+DONE: trustplane · org hierarchy · KYC v2 (in-process) · @Perm catalogue + org-tree sync · A0 · A1 · A2 · B0
    │
    ├──────────────── Track A: identity & access (idp-rbac-cutover-plan) ────────────────────────────┐
    │  A0 edge ─┬─ A1 IdP credential plugin ─┬─ A3 core links/lifecycle/org rules ─ A4 gateway sessions ─ A5 portals ─┐
@@ -83,18 +83,19 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 | # | Item | Plan | Status |
 |---|---|---|---|
 | 1.1 | A0: edge hardening, switches, drop unused `Tenant` | cut-over P0 | ✅ code done 2026-11-11, commits `1c12e52` (0.4, 0.5) and `eb3bd7f` (0.1–0.3): 0.1 FAPI TLS in `nginx-mipay-sme.conf` (`nginx -t` ok); 0.2 `externalHost()` (DPoP `htu`, BFF `redirect_uri`, upstream `X-Forwarded-Host` from a trusted proxy only; tests); 0.3 `IDP_ENVIRONMENT` (no seed users and a public https issuer outside dev/sandbox; tests); 0.4 switches; 0.5 `Tenant` removed, V14 verified on Postgres. **Waiting on ops (⛔ for production only):** copy the nginx file to the host and reload; DNS + certificate for `auth.afriqpay.com` before `IDP_ENVIRONMENT=production` |
-| 1.2 | A1: IdP credential accounts, enrolment API, events, `uid` claim, `CommsClient` (sandbox) | cut-over P1 | ⬜ |
-| 1.3 | A2: delete the demo RBAC; build the grid, roles, SoD, four-eyes approvals | cut-over P2 | ⬜ |
-| 1.4 | B0: comms plane skeleton, Postgres queue, sandbox provider, `POST /messages`, `GET /capabilities` | comms P0 | ⬜ |
+| 1.2 | A1: IdP credential accounts, enrolment API, events, `uid` claim, `CommsClient` (sandbox) | cut-over P1 | ✅ 2026-11-12, commit `76e1e0a` (IdP) + `a6c9b84` (gateway: `uid` as RBAC subject and in the context, back-channel logout endpoint, BFF fixes). As built and decisions: cut-over plan P1 "Status". Events to the core wait in the IdP's queue until P3.6 sets `IDP_CORE_EVENTS_URL` |
+| 1.3 | A2: delete the demo RBAC; build the grid, roles, SoD, four-eyes approvals | cut-over P2 | ✅ 2026-11-12, commit `16374fa` (RBAC service, `grid.yaml`, core org-tree sync with holds) + `a6c9b84` (routes). Role pack for compliance: [`docs/rbac/role-pack-v1.md`](../rbac/role-pack-v1.md). As built: cut-over plan P2 "Status" |
+| 1.4 | B0: comms plane skeleton, Postgres queue, sandbox provider, `POST /messages`, `GET /capabilities` | comms P0 | ✅ 2026-11-12, commit `c19d0c5` (service) + `a6c9b84` (compose). As built: comms-design §12 "P0 as built" |
 
 **Gate 1:** e2e suite green with the new IdP and RBAC checks; the comms sandbox passes the activation and OTP flows.
+**✅ Met 2026-11-12:** the e2e suite (`a6c9b84`) passed **137/137** three times against an isolated copy of the trust plane (own images, volumes and networks; the running stack untouched), the last run on fresh volumes. It includes activation through a set-up link sent by comms (S21) and merchant OTP through comms (S24). The real backend (`16374fa`) registered its catalogue with the new RBAC (125 cells, 204 endpoints, none rejected) and a core suspension reached RBAC as a hold in about 6 s. Integration tests: IdP 13, comms 8, RBAC 14, backend 159 (0 failures). **Not yet deployed** to the running local stack or afriqpay (§6).
 
 ### Stage 2: Dual-stack (about 2 weeks)
 
 | # | Item | Plan | Status |
 |---|---|---|---|
 | 2.1 | A3: auth contract, `identity_links`, `UserLifecycleService`, org-binding rules U1–U7, reconcile, resolver, backfills | cut-over P3 | ⬜ |
-| 2.2 | A4: gateway `auth: session`, CSRF, context v2 with `uid`, RBAC on `uid`; `admin.` on BFF in staging | cut-over P4 | ⬜ (an out-of-order attempt is parked in `git stash`, see §8) |
+| 2.2 | A4: gateway `auth: session`, CSRF, context v2 with `uid`, RBAC on `uid`; `admin.` on BFF in staging | cut-over P4 | ⬜ (already done in `a6c9b84`: RBAC on `uid`, `uid` in the context, BFF login works end to end and dies on back-channel logout. An out-of-order attempt at the rest is parked in `git stash`, see §8) |
 | 2.3 | C1: 2FA foundations in the IdP (TOTP, passkeys, recovery codes, PIN, policy, readiness page), shipped `mfa.mode=off` | 2fa phase 1 | ⬜ |
 | 2.4 | B1 starts: real SMS and email providers (the first slice that matters: set-up links and OTP) | comms P1 | ⬜ |
 
@@ -190,6 +191,11 @@ These assume one developer on Track A and a second on Tracks B and C. The comms 
 | Inventory assumptions (its "please confirm" list) | E1 (Stage 5) | product | inventory, Assumptions |
 | Deploy the hardened `nginx-mipay-sme.conf` to the afriqpay host and reload nginx | production edge (P0.1) | ops | cut-over P0, `eb3bd7f` |
 | DNS + certificate for `auth.afriqpay.com`, then `IDP_ENVIRONMENT=production` with that issuer | production IdP (P0.3); before A4 goes live | ops | cut-over P0, `eb3bd7f` |
+| **Deploy Stage 1** to the local stack and afriqpay: take a dump of the `rbac` database (cut-over §4.3), then rebuild and recreate `idp`, `rbac`, `gateway` and the new `comms` (`docker compose up -d --build`). The new RBAC drops the demo schema at first boot. Until then the running containers keep their old images **but bind-mount `trustplane/config` from the checkout**: a restart of the old gateway loads the new `routes.yaml` (its RBAC admin routes then fail against the old RBAC), and the old IdP the new `clients.yaml` (harmless). The old RBAC survives a restart because the grid seed has a new name (`grid.yaml`) | before Stage 2 integration work against live services | you / ops | `a6c9b84` |
+| Compliance review of the generated role pack [`docs/rbac/role-pack-v1.md`](../rbac/role-pack-v1.md) (starts 0.2; sign-off needed at Gate 3) | Gate 3 | compliance | cut-over P2.5a |
+| Set `IDP_CORE_EVENTS_URL` when the core's `POST /internal/auth/events` exists | P3.6 | dev | cut-over P1 status |
+| The admin portal's permission screens and the backend's `RbacClientService` still call the removed RBAC endpoints (they already failed before: no mTLS, no gateway context) | P5.5 Roles & access | dev | cut-over §4.1 |
+| Disk space on the dev host: about 2.7 GB free on a 97 GB disk; a full disk crashed the Java services once (§8.1) | any further image builds | you | — |
 
 Resolved elsewhere, kept here for traceability: who holds compliance roles in production is now RBAC assignments (cut-over D9/D10), and comms owns the SMS/email provider choice (2fa §17).
 
@@ -238,3 +244,13 @@ Uncommitted work found (author unknown; `tools/dev-review-extension.py` suggests
   The backend compiles and its test suite passes (159 tests, 0 failures, 3 skipped). `V14` also verified on Postgres 16: a fresh database migrates V1–V14 and the backend starts with `ddl-auto: validate`.
 - **P4/P5 attempt parked**, not deleted: `git stash` entry *"parked: out-of-order cut-over P4/P5 attempt …"* holds the gateway `routes.yaml` / `config.go` and the merchant-app `app.routes.ts`, `auth.service.ts`, `guards.ts`, `http.ts`, `nav-shell.ts` changes. The merchant app type-checks again without them.
   - **When P4/P5 start,** reuse what fits from the stash (the `orgType` guards, the gateway `session` value), but follow the design: an HttpOnly cookie, `X-CSRF` on writes, nothing in `localStorage`, and platform users routed by permission, not by a fake org type.
+
+### 8.1 Stage 1 delivery notes (2026-11-12)
+
+- **Bugs found and fixed while proving Gate 1:**
+  - **IdP token binding:** behind the gateway, the IdP took the gateway's own mesh certificate as the client's, so a token request with no DPoP proof and no client certificate was "bound" to the gateway instead of refused (FAPI 2.0 requires refusal). Fixed in `76e1e0a`, with a regression test.
+  - **BFF login never completed:** the token exchange signed DPoP for the mesh URL, not the issuer's token URL. Fixed in `a6c9b84`.
+  - **Old e2e S14** could only pass because of the binding bug; rewritten to send real proofs.
+  - **First RBAC decision after a cold start** exceeded the gateway's 400 ms budget; the gateway now warms the channel and allows 1.5 s (still fails closed).
+- **Incident:** during the isolated test builds the disk filled up (95 of 97 GB were already used). The running `sme-backend-1` and `trustplane-rbac-1` JVMs crashed (exit 139). The backend was restarted with your OK. The RBAC restarted by itself but then loaded the new grid seed through the config bind mount and crash-looped, so the grid seed was renamed to `grid.yaml`, letting the old RBAC start on its own database as before. Only the test stack's images, volumes and the dangling build cache were removed to free space. Neither live database logged a write failure.
+

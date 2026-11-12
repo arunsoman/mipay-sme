@@ -1181,7 +1181,7 @@ Check(sub, tenant, "kyc.application.modify")
 |---|---|---|---|
 | Maker ≠ checker on KYC | OBJECT | `kyc.application.submit` × `kyc.task.authorize` | the person who submitted an application never decides its tasks (also enforced by the workflow engine) |
 | No self-approval of money | STATIC | `merchant.withdrawal.execute` × `ops.bank_account_approval.authorize` | whoever moves money can't approve the account it goes to |
-| Admins don't approve customers | STATIC | any `*.administer` × any `*.authorize` held by **platform** roles | access administrators are not reviewers |
+| Admins don't approve customers | STATIC | any `*.administer` × any `*.authorize` on **customer** rows held by **platform** roles (`rbac.*` rows are not counted: approving an access request, `rbac.assignment:authorize`, is access administration) | access administrators are not reviewers |
 | Two review stages, two people | DYNAMIC | `kyc.task.authorize` (stage ops-review) × `kyc.task.authorize` (stage compliance) | per submission, one person acts on one stage (stage carried as an attribute) |
 | No simulation in production | STATIC | the whole `simulate` column | disabled by the production profile; RBAC refuses ticks in it |
 
