@@ -46,7 +46,7 @@ public class PlatformAccessMeshController {
 
     private String authorize(String actor, Boolean coreAuthorized, String cell) {
         if (actor == null || actor.isBlank()) throw ApiException.badRequest("actor (the core user id) required");
-        if (!Boolean.TRUE.equals(coreAuthorized) && !decisions.checkPlatform(actor, cell)) {
+        if (!WebSupport.coreAuthorized(coreAuthorized, cfg) && !decisions.checkPlatform(actor, cell)) {
             throw new ApiException(403, "insufficient_permission", "actor lacks " + cell + " platform-wide");
         }
         return actor;
@@ -95,7 +95,7 @@ public class PlatformAccessMeshController {
         core(req, svc);
         if (b == null || b.actor() == null || b.actor().isBlank()) throw ApiException.badRequest("actor (the core user id) required");
         return access.request(b.actor(), new AccessService.AssignRequest(b.subject(), b.role(), b.tenant(), b.scope(),
-                WebSupport.instant(b.expires_at()), b.reason()), OrgAccessMeshController.SOURCE, Boolean.TRUE.equals(b.core_authorized()));
+                WebSupport.instant(b.expires_at()), b.reason()), OrgAccessMeshController.SOURCE, WebSupport.coreAuthorized(b.core_authorized(), cfg));
     }
 
     @PublicEndpoint("mesh: the core revokes an assignment on behalf of a platform user admin")
@@ -104,6 +104,6 @@ public class PlatformAccessMeshController {
                                       @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc, HttpServletRequest req) {
         core(req, svc);
         if (b == null || b.actor() == null || b.actor().isBlank()) throw ApiException.badRequest("actor (the core user id) required");
-        return access.revoke(b.actor(), id, b.reason(), false, Boolean.TRUE.equals(b.core_authorized()));
+        return access.revoke(b.actor(), id, b.reason(), false, WebSupport.coreAuthorized(b.core_authorized(), cfg));
     }
 }

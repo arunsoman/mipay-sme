@@ -150,6 +150,7 @@ services:
       RBAC_ENVIRONMENT: ${RBAC_ENVIRONMENT:-dev}
       RBAC_FIXTURES_FILE: /config/rbac/fixtures.e2e.yaml     # loaded only in dev/sandbox
       RBAC_CORE_CN: sme-mipay-mesh
+      RBAC_CORE_AUTHORIZED_UNTIL: ${RBAC_CORE_AUTHORIZED_UNTIL:-}
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
     volumes:
       - pki:/pki:ro

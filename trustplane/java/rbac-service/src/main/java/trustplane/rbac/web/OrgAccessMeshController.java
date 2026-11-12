@@ -61,7 +61,7 @@ public class OrgAccessMeshController {
     /** The actor holds the cell in the tenant, unless the core authorized the actor itself. */
     private String authorize(String actor, Boolean coreAuthorized, String tenant, String cell) {
         String a = actorOf(actor);
-        if (Boolean.TRUE.equals(coreAuthorized)) return a;
+        if (WebSupport.coreAuthorized(coreAuthorized, cfg)) return a;
         var d = decisions.check(new Decisions.Request(a, tenant, cell));
         if (!d.allowed()) {
             throw new ApiException(403, "insufficient_permission", "actor lacks " + cell + " in " + tenant + " (" + d.reason() + ", " + d.decisionId() + ")");
@@ -138,7 +138,7 @@ public class OrgAccessMeshController {
         String source = b.source() != null && SYSTEM_SOURCES.contains(b.source()) ? b.source() : SOURCE;
         return access.request(actor, new AccessService.AssignRequest(b.subject(), b.role(), tenant,
                         b.scope() == null || b.scope().isBlank() ? "own" : b.scope(), WebSupport.instant(b.expires_at()), b.reason()),
-                source, Boolean.TRUE.equals(b.core_authorized()));
+                source, WebSupport.coreAuthorized(b.core_authorized(), cfg));
     }
 
     @PublicEndpoint("mesh: the core revokes a role assignment in the org on behalf of an org admin")
@@ -148,7 +148,7 @@ public class OrgAccessMeshController {
         core(req, svc);
         if (b == null) throw ApiException.badRequest("body required");
         if (!tenant.equals(access.view(id).get("tenant"))) throw ApiException.notFound();
-        return access.revoke(actorOf(b.actor()), id, b.reason(), false, Boolean.TRUE.equals(b.core_authorized()));
+        return access.revoke(actorOf(b.actor()), id, b.reason(), false, WebSupport.coreAuthorized(b.core_authorized(), cfg));
     }
 
     @PublicEndpoint("mesh: the core lists pending role requests in the org that the actor may decide")

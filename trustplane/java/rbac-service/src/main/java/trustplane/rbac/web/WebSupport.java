@@ -7,6 +7,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import trustplane.rbac.core.Decisions;
+import trustplane.rbac.config.RbacConfig;
 import trustplane.shared.ApiException;
 import trustplane.shared.Failure;
 import trustplane.shared.GatewayContext;
@@ -62,6 +63,16 @@ public class WebSupport {
         } catch (Exception e) {
             throw ApiException.badRequest("timestamps are RFC 3339 (UTC), e.g. 2026-11-12T10:00:00Z");
         }
+    }
+
+    /** Reject a core assertion after its configured compatibility deadline. */
+    public static boolean coreAuthorized(Boolean requested, RbacConfig cfg) {
+        if (!Boolean.TRUE.equals(requested)) return false;
+        if (!cfg.coreAuthorizedBridgeOpen(Instant.now())) {
+            throw new ApiException(403, "core_authorization_expired",
+                    "core_authorized is disabled or its configured deadline has passed; RBAC must authorize the actor");
+        }
+        return true;
     }
 
     // ---- mesh identity ----------------------------------------------------

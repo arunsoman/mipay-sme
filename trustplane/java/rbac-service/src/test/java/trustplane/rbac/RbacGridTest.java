@@ -39,7 +39,7 @@ class RbacGridTest {
     static final String SYS = AccessService.SYSTEM;
 
     RbacConfig config(String env) {
-        return new RbacConfig("", ":0", ":0", "", "", "", "", System.getenv("TEST_RBAC_SEED"), 120, env, "", "sme-mipay-mesh");
+        return new RbacConfig("", ":0", ":0", "", "", "", "", System.getenv("TEST_RBAC_SEED"), 120, env, "", "sme-mipay-mesh", null);
     }
 
     void wire(String env) throws Exception {
