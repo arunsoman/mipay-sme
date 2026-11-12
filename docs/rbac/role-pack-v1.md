@@ -1,6 +1,6 @@
 # RBAC role pack for compliance sign-off
 
-Generated 2026-11-12 from the live RBAC service (environment `dev`). Source of truth: `trustplane/config/rbac/seed.yaml`; the endpoints come from the code's own registration.
+Generated 2026-11-12 from the live RBAC service (environment `dev`). Source of truth: `trustplane/config/rbac/grid.yaml`; the endpoints come from the code's own registration.
 
 Version 1 of the grid reproduces today's access one-to-one (decision D9), so shadow mode can prove the two agree. Tightening happens afterwards through the quarterly access review.
 
@@ -12,18 +12,18 @@ Version 1 of the grid reproduces today's access one-to-one (decision D9), so sha
 |---|---|---|---|---|---|
 | `kyc_applicant` | ORG | — | 5 | none | 0 |
 | `lender_officer` | PLATFORM | — | 8 | platform | 0 |
-| `org_admin` | ORG | `org_staff` | 74 | org_admin | 2 |
-| `org_staff` | ORG | `org_viewer` | 48 | none | 2 |
+| `org_admin` | ORG | `org_staff` | 77 | org_admin | 0 |
+| `org_staff` | ORG | `org_viewer` | 48 | none | 0 |
 | `org_viewer` | ORG | — | 26 | none | 0 |
 | `platform_auditor` | PLATFORM | — | 54 | platform | 0 |
 | `platform_break_glass` | PLATFORM | — | 62 | break_glass | 0 |
 | `platform_compliance_officer` | PLATFORM | `platform_auditor` | 59 | compliance | 0 |
 | `platform_engineer` | PLATFORM | — | 11 | platform | 0 |
-| `platform_mlro` | PLATFORM | `platform_auditor` | 58 | compliance | 1 |
+| `platform_mlro` | PLATFORM | `platform_auditor` | 58 | compliance | 0 |
 | `platform_operations` | PLATFORM | `platform_auditor` | 66 | platform | 0 |
-| `platform_ops_reviewer` | PLATFORM | `platform_auditor` | 59 | platform | 1 |
+| `platform_ops_reviewer` | PLATFORM | `platform_auditor` | 59 | platform | 0 |
 | `platform_senior_approver` | PLATFORM | `platform_auditor` | 56 | compliance | 0 |
-| `platform_user_admin` | PLATFORM | — | 26 | platform | 2 |
+| `platform_user_admin` | PLATFORM | — | 26 | platform | 0 |
 | `sandbox_tester` | SANDBOX | — | 4 | none | 0 |
 
 ## Separation of duty
@@ -145,24 +145,27 @@ Org administrator (today's ADMIN): money movement, KYC, users, onboarding and th
 | `org.onboarding:authorize` | own | `POST /api/orgs/onboarding/{id}/decide`<br>`POST /api/orgs/{id}/admins` |
 | `org.onboarding:create` | own | `POST /api/orgs/me/children` |
 | `org.onboarding:read` | inherited from `org_viewer` | `GET /api/orgs/onboarding` |
-| `org.rights:administer` | own | `PUT /api/orgs/{id}/rights` |
-| `org.rights:read` | inherited from `org_viewer` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:administer` | own | `PUT /api/orgs/{id}/rights`<br>`PUT /api/orgs/{id}/role-ceiling` |
+| `org.rights:read` | inherited from `org_viewer` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.suspension:administer` | own | `POST /api/orgs/suspensions/{sid}/lift`<br>`POST /api/orgs/{id}/suspend` |
 | `org.tree:read` | inherited from `org_viewer` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
 | `org.user:administer` | own | `POST /api/orgs/users/{id}/resend-activation` |
 | `org.user:create` | own | `POST /api/orgs/me/users` |
 | `org.user:delete` | own | `POST /api/orgs/users/{id}/deactivate` |
-| `org.user:read` | inherited from `org_viewer` | `GET /api/orgs/me/users` |
-| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`DELETE /rbac/admin/assignments/{id}` |
-| `rbac.assignment:authorize` | own | `GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
-| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /rbac/admin/assignments` |
-| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `org_viewer` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`POST /api/orgs/{id}/role-assignments/{assignmentId}/revoke`<br>`DELETE /rbac/admin/assignments/{id}` |
+| `rbac.assignment:authorize` | own | `POST /api/orgs/{id}/role-approvals/{assignmentId}`<br>`GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
+| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /api/orgs/{id}/role-assignments`<br>`POST /rbac/admin/assignments` |
+| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.grant:administer` | own | `DELETE /rbac/admin/grants/{id}` |
 | `rbac.grant:create` | own | `POST /rbac/admin/grants` |
 | `rbac.grant:read` | own | `GET /rbac/admin/grants` |
 | `rbac.review:administer` | own | `POST /rbac/admin/reviews/{id}/items/{assignmentId}` |
 | `rbac.review:read` | own | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | own | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:create` | own | `POST /api/orgs/{id}/roles`<br>`POST /rbac/admin/roles` |
+| `rbac.role:delete` | own | `DELETE /api/orgs/{id}/roles/{name}`<br>`DELETE /rbac/admin/roles/{name}` |
+| `rbac.role:modify` | own | `PUT /api/admin/rbac/roles/{name}`<br>`PUT /api/orgs/{id}/roles/{name}`<br>`PUT /rbac/admin/roles/{name}` |
+| `rbac.role:read` | own | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `supplier.account:read` | inherited from `org_viewer` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:delete` | inherited from `org_staff` | `POST /api/supplier/bank-accounts/{id}/revoke` |
 | `supplier.bank_account:modify` | inherited from `org_staff` | `POST /api/supplier/bank-accounts/change` |
@@ -224,9 +227,9 @@ Day-to-day member (today's STAFF): everything under their org type's API except 
 | `merchant.tab:read` | inherited from `org_viewer` | `GET /api/merchant/tabs`<br>`GET /api/merchant/tabs/{id}/entries` |
 | `merchant.withdrawal:read` | inherited from `org_viewer` | `GET /api/merchant/withdrawals` |
 | `org.onboarding:read` | inherited from `org_viewer` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `org_viewer` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `org_viewer` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `org_viewer` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `org_viewer` | `GET /api/orgs/me/users` |
+| `org.user:read` | inherited from `org_viewer` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
 | `supplier.account:read` | inherited from `org_viewer` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:delete` | own | `POST /api/supplier/bank-accounts/{id}/revoke` |
 | `supplier.bank_account:modify` | own | `POST /api/supplier/bank-accounts/change` |
@@ -273,9 +276,9 @@ Read-only member of an org
 | `merchant.tab:read` | own | `GET /api/merchant/tabs`<br>`GET /api/merchant/tabs/{id}/entries` |
 | `merchant.withdrawal:read` | own | `GET /api/merchant/withdrawals` |
 | `org.onboarding:read` | own | `GET /api/orgs/onboarding` |
-| `org.rights:read` | own | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | own | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | own | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | own | `GET /api/orgs/me/users` |
+| `org.user:read` | own | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
 | `supplier.account:read` | own | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | own | `GET /api/supplier/bank-accounts` |
 | `supplier.catalogue:read` | own | `GET /api/supplier/catalogue` |
@@ -337,14 +340,14 @@ Read-only over the whole platform (audit, access reviews)
 | `ops.supplier_approval:read` | all rows | `GET /api/ops/approvals/suppliers`<br>`GET /api/ops/approvals/suppliers/all` |
 | `ops.suspension:read` | all rows | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | all rows | `GET /api/orgs/onboarding` |
-| `org.rights:read` | all rows | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | all rows | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | all rows | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | all rows | `GET /api/orgs/me/users` |
-| `rbac.assignment:read` | all rows | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | all rows | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:read` | all rows | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | own | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | all rows | `GET /rbac/admin/grants` |
 | `rbac.review:read` | all rows | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | all rows | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | all rows | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | all rows | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | all rows | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | all rows | `GET /api/supplier/bank-accounts` |
@@ -410,20 +413,20 @@ Emergency access to restore access and lift holds; time-boxed (8 h), approved, a
 | `ops.suspension:administer` | own | `POST /api/ops/suspend`<br>`POST /api/ops/suspensions/{id}/lift` |
 | `ops.suspension:read` | all rows | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | all rows | `GET /api/orgs/onboarding` |
-| `org.rights:read` | all rows | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | all rows | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.suspension:administer` | own | `POST /api/orgs/suspensions/{sid}/lift`<br>`POST /api/orgs/{id}/suspend` |
 | `org.tree:read` | all rows | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
 | `org.user:administer` | own | `POST /api/orgs/users/{id}/resend-activation` |
 | `org.user:create` | own | `POST /api/orgs/me/users` |
 | `org.user:delete` | own | `POST /api/orgs/users/{id}/deactivate` |
-| `org.user:read` | all rows | `GET /api/orgs/me/users` |
-| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`DELETE /rbac/admin/assignments/{id}` |
-| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /rbac/admin/assignments` |
-| `rbac.assignment:read` | all rows | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | all rows | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`POST /api/orgs/{id}/role-assignments/{assignmentId}/revoke`<br>`DELETE /rbac/admin/assignments/{id}` |
+| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /api/orgs/{id}/role-assignments`<br>`POST /rbac/admin/assignments` |
+| `rbac.assignment:read` | all rows | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | all rows | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | all rows | `GET /rbac/admin/grants` |
 | `rbac.review:read` | all rows | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | all rows | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | all rows | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | all rows | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | all rows | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | all rows | `GET /api/supplier/bank-accounts` |
@@ -491,14 +494,14 @@ Compliance review stage, SARs, AML alerts, DSARs
 | `ops.supplier_approval:read` | inherited from `platform_auditor` | `GET /api/ops/approvals/suppliers`<br>`GET /api/ops/approvals/suppliers/all` |
 | `ops.suspension:read` | inherited from `platform_auditor` | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | inherited from `platform_auditor` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `platform_auditor` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users` |
-| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | inherited from `platform_auditor` | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | inherited from `platform_auditor` | `GET /rbac/admin/grants` |
 | `rbac.review:read` | inherited from `platform_auditor` | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | inherited from `platform_auditor` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | inherited from `platform_auditor` | `GET /api/supplier/bank-accounts` |
@@ -591,15 +594,15 @@ Money-laundering reporting officer: SAR filing, AML alerts, compliance decisions
 | `ops.supplier_approval:read` | inherited from `platform_auditor` | `GET /api/ops/approvals/suppliers`<br>`GET /api/ops/approvals/suppliers/all` |
 | `ops.suspension:read` | inherited from `platform_auditor` | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | inherited from `platform_auditor` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `platform_auditor` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users` |
-| `rbac.assignment:authorize` | own | `GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
-| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:authorize` | own | `POST /api/orgs/{id}/role-approvals/{assignmentId}`<br>`GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
+| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | inherited from `platform_auditor` | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | inherited from `platform_auditor` | `GET /rbac/admin/grants` |
 | `rbac.review:read` | inherited from `platform_auditor` | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | inherited from `platform_auditor` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | inherited from `platform_auditor` | `GET /api/supplier/bank-accounts` |
@@ -674,14 +677,14 @@ Operations desk (today's TPTS_OPS work that is not a customer approval)
 | `ops.suspension:administer` | own | `POST /api/ops/suspend`<br>`POST /api/ops/suspensions/{id}/lift` |
 | `ops.suspension:read` | inherited from `platform_auditor` | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | inherited from `platform_auditor` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `platform_auditor` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users` |
-| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | inherited from `platform_auditor` | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | inherited from `platform_auditor` | `GET /rbac/admin/grants` |
 | `rbac.review:read` | inherited from `platform_auditor` | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | inherited from `platform_auditor` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | inherited from `platform_auditor` | `GET /api/supplier/bank-accounts` |
@@ -749,14 +752,14 @@ First-line reviewer: customer, bank account and onboarding approvals; KYC ops-re
 | `ops.supplier_approval:read` | inherited from `platform_auditor` | `GET /api/ops/approvals/suppliers`<br>`GET /api/ops/approvals/suppliers/all` |
 | `ops.suspension:read` | inherited from `platform_auditor` | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | inherited from `platform_auditor` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `platform_auditor` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users` |
-| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | inherited from `platform_auditor` | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | inherited from `platform_auditor` | `GET /rbac/admin/grants` |
 | `rbac.review:read` | inherited from `platform_auditor` | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | inherited from `platform_auditor` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | inherited from `platform_auditor` | `GET /api/supplier/bank-accounts` |
@@ -820,15 +823,15 @@ Senior-management approval for high-risk / PIP cases (FIA s.23)
 | `ops.supplier_approval:read` | inherited from `platform_auditor` | `GET /api/ops/approvals/suppliers`<br>`GET /api/ops/approvals/suppliers/all` |
 | `ops.suspension:read` | inherited from `platform_auditor` | `GET /api/ops/suspensions` |
 | `org.onboarding:read` | inherited from `platform_auditor` | `GET /api/orgs/onboarding` |
-| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights` |
+| `org.rights:read` | inherited from `platform_auditor` | `GET /api/orgs/me/grantable`<br>`GET /api/orgs/{id}/rights`<br>`GET /api/orgs/{id}/role-ceiling` |
 | `org.tree:read` | inherited from `platform_auditor` | `GET /api/orgs/me`<br>`GET /api/orgs/me/descendants`<br>`GET /api/orgs/me/path`<br>`GET /api/orgs/me/tree`<br>`GET /api/orgs/{id}`<br>`GET /api/orgs/{id}/descendants`<br>`GET /api/orgs/{id}/path` |
-| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users` |
-| `rbac.assignment:authorize` | own | `GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
-| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | inherited from `platform_auditor` | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:authorize` | own | `POST /api/orgs/{id}/role-approvals/{assignmentId}`<br>`GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
+| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | inherited from `platform_auditor` | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:read` | inherited from `platform_auditor` | `GET /rbac/admin/grants` |
 | `rbac.review:read` | inherited from `platform_auditor` | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | inherited from `platform_auditor` | `GET /api/admin/rbac/users` |
 | `supplier.account:read` | inherited from `platform_auditor` | `GET /api/supplier/payments`<br>`GET /api/supplier/profile` |
 | `supplier.bank_account:read` | inherited from `platform_auditor` | `GET /api/supplier/bank-accounts` |
@@ -861,11 +864,11 @@ Access administration: org users, platform access, API clients, role assignments
 | `org.user:administer` | own | `POST /api/orgs/users/{id}/resend-activation` |
 | `org.user:create` | own | `POST /api/orgs/me/users` |
 | `org.user:delete` | own | `POST /api/orgs/users/{id}/deactivate` |
-| `org.user:read` | own | `GET /api/orgs/me/users` |
-| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`DELETE /rbac/admin/assignments/{id}` |
-| `rbac.assignment:authorize` | own | `GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
-| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /rbac/admin/assignments` |
-| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
+| `org.user:read` | own | `GET /api/orgs/me/users`<br>`GET /api/orgs/{id}/members` |
+| `rbac.assignment:administer` | own | `DELETE /api/admin/rbac/assignments/{id}`<br>`POST /api/orgs/{id}/role-assignments/{assignmentId}/revoke`<br>`DELETE /rbac/admin/assignments/{id}` |
+| `rbac.assignment:authorize` | own | `POST /api/orgs/{id}/role-approvals/{assignmentId}`<br>`GET /rbac/admin/approvals`<br>`POST /rbac/admin/approvals/{id}/approve`<br>`POST /rbac/admin/approvals/{id}/reject` |
+| `rbac.assignment:create` | own | `POST /api/admin/rbac/assignments`<br>`POST /api/orgs/{id}/role-assignments`<br>`POST /rbac/admin/assignments` |
+| `rbac.assignment:read` | own | `GET /api/admin/rbac/assignments`<br>`GET /api/orgs/{id}/role-approvals`<br>`GET /api/orgs/{id}/role-assignments`<br>`GET /rbac/admin/assignments`<br>`GET /rbac/admin/assignments/{id}`<br>`GET /rbac/admin/holders` |
 | `rbac.audit:read` | own | `GET /rbac/admin/audit`<br>`GET /rbac/admin/decisions/{id}` |
 | `rbac.grant:administer` | own | `DELETE /rbac/admin/grants/{id}` |
 | `rbac.grant:create` | own | `POST /rbac/admin/grants` |
@@ -873,10 +876,10 @@ Access administration: org users, platform access, API clients, role assignments
 | `rbac.review:administer` | own | `POST /rbac/admin/reviews/{id}/items/{assignmentId}` |
 | `rbac.review:create` | own | `POST /rbac/admin/reviews` |
 | `rbac.review:read` | own | `GET /rbac/admin/reviews/{id}` |
-| `rbac.role:create` | own | `POST /rbac/admin/roles` |
-| `rbac.role:delete` | own | `DELETE /rbac/admin/roles/{name}` |
-| `rbac.role:modify` | own | `PUT /api/admin/rbac/roles/{name}`<br>`PUT /rbac/admin/roles/{name}` |
-| `rbac.role:read` | own | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
+| `rbac.role:create` | own | `POST /api/orgs/{id}/roles`<br>`POST /rbac/admin/roles` |
+| `rbac.role:delete` | own | `DELETE /api/orgs/{id}/roles/{name}`<br>`DELETE /rbac/admin/roles/{name}` |
+| `rbac.role:modify` | own | `PUT /api/admin/rbac/roles/{name}`<br>`PUT /api/orgs/{id}/roles/{name}`<br>`PUT /rbac/admin/roles/{name}` |
+| `rbac.role:read` | own | `GET /api/admin/rbac/roles`<br>`GET /api/admin/rbac/roles/{name}`<br>`GET /api/orgs/{id}/roles`<br>`GET /rbac/admin/export/role-pack`<br>`GET /rbac/admin/resources`<br>`GET /rbac/admin/roles`<br>`GET /rbac/admin/roles/{name}` |
 | `rbac.user:read` | own | `GET /api/admin/rbac/users` |
 
 Approved for use: ______________________ (Compliance)    Date: __________
@@ -901,3 +904,12 @@ Simulation controls (sandbox and UAT only; refused in production)
 
 Approved for use: ______________________ (Compliance)    Date: __________
 
+---
+
+## Role ceilings and org-defined roles
+
+Every org uses only the roles inside its **role ceiling**, chosen by the org that onboarded it and never wider than that org's own hand-down set. Always inside every ceiling: `kyc_applicant`, `org_admin`.
+
+Orgs may build their own roles from the roles in their ceiling. Each one's cells are a subset of its base roles' cells, checked on save and again on every decision, so these roles never grant anything outside the signed-off roles above. Base roles never span both sides of a separation-of-duty rule. They are listed here for the access review, not for separate sign-off.
+
+No org-defined roles yet.
