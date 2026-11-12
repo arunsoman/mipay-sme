@@ -341,6 +341,12 @@ class RbacGridTest {
         assertTrue(allowed("vera2", "oka", "merchant.account:read"));
         assertFalse(allowed("vera2", "oka", "kyc.application:read"), "removed by the edit");
         assertEquals(409, status(() -> store.deleteRole("ua1", "org_viewer")), "seeded roles change through the seed");
+
+        // a created role that builds on others can be deleted again (its inheritance rows go too)
+        store.createRole("ua1", "cashier_tmp", "", "ORG", store.parseGrid(Map.of(), List.of()), List.of("org_viewer"));
+        assertTrue(policy.get().roles().get("cashier_tmp").juniors().contains("org_viewer"));
+        store.deleteRole("ua1", "cashier_tmp");
+        assertNull(policy.get().roles().get("cashier_tmp"));
     }
 
     @Test

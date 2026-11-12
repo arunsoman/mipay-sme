@@ -418,7 +418,7 @@ public class RbacStore {
         if (used != null && used > 0) throw ApiException.conflict("role has " + used + " active or pending assignments");
         List<String> builtOn = db.queryForList("SELECT name FROM roles WHERE ? = ANY(base_roles)", String.class, name);
         if (!builtOn.isEmpty()) throw ApiException.conflict("org-defined roles are built on " + name + ": " + builtOn);
-        db.update("DELETE FROM role_inheritance WHERE junior=?", name);
+        db.update("DELETE FROM role_inheritance WHERE junior=? OR senior=?", name, name);
         db.update("DELETE FROM assignments WHERE role=?", name);
         db.update("DELETE FROM roles WHERE name=?", name);
         policy.reload();

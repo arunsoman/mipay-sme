@@ -5,16 +5,16 @@ import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
 /**
- * Portal shell ([layout]/C11): a left navigation sidebar with EXACTLY three
- * menus (Onboarding / Users / Permissions). On screens wider than 901px it is
- * permanently open; below that it collapses into an off-canvas drawer that
- * slides in via the hamburger button and closes on navigation or backdrop tap.
+ * Portal shell ([layout]/C11): the navigation lives in an off-canvas side drawer at every
+ * screen width, so pages (the RBAC matrix above all) get the full width. The hamburger in
+ * the top bar opens it; it closes on navigation, backdrop tap or Escape.
  * The environment banner derives from /api/env; SIMULATED is never hidden.
  */
 @Component({
   selector: 'mpa-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
+  host: { '(document:keydown.escape)': 'closeNav()' },
   template: `
     @if (simulated()) {<div class="sim-banner">SANDBOX · SIMULATED ENVIRONMENT · NO REAL MONEY OR DATA</div>}
     <div class="layout">
@@ -23,7 +23,7 @@ import { MeView } from '../../core/api';
         <div class="brand">MiPay <span>Admin</span></div>
         <nav>
           <a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>
-          <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">KYC</a>
+          <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>
           <a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>
           <a routerLink="/permissions" routerLinkActive="active" (click)="closeNav()">Permissions</a>
           <a routerLink="/rbac" routerLinkActive="active" (click)="closeNav()">RBAC Matrix</a>
@@ -58,8 +58,8 @@ import { MeView } from '../../core/api';
                 transition: opacity .2s ease; z-index: 40; }
     .backdrop.show { opacity: 1; pointer-events: auto; }
 
-    .side { position: sticky; top: 0; align-self: flex-start; width: 232px; flex: none; z-index: 50;
-            height: calc(100vh - 34px); display: flex; flex-direction: column;
+    .side { position: fixed; left: 0; top: 0; width: 260px; z-index: 50;
+            height: 100vh; display: flex; flex-direction: column; transform: translateX(-100%); box-shadow: 0 0 24px rgba(0,0,0,.35);
             gap: 20px; padding: 18px 14px; background: #0b0b0b;
             border-right: 1px solid var(--a-border); transition: transform .22s ease; }
     .brand { font-weight: 900; font-size: 22px; letter-spacing: -0.045em; white-space: nowrap; padding: 2px 10px 6px; color: var(--a-teal); }
@@ -78,19 +78,17 @@ import { MeView } from '../../core/api';
     nav a.active { color: var(--a-accent-ink); background: var(--a-teal); border-color: var(--a-teal); font-weight: 800; }
 
     main { flex: 1; min-width: 0; }
-    .topbar { display: none; align-items: center; gap: 12px; padding: 10px 16px;
+    .side.open { transform: translateX(0); }
+    .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
               background: var(--a-panel); border-bottom: 1px solid var(--a-border); position: sticky; top: 0; z-index: 30; }
     .tb-brand { font-weight: 900; font-size: 19px; letter-spacing: -0.045em; color: var(--a-teal); }
     .tb-brand span { color: var(--a-teal); font-weight: 700; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; margin-left: 5px; }
     .burger { display: grid; gap: 4px; width: 38px; height: 34px; padding: 8px 8px; align-content: center; }
     .burger span { display: block; height: 2px; background: var(--a-dim); border-radius: 2px; }
-    .content { padding: 22px; max-width: 1500px; margin: 0 auto; }
+    .tb-page { color: var(--a-dim); font-size: 13px; }
+    .content { padding: 22px; margin: 0 auto; }
 
     @media (max-width: 900px) {
-      .topbar { display: flex; }
-      .side { position: fixed; left: 0; top: 0; height: 100vh;
-              transform: translateX(-100%); box-shadow: 0 0 24px rgba(0,0,0,.35); }
-      .side.open { transform: translateX(0); }
       .content { padding: 14px; }
     }
   `],
@@ -108,7 +106,6 @@ export class Shell implements OnInit {
 
   async ngOnInit() {
     await this.auth.hydrate();
-    window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }
 
   who() {

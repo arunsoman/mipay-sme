@@ -35,6 +35,9 @@ public class PlatformAccessMeshController {
     public record RoleBody(String actor, Boolean core_authorized, String description,
                            Map<String, List<String>> grid, List<String> permissions) {}
 
+    public record CreateBody(String actor, Boolean core_authorized, String name, String description, String kind,
+                             List<String> inherits, Map<String, List<String>> grid, List<String> permissions) {}
+
     public record AssignBody(String actor, Boolean core_authorized, String subject, String role, String tenant,
                              String scope, String expires_at, String reason) {}
 
@@ -76,6 +79,34 @@ public class PlatformAccessMeshController {
         String actor = authorize(b.actor(), b.core_authorized(), "rbac.role:modify");
         boolean gridGiven = b.grid() != null || b.permissions() != null;
         return store.updateRole(actor, name, b.description(), gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null, null);
+    }
+
+    @PublicEndpoint("mesh: the core creates a standard (non-seeded) role on behalf of a platform user admin")
+    @PostMapping("/roles")
+    public Map<String, Object> createRole(@RequestBody CreateBody b,
+                                          @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc, HttpServletRequest req) {
+        core(req, svc);
+        if (b == null) throw ApiException.badRequest("body required");
+        String actor = authorize(b.actor(), b.core_authorized(), "rbac.role:create");
+        String kind = b.kind() == null || b.kind().isBlank() ? "ORG" : b.kind();
+        for (String j : b.inherits() == null ? List.<String>of() : b.inherits()) {
+            Map<String, Object> jr = store.getRole(j);
+            if (jr.get("owner_tenant") != null) throw ApiException.badRequest("a standard role can't inherit the org-defined role " + j);
+            if (!kind.equals(jr.get("kind"))) throw ApiException.badRequest("a " + kind + " role can't inherit the " + jr.get("kind") + " role " + j);
+        }
+        return store.createRole(actor, b.name(), b.description(), kind,
+                store.parseGrid(b.grid(), b.permissions() == null ? List.of() : b.permissions()), b.inherits() == null ? List.of() : b.inherits());
+    }
+
+    @PublicEndpoint("mesh: the core deletes a non-seeded standard role with no assignments on behalf of a platform user admin")
+    @PostMapping("/roles/{name}/delete")
+    public Map<String, Object> deleteRole(@PathVariable String name, @RequestBody ReasonBody b,
+                                          @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc, HttpServletRequest req) {
+        core(req, svc);
+        if (store.getRole(name).get("owner_tenant") != null) throw ApiException.notFound(); // org-defined: per org
+        String actor = authorize(b == null ? null : b.actor(), b == null ? null : b.core_authorized(), "rbac.role:delete");
+        store.deleteRole(actor, name);
+        return Map.of("ok", true);
     }
 
     @PublicEndpoint("mesh: the core lists assignments across all orgs (platform admin screens)")

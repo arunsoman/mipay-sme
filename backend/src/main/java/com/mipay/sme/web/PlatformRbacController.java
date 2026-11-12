@@ -107,6 +107,35 @@ public class PlatformRbacController {
         return role(rbac.updatePlatformRole(name, body));
     }
 
+    /** A new standard role: name, what it is for, ORG or PLATFORM, the roles it builds on, and its own cells. */
+    public record RbacRoleCreate(String name, String description, String kind, List<String> inherits, List<String> permissions) { }
+
+    /** Creates a non-seeded standard role; RBAC applies the grid save rules and refuses cycles. */
+    @Perm(resource = "rbac.role", verb = Verb.CREATE, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Create a standard RBAC role")
+    @PostMapping("/roles")
+    public Dtos.RbacRoleView createRole(@RequestBody RbacRoleCreate req) {
+        if (req == null || req.name() == null || req.name().isBlank()) {
+            throw new com.mipay.sme.common.BadRequestException("ROLE_NAME_REQUIRED", "A role name is required");
+        }
+        Map<String, Object> body = onBehalf();
+        body.put("name", req.name().trim());
+        body.put("description", req.description() == null ? "" : req.description().trim());
+        body.put("kind", req.kind() == null ? "ORG" : req.kind());
+        body.put("inherits", req.inherits() == null ? List.of() : req.inherits());
+        body.put("permissions", req.permissions() == null ? List.of() : req.permissions());
+        return role(rbac.createPlatformRole(body));
+    }
+
+    /** Deletes a non-seeded standard role with no active or pending assignments. */
+    @Perm(resource = "rbac.role", verb = Verb.DELETE, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Delete a standard RBAC role")
+    @DeleteMapping("/roles/{name}")
+    public Map<String, Object> deleteRole(@PathVariable String name) {
+        rbac.deletePlatformRole(name, onBehalf());
+        return Map.of("ok", true);
+    }
+
     // ---------------- users and assignments ----------------
 
     @Perm(resource = "rbac.user", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",

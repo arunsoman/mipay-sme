@@ -129,6 +129,14 @@ public class RbacMeshClient {
         return call("GET", "/rbac/internal/platform/resources", null, new TypeReference<>() { });
     }
 
+    public Map<String, Object> createPlatformRole(Map<String, Object> body) {
+        return call("POST", "/rbac/internal/platform/roles", body, new TypeReference<>() { });
+    }
+
+    public Map<String, Object> deletePlatformRole(String name, Map<String, Object> body) {
+        return call("POST", "/rbac/internal/platform/roles/" + enc(name) + "/delete", body, new TypeReference<>() { });
+    }
+
     public Map<String, Object> updatePlatformRole(String name, Map<String, Object> body) {
         return call("PUT", "/rbac/internal/platform/roles/" + enc(name), body, new TypeReference<>() { });
     }
