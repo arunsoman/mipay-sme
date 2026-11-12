@@ -19,6 +19,8 @@ public class CommsWorker {
     private final JdbcTemplate db;
     private final EmailSender emailSender;
 
+    /** The production constructor (two constructors exist, so Spring must be told which). */
+    @org.springframework.beans.factory.annotation.Autowired
     public CommsWorker(CommsService service) {
         this(service, BrevoEmailSender.create(service.config()));
     }
