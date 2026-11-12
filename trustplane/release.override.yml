@@ -1,0 +1,14 @@
+# Use with docker-compose.yml and the host override, with immutable digest refs.
+services:
+  gateway:
+    build: !reset null
+    image: ${GATEWAY_IMAGE:?set GATEWAY_IMAGE to a ghcr.io digest reference}
+  idp:
+    build: !reset null
+    image: ${IDP_IMAGE:?set IDP_IMAGE to a ghcr.io digest reference}
+  rbac:
+    build: !reset null
+    image: ${RBAC_IMAGE:?set RBAC_IMAGE to a ghcr.io digest reference}
+  comms:
+    build: !reset null
+    image: ${COMMS_IMAGE:?set COMMS_IMAGE to a ghcr.io digest reference}

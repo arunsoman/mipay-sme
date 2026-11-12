@@ -1,0 +1,17 @@
+# Use with docker-compose.yml and a release environment containing immutable digest refs.
+services:
+  backend:
+    build: !reset null
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to a ghcr.io digest reference}
+  admin-portal:
+    build: !reset null
+    image: ${ADMIN_PORTAL_IMAGE:?set ADMIN_PORTAL_IMAGE to a ghcr.io digest reference}
+  manufacturer-portal:
+    build: !reset null
+    image: ${MANUFACTURER_PORTAL_IMAGE:?set MANUFACTURER_PORTAL_IMAGE to a ghcr.io digest reference}
+  distributor-portal:
+    build: !reset null
+    image: ${DISTRIBUTOR_PORTAL_IMAGE:?set DISTRIBUTOR_PORTAL_IMAGE to a ghcr.io digest reference}
+  supplier-portal:
+    build: !reset null
+    image: ${SUPPLIER_PORTAL_IMAGE:?set SUPPLIER_PORTAL_IMAGE to a ghcr.io digest reference}
