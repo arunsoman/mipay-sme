@@ -16,8 +16,8 @@ import {
  * - RBAC applies the grid save rules (no submit + authorize on one row, no simulate in
  *   production, platform roles don't both administer access and authorize customers) and
  *   refuses with a reason.
- * - Seeded roles: an edit here lasts until the next reviewed change to grid.yaml, which is
- *   what compliance signs off. Org-defined roles are managed per org under Roles & access.
+ * - Seeded roles are read-only here; changes go through the reviewed grid.yaml until the
+ *   multi-approver matrix workflow is available. Org-defined roles are managed per org.
  */
 @Component({
   selector: 'mpa-permission-matrix',
@@ -98,8 +98,11 @@ import {
           <div class="meta small">
             <span>inherits: {{ r.inherits.length ? r.inherits.join(', ') : 'nothing' }}</span>
             <span>granting needs: {{ r.approval }}</span>
-            @if (r.seeded) {<span class="chip amber">seeded · edits last until the next reviewed grid.yaml change</span>}
+            @if (r.seeded) {<span class="chip amber">seeded · read-only</span>}
           </div>
+          @if (r.seeded) {
+            <div class="seeded-warning" role="status">Seeded roles cannot be changed in the UI yet. Update the reviewed grid.yaml and deploy it.</div>
+          }
           <div class="legend small">
             <span><i class="sw own"></i> own (editable)</span>
             <span><i class="sw inherited"></i> inherited (change it on the junior role)</span>
@@ -124,7 +127,7 @@ import {
                         <input type="checkbox" [attr.aria-label]="row.id + ':' + v"
                                [class]="st" [class.dirty]="isDirty(row.id, v)"
                                [checked]="st === 'own' || st === 'inherited'"
-                               [disabled]="st === 'na' || st === 'inherited' || busy()"
+                               [disabled]="r.seeded || st === 'na' || st === 'inherited' || busy()"
                                (change)="toggle(row.id, v)" />
                       </td>
                     }
@@ -151,6 +154,7 @@ import {
   `,
   styles: [`
     .rbac-status { margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d6a43a; border-radius: 6px; color: #f4d58d; background: #302713; font-size: 13px; }
+    .seeded-warning { margin: 8px 0; padding: 8px 10px; border-left: 3px solid #d6a43a; color: #f4d58d; background: #302713; font-size: 12px; }
     .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 20px; line-height: 1.1; }
     .filter { max-width: 260px; }
@@ -301,6 +305,7 @@ export class PermissionMatrix implements OnInit {
   }
 
   toggle(row: string, v: RbacVerb) {
+    if (this.selected()?.seeded) return;
     const c = `${row}:${v}`;
     const w = new Set(this.work());
     if (w.has(c)) w.delete(c); else w.add(c);
@@ -315,7 +320,7 @@ export class PermissionMatrix implements OnInit {
 
   async save() {
     const r = this.selected();
-    if (!r) return;
+    if (!r || r.seeded) return;
     this.busy.set(true);
     this.saveError.set('');
     try {

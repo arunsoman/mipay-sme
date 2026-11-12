@@ -327,10 +327,14 @@ class RbacGridTest {
         assertEquals(400, status(() -> store.createRole("ua1", "phantom", "", "ORG",
                 store.parseGrid(Map.of("merchant.account", List.of("delete")), null), List.of())), "a cell no endpoint uses can't be ticked");
         assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null, null, List.of("org_admin"))), "hierarchy cycles refused");
-        // a valid edit is applied and reaches decisions at once
-        store.updateRole("ua1", "org_viewer", null, store.parseGrid(Map.of("merchant.account", List.of("read")), null), null);
+        // Seeded production grids require a reviewed seed change; custom roles remain editable.
+        assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null,
+                store.parseGrid(Map.of("merchant.account", List.of("read")), null), null)), "seeded roles are read-only");
+        store.createRole("ua1", "editable_viewer", "", "ORG",
+                store.parseGrid(Map.of("merchant.account", List.of("read"), "kyc.application", List.of("read")), null), List.of());
+        store.updateRole("ua1", "editable_viewer", null, store.parseGrid(Map.of("merchant.account", List.of("read")), null), null);
         assertFalse(allowed("vera2", "oka", "merchant.account:read"));
-        assign("vera2", "org_viewer", "oka", "own");
+        assign("vera2", "editable_viewer", "oka", "own");
         assertTrue(allowed("vera2", "oka", "merchant.account:read"));
         assertFalse(allowed("vera2", "oka", "kyc.application:read"), "removed by the edit");
         assertEquals(409, status(() -> store.deleteRole("ua1", "org_viewer")), "seeded roles change through the seed");
@@ -394,10 +398,11 @@ class RbacGridTest {
     }
 
     @Test
-    void seedIsIdempotentAndKeepsApiEdits() throws Exception {
-        store.updateRole("ua1", "org_viewer", null, store.parseGrid(Map.of("org.tree", List.of("read")), null), null);
+    void seedIsIdempotentAndSeededRolesRequireReviewedChanges() throws Exception {
+        assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null,
+                store.parseGrid(Map.of("org.tree", List.of("read")), null), null)));
         seed.apply();
-        assertEquals(1, policy.get().roles().get("org_viewer").grid().size(), "an unchanged seed keeps the edit");
+        assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "an unchanged seed remains authoritative");
         db.update("UPDATE roles SET seed_hash='changed' WHERE name='org_viewer'");
         seed.apply();
         assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "a changed seed is authoritative again");

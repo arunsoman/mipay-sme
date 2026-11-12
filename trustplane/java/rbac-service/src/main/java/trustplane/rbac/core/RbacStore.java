@@ -342,6 +342,8 @@ public class RbacStore {
     public Map<String, Object> updateRole(String actor, String name, String description, Map<String, Integer> grid, List<String> inherits) {
         Policy.Role r = policy.get().roles().get(name);
         if (r == null) throw ApiException.notFound();
+        if (r.seeded()) throw new ApiException(409, "REVIEWED_SEED_REQUIRED",
+                "seeded roles are read-only until a multi-approver matrix workflow is available; change the reviewed grid.yaml seed");
         if (description != null && !description.isBlank()) db.update("UPDATE roles SET description=?, updated_at=now() WHERE name=?", description, name);
         Map<String, Object> diff = new LinkedHashMap<>();
         if (grid != null) {
