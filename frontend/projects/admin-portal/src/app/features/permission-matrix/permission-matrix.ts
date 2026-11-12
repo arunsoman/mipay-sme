@@ -43,7 +43,7 @@ const SCOPES: Scope[] = [
   { id: 'LENDER', label: 'Lender' },
   { id: 'DISTRIBUTOR', label: 'Distributor' },
   { id: 'MANUFACTURER', label: 'Manufacturer' },
-  { id: 'PLATFORM', label: 'TPTS / Platform' },
+  { id: 'PLATFORM', label: 'standard' },
 ];
 
 const VERB_LABEL: Record<RbacVerb, string> = {
@@ -91,12 +91,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       <button class="ghost" (click)="reload()" [disabled]="loading()">Refresh</button>
     </div>
 
-    <div class="scopes" role="tablist" aria-label="Org type">
-      @for (s of scopes; track s.id) {
-        <button role="tab" [class.on]="scope() === s.id" [attr.aria-selected]="scope() === s.id" (click)="setScope(s.id)">{{ s.label }}</button>
-      }
-    </div>
-
     <div class="toolbar">
       <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event)" placeholder="Filter rows (e.g. withdrawal)" />
       <label class="small check"><input type="checkbox" [ngModel]="showAll()" (ngModelChange)="showAll.set($event)" /> show unused rows</label>
@@ -120,8 +114,9 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           After creating it you pick its actions row by row.
         </div>
         <div class="form">
-          <label>Name <span class="muted small">(lower_snake_case, e.g. merchant_cashier)</span>
-            <input name="nr-name" [ngModel]="draftName()" (ngModelChange)="draftName.set($event)" placeholder="merchant_cashier" autocomplete="off" />
+          <label>Name
+            <input name="nr-name" [ngModel]="draftName()" (ngModelChange)="draftName.set($event)" placeholder="e.g. KYC Approver" autocomplete="off" />
+            @if (draftName().trim()) {<span class="muted small">saved as <span class="mono">{{ roleId() || '—' }}</span></span>}
           </label>
           <label>What it is for
             <input name="nr-desc" [ngModel]="draftDesc()" (ngModelChange)="draftDesc.set($event)" placeholder="Takes payments and runs tabs, no withdrawals" />
@@ -343,7 +338,8 @@ export class PermissionMatrix implements OnInit {
 
   readonly roles = signal<RbacRoleView[]>([]);
   readonly resources = signal<RbacResourceView[]>([]);
-  readonly scope = signal<ScopeId>('MERCHANT');
+  /** No org-type tabs: one matrix of every standard role over every row from the code. */
+  readonly scope = signal<ScopeId>('PLATFORM');
   readonly q = signal('');
   readonly showAll = signal(false);
   readonly editingName = signal<string | null>(null);
@@ -363,7 +359,14 @@ export class PermissionMatrix implements OnInit {
   readonly draftBases = signal<Set<string>>(new Set());
   readonly draftCopy = signal('');
   readonly createError = signal('');
-  readonly validName = computed(() => /^[a-z][a-z0-9_]{2,63}$/.test(this.draftName().trim()));
+  /** Any name the admin types ("KYC Approver") becomes the role id RBAC needs ("kyc_approver"). */
+  readonly roleId = computed(() => {
+    let id = this.draftName().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (id && !/^[a-z]/.test(id)) id = 'r_' + id;
+    return id.slice(0, 64);
+  });
+  readonly validName = computed(() => /^[a-z][a-z0-9_]{2,63}$/.test(this.roleId()));
   /** Roles a new role of this scope may build on: same kind, standard (org-defined roles live per org). */
   readonly creatableBases = computed(() => this.scopeRoles().filter((r) => r.name !== 'kyc_applicant'));
 
@@ -384,7 +387,7 @@ export class PermissionMatrix implements OnInit {
   readonly scopeRoles = computed(() => {
     const s = this.scope(), rows = this.rowById();
     return this.roles()
-      .filter((r) => s === 'PLATFORM' ? r.kind !== 'ORG' : r.kind === 'ORG')
+      .filter((r) => s === 'PLATFORM' || r.kind === 'ORG')
       .filter((r) => s === 'PLATFORM' || !r.permissions.length || r.permissions.some((c) => {
         const row = rows.get(c.split(':')[0]);
         return !row || this.fitsType(row, s);
@@ -521,8 +524,8 @@ export class PermissionMatrix implements OnInit {
   }
 
   async create() {
-    const name = this.draftName().trim();
-    if (!this.validName()) { this.createError.set('Use lower_snake_case: 3–64 letters, digits or _, starting with a letter.'); return; }
+    const name = this.roleId();
+    if (!this.validName()) { this.createError.set('Give the role a name of at least 3 letters.'); return; }
     if (this.byName().has(name)) { this.createError.set(`A role called ${name} already exists.`); return; }
     const copy = this.byName().get(this.draftCopy());
     const kind = this.scope() === 'PLATFORM' ? 'PLATFORM' : 'ORG';
