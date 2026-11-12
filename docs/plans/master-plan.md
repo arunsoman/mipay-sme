@@ -9,7 +9,7 @@ Only work still to do is listed here. Finished work, delivery notes and the old 
 | Plan | What is left |
 |---|---|
 | [`org-access-model.md`](org-access-model.md) | the TPTS-rooted model: OA1–OA8 |
-| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | P3 remainder, P4, P5, P6 (enforce), P7 |
+| [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | UAT in `dual` mode; then P4, P5, P6 (enforce), P7. Backfills (3.9–3.11) shipped: org-binding + `users.org_id NOT NULL` (V15_1), identity backfill with hash import, RBAC backfill, the access screen with link/session actions (commits `2aef8aa`, `2af6317`, `ca1e101`, `ab38504`) — reconcile with [`../../_goal.md`](../../_goal.md)'s "clean test installation, no backfills" note before the dual run |
 | [`2fa-design.md`](2fa-design.md) | phases 1–5, shipped `off`, switched on after the cut-over |
 | [`comms-design.md`](comms-design.md) | B1 real email/SMS, B2 push and in-app, B3 policy, B4 scale |
 | [`kyc-design.md`](kyc-design.md) | phase 0 (own service), 4 (cross-service go-live gate), 6 (EMI profile) |
