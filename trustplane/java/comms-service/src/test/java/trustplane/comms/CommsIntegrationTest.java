@@ -59,4 +59,79 @@ class CommsIntegrationTest {
             assertEquals(1L, db.queryForObject("SELECT count(*) FROM sim_outbox", Long.class));
         }
     }
+
+    /** B1: a named real provider takes the email instead of sim_outbox and records its id. */
+    @Test void realEmailProviderDeliversWithoutSandboxRow() throws Exception {
+        String raw = System.getenv("TEST_COMMS_DSN");
+        assumeTrue(raw != null && !raw.isBlank(), "TEST_COMMS_DSN not set");
+        PostgresDsn dsn = PostgresDsn.parse(raw);
+        try (HikariDataSource ds = new HikariDataSource()) {
+            ds.setJdbcUrl(dsn.jdbcUrl()); ds.setUsername(dsn.user()); ds.setPassword(dsn.password());
+            JdbcTemplate db = new JdbcTemplate(ds);
+            for (String table : List.of("comms_java_jobs","sim_outbox","message_events","messages","requests","contacts","tenants"))
+                db.execute("DROP TABLE IF EXISTS " + table + " CASCADE");
+            new Schema(db);
+            var notice = new CommsConfig.Policy("SECURITY", "CRITICAL", List.of("email"), Duration.ofHours(24), false, List.of());
+            var template = new CommsConfig.Template("auth.security.notice", "email", "en", "MiPay security notice", "Hello {{name}}, {{message}}");
+            var cfg = new CommsConfig.Settings("uat", Map.of("mipay", List.of("auth.")), List.of("mipay"),
+                    Map.of("email", "brevo"), Map.of("auth.security.notice", notice), List.of(template));
+            var service = new CommsService(db, new Sealer("k".repeat(32).getBytes(StandardCharsets.UTF_8)), cfg);
+            // the real sender is faked: no sockets in tests (comms-design B0 note)
+            java.util.List<String> sentTo = new java.util.ArrayList<>();
+            var worker = new CommsWorker(service, (to, toName, subject, body) -> {
+                sentTo.add(to); return "brevo:<202@smtp-relay>";
+            });
+            service.putContacts("mipay", "user:one", new CommsService.Contacts(List.of(
+                    new CommsService.Contact("email", "user@example.na", true, true))));
+            var send = new CommsService.Send("auth.security.notice", List.of("user:one"),
+                    Map.of("name","Amina","message","Contact us if this was not you."),
+                    "CRITICAL", null, "CONFIDENTIAL", "en");
+            var accepted = service.send("mipay", send, null);
+            String id = ((Map<String,String>) ((List<?>) accepted.get("messages")).getFirst()).get("id");
+            worker.drain();
+            Map<String,Object> row = db.queryForMap("SELECT status,provider_id,address_masked FROM messages WHERE id=?", id);
+            assertEquals("DELIVERED", row.get("status"));
+            assertEquals("brevo:<202@smtp-relay>", row.get("provider_id"));
+            assertEquals(0L, db.queryForObject("SELECT count(*) FROM sim_outbox", Long.class),
+                    "a real provider must not write the sandbox outbox");
+            assertEquals(List.of("user@example.na"), sentTo);
+        }
+    }
+
+    /** B1: a failing provider retries with back-off and lands FAILED, never silently delivered. */
+    @Test void failingRealProviderRetriesThenFails() throws Exception {
+        String raw = System.getenv("TEST_COMMS_DSN");
+        assumeTrue(raw != null && !raw.isBlank(), "TEST_COMMS_DSN not set");
+        PostgresDsn dsn = PostgresDsn.parse(raw);
+        try (HikariDataSource ds = new HikariDataSource()) {
+            ds.setJdbcUrl(dsn.jdbcUrl()); ds.setUsername(dsn.user()); ds.setPassword(dsn.password());
+            JdbcTemplate db = new JdbcTemplate(ds);
+            for (String table : List.of("comms_java_jobs","sim_outbox","message_events","messages","requests","contacts","tenants"))
+                db.execute("DROP TABLE IF EXISTS " + table + " CASCADE");
+            new Schema(db);
+            var notice = new CommsConfig.Policy("SECURITY", "CRITICAL", List.of("email"), Duration.ofHours(24), false, List.of());
+            var template = new CommsConfig.Template("auth.security.notice", "email", "en", "MiPay security notice", "{{message}}");
+            var cfg = new CommsConfig.Settings("uat", Map.of("mipay", List.of("auth.")), List.of("mipay"),
+                    Map.of("email", "brevo"), Map.of("auth.security.notice", notice), List.of(template));
+            var service = new CommsService(db, new Sealer("k".repeat(32).getBytes(StandardCharsets.UTF_8)), cfg);
+            int[] calls = {0};
+            var worker = new CommsWorker(service, (to, toName, subject, body) -> {
+                calls[0]++; throw new IllegalStateException("brevo email refused: HTTP 500");
+            });
+            service.putContacts("mipay", "user:one", new CommsService.Contacts(List.of(
+                    new CommsService.Contact("email", "user@example.na", true, true))));
+            var accepted = service.send("mipay", new CommsService.Send("auth.security.notice", List.of("user:one"),
+                    Map.of("message","x"), "CRITICAL", null, "CONFIDENTIAL", "en"), null);
+            String id = ((Map<String,String>) ((List<?>) accepted.get("messages")).getFirst()).get("id");
+            for (int attempt = 0; attempt < 4; attempt++) {
+                worker.drain();
+                db.update("UPDATE comms_java_jobs SET available_at=now()-interval '1 second', lease_until=NULL");
+            }
+            String status = (String) db.queryForObject("SELECT status FROM messages WHERE id=?", String.class, id);
+            String reason = (String) db.queryForObject("SELECT status_reason FROM messages WHERE id=?", String.class, id);
+            assertEquals("FAILED", status, reason);
+            assertTrue(calls[0] >= 3, "provider called up to the attempt cap");
+            assertEquals(0L, db.queryForObject("SELECT count(*) FROM sim_outbox", Long.class));
+        }
+    }
 }

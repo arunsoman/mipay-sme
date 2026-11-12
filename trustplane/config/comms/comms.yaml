@@ -20,6 +20,9 @@ contact_writers: [mipay]
 
 providers:
   sms: {kind: sandbox}
+  # B1: flip to {kind: brevo} once BREVO_API_KEY (xkeysib-...) and BREVO_FROM_EMAIL
+  # are set in .env; the sandbox kind stays for the sim_outbox UAT reads otherwise
+  # (COMMS_ENVIRONMENT=production always refuses sandbox).
   email: {kind: sandbox}
 
 event_policies:

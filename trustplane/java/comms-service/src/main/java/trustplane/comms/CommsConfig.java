@@ -40,9 +40,14 @@ public class CommsConfig {
         Map<String, String> providers = new HashMap<>();
         ((Map<String, Map<String, String>>) cfg.get("providers")).forEach((channel, value) -> {
             String kind = value.get("kind");
-            if (!List.of("sms", "email", "push", "whatsapp", "in_app").contains(channel) || !"sandbox".equals(kind))
+            // B1: email may name the Brevo transactional API (COMMS_BREVO_*); every other
+            // channel is still sandbox-only in B0
+            List<String> allowed = "email".equals(channel) ? List.of("sandbox", "brevo")
+                    : List.of("sandbox");
+            if (!List.of("sms", "email", "push", "whatsapp", "in_app").contains(channel)
+                    || !allowed.contains(kind))
                 throw new IllegalArgumentException("unsupported comms provider: " + channel + "/" + kind);
-            if ("production".equals(environment))
+            if ("production".equals(environment) && "sandbox".equals(kind))
                 throw new IllegalArgumentException("sandbox provider cannot run in production");
             providers.put(channel, kind);
         });

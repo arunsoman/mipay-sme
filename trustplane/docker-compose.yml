@@ -109,6 +109,12 @@ services:
       COMMS_INTERNAL_CA: /pki/platform-ca.pem
       COMMS_CONFIG: /config/comms/comms.yaml
       COMMS_DATA_KEY_FILE: /pki/comms-data-key
+      # B1 real email provider (Brevo transactional API). Set kind: brevo for the email
+      # channel in config/comms/comms.yaml; the container refuses to boot when the kind is
+      # named but COMMS_BREVO_API_KEY / COMMS_BREVO_FROM_EMAIL are missing.
+      COMMS_BREVO_API_KEY: ${BREVO_API_KEY:-}
+      COMMS_BREVO_FROM_EMAIL: ${BREVO_FROM_EMAIL:-no-reply@notifications.mipay.na}
+      COMMS_BREVO_FROM_NAME: ${BREVO_FROM_NAME:-MiPay}
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70 -Xss512k -XX:ReservedCodeCacheSize=48m -XX:MaxMetaspaceSize=128m"
     volumes:
       - pki:/pki:ro

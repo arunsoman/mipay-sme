@@ -17,7 +17,19 @@ public class CommsWorker {
     private static final Logger log = LoggerFactory.getLogger(CommsWorker.class);
     private final CommsService service;
     private final JdbcTemplate db;
-    public CommsWorker(CommsService service) { this.service = service; this.db = service.db(); }
+    private final EmailSender emailSender;
+
+    public CommsWorker(CommsService service) {
+        this(service, BrevoEmailSender.create(service.config()));
+    }
+
+    /** Test seam: a fake sender for real-provider flows. */
+    public CommsWorker(CommsService service, EmailSender emailSenderOverride) {
+        this.service = service;
+        this.emailSender = emailSenderOverride != null ? emailSenderOverride
+                : BrevoEmailSender.create(service.config());
+        this.db = service.db();
+    }
 
     @Scheduled(fixedDelay = 250)
     public void drain() {
@@ -68,12 +80,21 @@ public class CommsWorker {
             db.update("UPDATE messages SET status='SENDING',channel=?,address_masked=?,provider_id='sandbox',updated_at=now() WHERE id=?",
                     channel, contacts.getFirst().get("address_masked"), id);
             event(id, "SENDING");
-            // Unique message id makes a lease retry safe after a successful sandbox insert.
-            db.update("""
-                    INSERT INTO sim_outbox(id,message_id,event_code,recipient_ref,channel,address,subject,body)
-                    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(message_id) DO NOTHING
-                    """, CommsService.id("sim"), id, event, ref, channel, address, subject, body);
-            if (service.config().sandbox()) log.info("[comms-sandbox] to={} event={} channel={} body={}", ref, event, channel, body);
+            if (!"sandbox".equals(service.config().providers().get(channel))) {
+                // B1: a real provider takes the message; sandbox keeps the H8 sim_outbox read
+                if (emailSender == null)
+                    throw new IllegalStateException("provider " + service.config().providers().get(channel)
+                            + " named but not wired");
+                String providerId = emailSender.send(address, null, subject, body);
+                db.update("UPDATE messages SET provider_id=?,updated_at=now() WHERE id=?", providerId, id);
+            } else {
+                // Unique message id makes a lease retry safe after a successful sandbox insert.
+                db.update("""
+                        INSERT INTO sim_outbox(id,message_id,event_code,recipient_ref,channel,address,subject,body)
+                        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(message_id) DO NOTHING
+                        """, CommsService.id("sim"), id, event, ref, channel, address, subject, body);
+                if (service.config().sandbox()) log.info("[comms-sandbox] to={} event={} channel={} body={}", ref, event, channel, body);
+            }
             db.update("UPDATE messages SET status='DELIVERED',updated_at=now() WHERE id=?", id);
             event(id, "DELIVERED");
             db.update("DELETE FROM comms_java_jobs WHERE message_id=?", id);
