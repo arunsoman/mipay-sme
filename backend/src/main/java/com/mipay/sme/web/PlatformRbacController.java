@@ -5,6 +5,7 @@ import com.mipay.sme.repository.UserRepository;
 import com.mipay.sme.security.Current;
 import com.mipay.sme.security.rbac.Perm;
 import com.mipay.sme.security.rbac.RbacMeshClient;
+import com.mipay.sme.security.rbac.RbacReconciliationService;
 import com.mipay.sme.security.rbac.TenantSource;
 import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.OrgProvisioningService;
@@ -35,6 +36,7 @@ import java.util.Map;
 public class PlatformRbacController {
 
     private final RbacMeshClient rbac;
+    private final RbacReconciliationService reconciliation;
     private final UserRepository userRepo;
 
     @Value("${app.rbac.mode:shadow}")
@@ -125,6 +127,13 @@ public class PlatformRbacController {
     @GetMapping("/assignments")
     public List<Dtos.RbacAssignmentView> assignments(@RequestParam(required = false, defaultValue = "") String status) {
         return rbac.platformAssignments(status).stream().map(PlatformRbacController::assignment).toList();
+    }
+
+    @Perm(resource = "rbac.assignment", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Compare one org's core admin/staff roles with active RBAC assignments")
+    @GetMapping("/reconciliation/{orgId}")
+    public RbacReconciliationService.Report reconciliation(@PathVariable String orgId) {
+        return reconciliation.report(orgId);
     }
 
     /** Requests a role (four-eyes by the role's risk: platform roles wait for a second platform user admin). */
