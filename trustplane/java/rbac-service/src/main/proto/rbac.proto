@@ -4,15 +4,21 @@ option go_package = "trustplane/internal/pb;pb";
 option java_package = "trustplane.rbac.grpc.v1";
 option java_multiple_files = true;
 
-// Rbac is the low-latency decision API consumed by the API gateway (PEP).
-// Transport: gRPC over HTTP/2 with mutual TLS, gzip compression, keepalives.
+// Rbac is the low-latency decision API consumed by the API gateway and the core (PEPs).
+// Transport: gRPC over HTTP/2 with mutual TLS. Subjects are core user ids (the token's uid);
+// operations are grid cells "<row>:<verb>" (docs/plans/fapi2-design.md Appendix B, G).
 service Rbac {
-  // Check decides whether `subject` may perform `operation` in `tenant`.
-  // fresh=true bypasses any caching on the caller side (sensitive writes).
+  // Check decides whether `subject` may perform `operation` in `tenant` ("" = in any tenant).
   rpc Check(CheckRequest) returns (CheckResponse);
-  // ListPermissions returns every operation the subject currently holds.
+  // CheckBatch answers many checks at once (list screens, button states).
+  rpc CheckBatch(CheckBatchRequest) returns (CheckBatchResponse);
+  // ListPermissions returns every cell the subject holds in the tenant.
   rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
-  // Watch streams invalidation events whenever tenant permissions change,
+  // ListHolders returns who holds a role in a tenant (own, subtree above, or platform-wide).
+  rpc ListHolders(ListHoldersRequest) returns (ListHoldersResponse);
+  // ValidateActivation checks the roles a session wants active against dynamic SoD.
+  rpc ValidateActivation(ActivationRequest) returns (ActivationResponse);
+  // Watch streams invalidation events whenever permissions change,
   // letting the gateway purge its decision cache in near-real-time.
   rpc Watch(WatchRequest) returns (stream WatchEvent);
   rpc Ping(PingRequest) returns (PingResponse);
@@ -23,29 +29,45 @@ message CheckRequest {
   string tenant = 2;
   string operation = 3;
   bool fresh = 4;
+  string session_id = 5;               // for dynamic SoD / session-activated roles
+  repeated string active_roles = 6;
+  map<string, string> attributes = 7;  // e.g. child_type=MERCHANT for entitlement cells
 }
 message CheckResponse {
   bool allowed = 1;
-  string reason = 2;
+  string reason = 2;                   // "granted via org_admin@own(org-1)" / "no_assignment" / "dsd_conflict:..."
   uint64 tenant_version = 3;
-  string decision_id = 4;
-  // supplier org of the subject ("" for platform staff) — used for record isolation
-  string supplier_id = 5;
+  string decision_id = 4;              // audit correlation
+  reserved 5;                          // was supplier_id (demo model, removed in cut-over P2)
+  repeated string matched_roles = 6;
 }
+message CheckBatchRequest { repeated CheckRequest checks = 1; }
+message CheckBatchResponse { repeated CheckResponse results = 1; }
+
 message ListPermissionsRequest {
   string subject = 1;
   string tenant = 2;
+  repeated string active_roles = 3;
 }
 message ListPermissionsResponse {
   uint64 tenant_version = 1;
-  repeated string operations = 2;
-  string supplier_id = 3;
+  repeated string operations = 2;      // "row:verb"
+  reserved 3;                          // was supplier_id
+  map<string, uint32> masks = 4;       // row -> verb bitmask (UI hints)
 }
+
+message ListHoldersRequest { string role = 1; string tenant = 2; }
+message Holder { string subject = 1; string assignment_id = 2; string tenant = 3; string scope = 4; }
+message ListHoldersResponse { repeated Holder holders = 1; }
+
+message ActivationRequest { string subject = 1; repeated string roles = 2; }
+message ActivationResponse { bool ok = 1; string reason = 2; }
+
 message WatchRequest {}
 message WatchEvent {
   string tenant = 1;
   uint64 version = 2;
-  // specific subjects affected; empty => whole tenant version bump
+  // specific subjects affected; empty => whole tenant (or, with tenant "", everything)
   repeated string subjects = 3;
 }
 message PingRequest {}

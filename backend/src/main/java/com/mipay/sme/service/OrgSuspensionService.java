@@ -49,6 +49,7 @@ public class OrgSuspensionService {
     private final OrgAccess orgAccess;
     private final AuditService auditService;
     private final OrgCallerService caller;
+    private final org.springframework.context.ApplicationEventPublisher events;
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
     private KycApplicationService kycApplications;   // cycle: engine → suspensions → applications
@@ -84,6 +85,8 @@ public class OrgSuspensionService {
                 "ACTIVE", "SUSPENDED", "reason=" + reason + ";subtreeOrgs=" + subtreeOrgs
                         + ";subtreeUsers=" + userIds.size(), false, null);
         kycApplications.syncSuspension(org.getId());   // isSuspended for the whole subtree
+        // RBAC refuses the held subtree before the gateway routes (cut-over P2.6a); runs after commit
+        events.publishEvent(new com.mipay.sme.security.rbac.OrgTreeSyncService.OrgTreeChanged(org.getId()));
         return new Dtos.SuspensionRow(s.getId(), s.getEntityType().name(), s.getEntityId(), reason,
                 s.getSuspendedAt(), null);
     }
@@ -106,6 +109,7 @@ public class OrgSuspensionService {
                     s.getOrgId() == null ? s.getEntityId() : s.getOrgId(),
                     "SUSPENDED", "ACTIVE", null, false, null);
             kycApplications.syncSuspension(s.getOrgId());   // other holds may keep parts suspended
+            events.publishEvent(new com.mipay.sme.security.rbac.OrgTreeSyncService.OrgTreeChanged(s.getOrgId()));
         }
         return suspensions();
     }

@@ -1,11 +1,12 @@
 package trustplane.rbac.core;
 
 import org.springframework.jdbc.core.JdbcTemplate;
-import tools.jackson.databind.ObjectMapper;
-import trustplane.shared.ApiException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+import trustplane.rbac.config.RbacConfig;
+import trustplane.shared.ApiException;
 
-import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -14,864 +15,421 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Set;
 
 /**
- * Port of the Go RBAC store: the delegated administration model.
- *
- *   - Root RBAC owns role definitions + delegation Grants.
- *   - Supplier admins may only ASSIGN roles covered by an active grant, to
- *     their own members, within the grant's scope (own|all). Assignments
- *     reference the covering grant => full traceability.
- *   - Check-time enforcement joins assignment->user->supplier->grant so a
- *     revoked grant (or suspended user/supplier) ends authority immediately,
- *     even while OAuth tokens are still valid.
+ * Writes that are not assignments: audit, cache invalidation (Watch), the org-tree sync,
+ * the catalogue registry and role grids (idp-rbac-cutover-plan.md P2.1-P2.4, P2.6a).
  */
 @Service
 @lombok.RequiredArgsConstructor
 @lombok.extern.slf4j.Slf4j
 public class RbacStore {
 
-    private static final DateTimeFormatter RFC3339 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
-            .withZone(ZoneOffset.UTC);
+    static final DateTimeFormatter RFC3339 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC);
     private static final SecureRandom RNG = new SecureRandom();
-
-    private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
+    static final ObjectMapper JSON = new ObjectMapper();
 
     private final JdbcTemplate db;
     private final WatchHub watch;
-
-
-    // ------------------------------------------------------------------
-    // IDs / audit / touch
-    // ------------------------------------------------------------------
+    private final Policy policy;
+    private final RbacConfig cfg;
 
     public static String newId(String prefix) {
         byte[] r = new byte[9];
         RNG.nextBytes(r);
-        return prefix + "-" + Long.toHexString(System.currentTimeMillis()) + "-"
-                + Base64.getUrlEncoder().withoutPadding().encodeToString(r);
-    }
-
-    /** Bumps the tenant version and fans an invalidation event to watchers. */
-    public void touch(String tenant, List<String> subjects) {
-        long version = 0;
-        if (tenant != null && !tenant.isBlank()) {
-            try {
-                Map<String, Object> r = db.queryForMap(
-                        "UPDATE tenants SET version = version + 1 WHERE id = ? RETURNING version", tenant);
-                version = ((Number) r.get("version")).longValue();
-            } catch (Exception ignore) { /* unknown tenant: version 0 */ }
-        }
-        if (subjects == null) subjects = List.of();
-        watch.publish(tenant == null ? "" : tenant, version, subjects);
-    }
-
-    /**
-     * Bumps the tenant version AND all its org-tree descendants' versions,
-     * publishing invalidation events for each. Used when an assignment in a
-     * parent org changes: descendants inherit the change through org_closure.
-     */
-    public void touchWithDescendants(String tenant, List<String> subjects) {
-        if (subjects == null) subjects = List.of();
-        long version = 0;
-        if (tenant != null && !tenant.isBlank()) {
-            try {
-                Map<String, Object> r = db.queryForMap(
-                        "UPDATE tenants SET version = version + 1 WHERE id = ? RETURNING version", tenant);
-                version = ((Number) r.get("version")).longValue();
-            } catch (Exception ignore) { /* unknown tenant: version 0 */ }
-            watch.publish(tenant, version, subjects);
-            // Bump all descendants so the gateway purges their cached decisions too
-            List<String> descendants = db.queryForList(
-                    "SELECT descendant_id FROM org_closure WHERE ancestor_id=? AND descendant_id<>?",
-                    String.class, tenant, tenant);
-            for (String desc : descendants) {
-                try {
-                    Map<String, Object> rv = db.queryForMap(
-                            "UPDATE tenants SET version = version + 1 WHERE id = ? RETURNING version", desc);
-                    long dv = ((Number) rv.get("version")).longValue();
-                    watch.publish(desc, dv, subjects);
-                } catch (Exception ignore) { /* unknown descendant */ }
-            }
-        } else {
-            watch.publish("", version, subjects);
-        }
+        return prefix + "-" + Long.toHexString(System.currentTimeMillis()) + "-" + Base64.getUrlEncoder().withoutPadding().encodeToString(r);
     }
 
     public void audit(String actor, String tenant, String action, Map<String, Object> details) {
         try {
-            String json = AUDIT_MAPPER.writeValueAsString(details);
             db.update("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES (?, ?, ?, ?::jsonb)",
-                    actor, tenant, action, json);
-        } catch (Exception ignore) { /* audit best-effort, as in Go */ }
-    }
-
-    // ------------------------------------------------------------------
-    // Decision API (gateway PDP)
-    // ------------------------------------------------------------------
-
-    public record Decision(boolean allowed, long tenantVersion, String supplierId, String reason) {}
-
-    public Decision checkDecision(String subject, String tenant, String op) {
-        final String q = """
-                SELECT COALESCE((
-                    SELECT TRUE FROM assignments a
-                    JOIN role_permissions rp ON rp.role_name=a.role_name AND rp.permission_id=?
-                    JOIN users u ON u.id=a.subject
-                    LEFT JOIN suppliers sp ON sp.id=u.supplier_id
-                    LEFT JOIN grants g ON g.id=a.grant_id
-                    LEFT JOIN org_closure oc ON oc.descendant_id=? AND oc.ancestor_id=a.tenant_id
-                    WHERE a.subject=? AND a.status='active'
-                      AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=? OR oc.ancestor_id=a.tenant_id)
-                      AND u.status='active'
-                      AND (u.supplier_id IS NULL OR sp.status='active')
-                      AND (a.grant_id IS NULL OR (g.status='active' AND (g.expires_at IS NULL OR g.expires_at > now())))
-                    LIMIT 1), FALSE) AS allowed,
-                COALESCE((SELECT version FROM tenants WHERE id=? AND ?<>''), 0) AS version,
-                COALESCE((SELECT supplier_id FROM users WHERE id=?), '') AS supplier""";
-        List<Map<String, Object>> rows = db.queryForList(q, tenant, op, subject, tenant, tenant, tenant, tenant, subject);
-        Map<String, Object> r = rows.get(0);
-        boolean allowed = Boolean.TRUE.equals(r.get("allowed"));
-        long version = ((Number) r.getOrDefault("version", 0)).longValue();
-        String supplier = String.valueOf(r.getOrDefault("supplier", ""));
-        return new Decision(allowed, version, supplier == null ? "" : supplier,
-                allowed ? "assignment_active" : "no_active_assignment_or_grant");
-    }
-
-    public record PermissionSet(List<String> operations, long tenantVersion, String supplierId) {}
-
-    public PermissionSet listPermissions(String subject, String tenant) {
-        final String q = """
-                SELECT DISTINCT rp.permission_id
-                FROM assignments a
-                JOIN role_permissions rp ON rp.role_name=a.role_name
-                JOIN users u ON u.id=a.subject
-                LEFT JOIN suppliers sp ON sp.id=u.supplier_id
-                LEFT JOIN grants g ON g.id=a.grant_id
-                LEFT JOIN org_closure oc ON oc.descendant_id=? AND oc.ancestor_id=a.tenant_id
-                WHERE a.subject=? AND a.status='active'
-                  AND (?='' OR a.tenant_id IS NULL OR a.tenant_id=? OR oc.ancestor_id=a.tenant_id)
-                  AND u.status='active'
-                  AND (u.supplier_id IS NULL OR sp.status='active')
-                  AND (a.grant_id IS NULL OR (g.status='active' AND (g.expires_at IS NULL OR g.expires_at > now())))""";
-        List<String> ops = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList(q, tenant, subject, tenant, tenant)) {
-            ops.add(String.valueOf(r.get("permission_id")));
+                    actor, tenant, action, JSON.writeValueAsString(details));
+        } catch (Exception e) {
+            log.warn("[rbac] audit write failed for {}: {}", action, e.getMessage());
         }
-        final String vq = """
-                SELECT COALESCE((SELECT version FROM tenants WHERE id=? AND ?<>''), 0) AS version,
-                       COALESCE((SELECT supplier_id FROM users WHERE id=?), '') AS supplier""";
-        Map<String, Object> meta = db.queryForMap(vq, tenant, tenant, subject);
-        long version = ((Number) meta.getOrDefault("version", 0)).longValue();
-        String supplier = String.valueOf(meta.getOrDefault("supplier", ""));
-        return new PermissionSet(ops, version, supplier == null ? "" : supplier);
     }
 
     // ------------------------------------------------------------------
-    // Grant boundary helpers
+    // Invalidation: the gateway purges cached decisions on every event
     // ------------------------------------------------------------------
 
-    /** Active root grant covering (supplier, role, scope, tenant); "no grant, no assignment". */
-    public String coveringGrant(String supplier, String role, String scope, String tenant) {
-        final String q = """
-                SELECT id FROM grants
-                WHERE supplier_id=? AND role_name=? AND status='active'
-                  AND (expires_at IS NULL OR expires_at > now())
-                  AND (scope='all' OR ?='own')
-                  AND (?='' OR tenant_id IS NULL OR tenant_id=?)
-                ORDER BY created_at DESC LIMIT 1""";
-        List<String> ids = db.queryForList(q, String.class, supplier, role, scope, tenant, tenant);
-        if (ids.isEmpty()) {
-            throw ApiExceptionCodes.noMatchingGrant();
+    /** Subject-level change (assignments): every tenant of these subjects. */
+    public void touchSubjects(List<String> subjects) {
+        if (subjects == null || subjects.isEmpty()) return;
+        watch.publish("", 0, subjects);
+    }
+
+    /** Policy-wide change (role grid, hierarchy, registry): every cached decision. */
+    public void touchAll() {
+        watch.publish("", 0, List.of());
+    }
+
+    /** A tenant changed (hold, lifecycle): it and every org below it. */
+    public void touchTenantTree(String tenant) {
+        List<String> ids = new ArrayList<>(db.queryForList(
+                "SELECT descendant_id FROM org_closure WHERE ancestor_id=?", String.class, tenant));
+        if (!ids.contains(tenant)) ids.add(tenant);
+        for (String id : ids) {
+            List<Long> v = db.queryForList("UPDATE tenants SET version=version+1 WHERE id=? RETURNING version", Long.class, id);
+            watch.publish(id, v.isEmpty() ? 0 : v.get(0), List.of());
         }
-        return ids.get(0);
     }
 
-    public record DelegatedAssignment(String grantId, String scope, String tenant, String supplierId) {}
+    // ------------------------------------------------------------------
+    // Org-tree sync (P2.6a): closure + every org's type, parent, lifecycle and holds
+    // ------------------------------------------------------------------
+
+    public record OrgRow(String id, String name, String type, String parent, String lifecycle, boolean held, List<String> holds) {}
 
     /**
-     * Resolves + validates the covering root grant for a supplier-side
-     * assignment. Distinguishes "not delegated" (no_matching_grant) from
-     * "delegated but out of scope" (scope_exceeds_grant).
+     * Replaces the core's part of the tree ({@code source='mipay'}); fixtures are untouched.
+     * Orgs that disappeared from the core are kept as ARCHIVED (assignments on them stop working).
      */
-    public DelegatedAssignment delegatedAssignment(String actorSup, String subject, String role,
-                                                   String tenant, String scope) {
-        List<String> sups = db.queryForList(
-                "SELECT supplier_id FROM users WHERE id=?", String.class, subject);
-        if (sups.isEmpty()) throw ApiExceptionCodes.notFound("target user is not registered");
-        String userSup = sups.get(0);
-        if (userSup == null || !userSup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("target user is not a member of the actor's supplier");
+    @Transactional
+    public Map<String, Object> syncOrgs(List<Map<String, Object>> closure, List<OrgRow> orgs) {
+        Map<String, Map<String, Object>> before = new HashMap<>();
+        for (Map<String, Object> r : db.queryForList("SELECT id, held, lifecycle FROM tenants WHERE source='mipay'")) {
+            before.put((String) r.get("id"), r);
         }
-        if (role.equals("platform_admin") || role.equals("supplier_admin")) {
-            throw ApiExceptionCodes.noMatchingGrant();
+        Set<String> changed = new LinkedHashSet<>();
+        Set<String> seen = new HashSet<>();
+        for (OrgRow o : orgs) {
+            if (o.id() == null || o.id().isBlank()) continue;
+            seen.add(o.id());
+            String lifecycle = o.lifecycle() == null || o.lifecycle().isBlank() ? "ACTIVE" : o.lifecycle();
+            String holds = o.holds() == null ? "" : String.join(",", o.holds());
+            db.update("""
+                    INSERT INTO tenants (id, name, org_type, parent_id, lifecycle, held, hold_reasons, source, updated_at)
+                    VALUES (?,?,?,?,?,?,?,'mipay',now())
+                    ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, org_type=COALESCE(EXCLUDED.org_type, tenants.org_type),
+                        parent_id=EXCLUDED.parent_id, lifecycle=EXCLUDED.lifecycle, held=EXCLUDED.held,
+                        hold_reasons=EXCLUDED.hold_reasons, source='mipay', updated_at=now()""",
+                    o.id(), o.name() == null ? o.id() : o.name(), o.type(), o.parent(), lifecycle, o.held(), holds);
+            Map<String, Object> b = before.get(o.id());
+            if (b == null || !Boolean.valueOf(o.held()).equals(b.get("held")) || !lifecycle.equals(b.get("lifecycle"))) changed.add(o.id());
         }
-        // scope boundary: an 'all' request must be backed by an all-scope grant;
-        // if only an own-scope grant exists, the request exceeds the grant.
-        if (scope.equals("all")) {
-            try {
-                coveringGrant(actorSup, role, "all", tenant);
-            } catch (ApiException e) {
-                if (!"no_matching_grant".equals(e.error)) throw e;
-                try {
-                    coveringGrant(actorSup, role, "own", tenant);
-                } catch (ApiException e2) {
-                    if (!"no_matching_grant".equals(e2.error)) throw e2;
-                    throw ApiExceptionCodes.noMatchingGrant();
-                }
-                throw ApiExceptionCodes.scopeExceeded();
+        for (String gone : before.keySet()) {
+            if (!seen.contains(gone) && !orgs.isEmpty()) {
+                db.update("UPDATE tenants SET lifecycle='ARCHIVED', updated_at=now() WHERE id=? AND source='mipay'", gone);
+                changed.add(gone);
             }
         }
-        String grantId = coveringGrant(actorSup, role, scope, tenant);
-        Map<String, Object> g = db.queryForMap(
-                "SELECT tenant_id, scope FROM grants WHERE id=?", grantId);
-        String gScope = String.valueOf(g.get("scope"));
-        String gTenant = g.get("tenant_id") == null ? "" : String.valueOf(g.get("tenant_id"));
-        return new DelegatedAssignment(grantId, gScope, gTenant, actorSup);
-    }
-
-    /** Supplier org of the acting user ("" = platform staff). */
-    public String actorSupplier(String actor) {
-        List<String> sup = db.queryForList(
-                "SELECT supplier_id FROM users WHERE id=? AND status='active'", String.class, actor);
-        if (sup.isEmpty()) throw ApiExceptionCodes.forbidden();
-        return sup.get(0) == null ? "" : sup.get(0);
-    }
-
-    // ------------------------------------------------------------------
-    // Suppliers (platform user management)
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> supplierRow(String id, String name, String status) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("name", name);
-        m.put("status", status);
-        return m;
-    }
-
-    public Map<String, Object> createSupplier(String actor, String id, String name) {
-        String finalId = (id == null || id.isBlank()) ? "sup-" + UUID.randomUUID().toString().substring(0, 8) : id;
-        db.update("INSERT INTO suppliers (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING", finalId, name);
-        audit(actor, null, "supplier_create", Map.of("supplier", finalId, "name", name));
-        return getSupplier(finalId);
-    }
-
-    public Map<String, Object> updateSupplier(String actor, String id, String name, String status) {
-        if (name != null && !name.isBlank()) {
-            db.update("UPDATE suppliers SET name=? WHERE id=?", name, id);
-        }
-        if (status != null && !status.isBlank()) {
-            db.update("UPDATE suppliers SET status=? WHERE id=?", status, id);
-            List<String> subjects = db.queryForList(
-                    "SELECT id FROM users WHERE supplier_id=?", String.class, id);
-            touch("", subjects);
-            audit(actor, null, "supplier_update", Map.of("supplier", id, "status", status));
-        }
-        return getSupplier(id);
-    }
-
-    public Map<String, Object> getSupplier(String id) {
-        List<Map<String, Object>> rows = db.queryForList(
-                "SELECT id, name, status FROM suppliers WHERE id=?", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        Map<String, Object> r = rows.get(0);
-        return supplierRow((String) r.get("id"), (String) r.get("name"), (String) r.get("status"));
-    }
-
-    public List<Map<String, Object>> listSuppliers() {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList("SELECT id, name, status FROM suppliers ORDER BY id")) {
-            out.add(supplierRow((String) r.get("id"), (String) r.get("name"), (String) r.get("status")));
-        }
-        return out;
-    }
-
-    // ------------------------------------------------------------------
-    // Users (CRUD + supplier-admin confinement)
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> userRow(String id, Object supplierId, String displayName, String kind, String status) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("supplier_id", supplierId);
-        m.put("display_name", displayName);
-        m.put("kind", kind);
-        m.put("status", status);
-        return m;
-    }
-
-    public Map<String, Object> createUser(String actor, String actorSup, String id, String displayName, String supplier) {
-        if (actorSup != null && !actorSup.isBlank() && !actorSup.equals(supplier)) {
-            throw ApiExceptionCodes.membership("supplier admins may only create users in their own supplier");
-        }
-        String finalId = (id == null || id.isBlank()) ? "user-" + UUID.randomUUID().toString().substring(0, 8) : id;
-        String kind = (supplier == null || supplier.isBlank()) ? "platform" : "supplier";
-        db.update("INSERT INTO users (id, supplier_id, display_name, kind) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
-                finalId, (supplier == null || supplier.isBlank()) ? null : supplier, displayName, kind);
-        audit(actor, null, "user_create", Map.of("user", finalId, "supplier", supplier));
-        return getUser(finalId);
-    }
-
-    public Map<String, Object> updateUser(String actor, String actorSup, String id, String displayName, String status) {
-        requireOwnMembership(actorSup, id);
-        if (displayName != null && !displayName.isBlank()) {
-            db.update("UPDATE users SET display_name=? WHERE id=?", displayName, id);
-        }
-        if (status != null && !status.isBlank()) {
-            db.update("UPDATE users SET status=? WHERE id=?", status, id);
-            touch("", List.of(id));
-            audit(actor, null, "user_update", Map.of("user", id, "status", status));
-        }
-        return getUser(id);
-    }
-
-    public Map<String, Object> getUser(String id) {
-        List<Map<String, Object>> rows = db.queryForList(
-                "SELECT id, supplier_id, display_name, kind, status FROM users WHERE id=?", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        Map<String, Object> r = rows.get(0);
-        return userRow((String) r.get("id"), r.get("supplier_id"),
-                (String) r.get("display_name"), (String) r.get("kind"), (String) r.get("status"));
-    }
-
-    public List<Map<String, Object>> listUsers(String supplier) {
-        String q = "SELECT id, supplier_id, display_name, kind, status FROM users";
-        List<Map<String, Object>> rows = (supplier == null || supplier.isBlank())
-                ? db.queryForList(q + " ORDER BY id")
-                : db.queryForList(q + " WHERE supplier_id=? ORDER BY id", supplier);
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : rows) {
-            out.add(userRow((String) r.get("id"), r.get("supplier_id"),
-                    (String) r.get("display_name"), (String) r.get("kind"), (String) r.get("status")));
-        }
-        return out;
-    }
-
-    /** Offboarding: suspend identity — request-time checks drop authority at once. */
-    public void deleteUser(String actor, String actorSup, String id) {
-        requireOwnMembership(actorSup, id);
-        db.update("UPDATE users SET status='suspended' WHERE id=?", id);
-        touch("", List.of(id));
-        audit(actor, null, "user_delete", Map.of("user", id));
-    }
-
-    private void requireOwnMembership(String actorSup, String userId) {
-        if (actorSup == null || actorSup.isBlank()) return; // platform staff
-        List<String> sups = db.queryForList("SELECT supplier_id FROM users WHERE id=?", String.class, userId);
-        if (sups.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        String sup = sups.get(0);
-        if (sup == null || !sup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("target user is not part of the actor's supplier");
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Grants (Root RBAC authority)
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> grantRow(String id, String supplier, String role, Object tenant,
-                                        String scope, boolean canDelegate, Object expiresAt, String status) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("supplier_id", supplier);
-        m.put("role", role);
-        m.put("tenant", tenant);
-        m.put("scope", scope);
-        m.put("can_delegate", canDelegate);
-        m.put("expires_at", expiresAt);
-        m.put("status", status);
-        return m;
-    }
-
-    public Map<String, Object> createGrant(String actor, String supplier, String role, String tenant,
-                                           String scope, OffsetDateTime expiresAt, boolean canDelegate) {
-        if (scope == null || !(scope.equals("own") || scope.equals("all"))) {
-            throw new ApiException(400, "bad_scope", "scope must be own|all");
-        }
-        if (db.queryForList("SELECT 1 FROM suppliers WHERE id=?", String.class, supplier).isEmpty()) {
-            throw new ApiException(403, "unknown_supplier", "supplier not registered");
-        }
-        if (db.queryForList("SELECT 1 FROM roles WHERE name=?", String.class, role).isEmpty()) {
-            throw new ApiException(403, "unknown_role", "role is not defined by root RBAC");
-        }
-        String id = newId("grant");
-        db.update("INSERT INTO grants (id, supplier_id, role_name, tenant_id, scope, can_delegate, expires_at, granted_by) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                id, supplier, role, (tenant == null || tenant.isBlank()) ? null : tenant,
-                scope, canDelegate, expiresAt, actor);
-        audit(actor, tenant, "grant_create", Map.of("grant", id, "supplier", supplier,
-                "role", role, "tenant", tenant, "scope", scope));
-        return getGrant(id);
-    }
-
-    public void revokeGrant(String actor, String id) {
-        int n = db.update("UPDATE grants SET status='revoked' WHERE id=? AND status='active'", id);
-        if (n == 0) throw ApiExceptionCodes.notFound(null);
-        List<String> subjects = db.queryForList(
-                "SELECT DISTINCT subject FROM assignments WHERE grant_id=?", String.class, id);
-        touch("", subjects);
-        List<String> supRows = db.queryForList("SELECT supplier_id FROM grants WHERE id=?", String.class, id);
-        String supplier = (supRows == null || supRows.isEmpty() || supRows.get(0) == null)
-                ? null : supRows.get(0);
-        audit(actor, null, "grant_revoke", supplier == null
-                ? Map.of("grant", id, "subjects", subjects)
-                : Map.of("grant", id, "supplier", supplier, "subjects", subjects));
-    }
-
-    public Map<String, Object> getGrant(String id) {
-        List<Map<String, Object>> rows = db.queryForList("""
-                SELECT id, supplier_id, role_name, tenant_id, scope, can_delegate, expires_at, status
-                FROM grants WHERE id=?""", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        return grantMap(rows.get(0));
-    }
-
-    private Map<String, Object> grantMap(Map<String, Object> r) {
-        return grantRow((String) r.get("id"), (String) r.get("supplier_id"), (String) r.get("role_name"),
-                r.get("tenant_id"), (String) r.get("scope"),
-                Boolean.TRUE.equals(r.get("can_delegate")), rfc3339(r.get("expires_at")), (String) r.get("status"));
-    }
-
-    public List<Map<String, Object>> listGrants(String supplier) {
-        String q = "SELECT id, supplier_id, role_name, tenant_id, scope, can_delegate, expires_at, status FROM grants";
-        List<Map<String, Object>> rows = (supplier == null || supplier.isBlank())
-                ? db.queryForList(q + " ORDER BY created_at DESC")
-                : db.queryForList(q + " WHERE supplier_id=? ORDER BY created_at DESC", supplier);
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : rows) out.add(grantMap(r));
-        return out;
-    }
-
-    // ------------------------------------------------------------------
-    // Assignments
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> assignmentRow(String id, String subject, Object tenant, String role, String scope,
-                                             Object grantId, Object supplierId, Object groupId,
-                                             String status, String createdBy) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("subject", subject);
-        m.put("tenant", tenant);
-        m.put("role", role);
-        m.put("scope", scope);
-        m.put("grant_id", grantId);
-        m.put("supplier_id", supplierId);
-        m.put("group_id", groupId);
-        m.put("status", status);
-        m.put("created_by", createdBy);
-        return m;
-    }
-
-    /**
-     * Assignment-time validation:
-     *   platform staff  : direct authority (root power, no grant needed)
-     *   supplier admin  : membership + covering root grant + scope boundary
-     */
-    public Map<String, Object> createAssignment(String actor, String subject, String role,
-                                                String tenant, String scope) {
-        String effScope = (scope == null || scope.isBlank()) ? "own" : scope;
-        if (!effScope.equals("own") && !effScope.equals("all")) {
-            throw new ApiException(400, "bad_scope", "scope must be own|all");
-        }
-        if (db.queryForList("SELECT 1 FROM roles WHERE name=?", String.class, role).isEmpty()) {
-            throw new ApiException(400, "unknown_role", "role is not defined");
-        }
-        List<Map<String, Object>> subRows = db.queryForList(
-                "SELECT status, supplier_id FROM users WHERE id=?", subject);
-        if (subRows.isEmpty()) throw new ApiException(403, "unknown_subject", "target user is not registered");
-        Object userSupObj = subRows.get(0).get("supplier_id");
-        String userSup = userSupObj == null ? "" : String.valueOf(userSupObj);
-        String actorSup = actorSupplier(actor);
-
-        String grantId = null, supplierRef = null, asgScope = effScope, asgTenant = tenant;
-        if (actorSup.isBlank()) {
-            // platform staff: direct authority; supplier user assignments are
-            // inherently own-scoped to their own supplier's records
-            if (!userSup.isBlank()) {
-                asgScope = "own";
-                supplierRef = userSup;
+        int closureRows = 0;
+        if (closure != null) {
+            db.update("DELETE FROM org_closure WHERE source='mipay'");
+            for (Map<String, Object> r : closure) {
+                closureRows += db.update("INSERT INTO org_closure (ancestor_id, descendant_id, depth, source) VALUES (?,?,?,'mipay') ON CONFLICT DO NOTHING",
+                        String.valueOf(r.get("ancestor")), String.valueOf(r.get("descendant")), ((Number) r.getOrDefault("depth", 0)).intValue());
             }
-        } else {
-            if (userSup.isBlank() || !userSup.equals(actorSup)) {
-                throw ApiExceptionCodes.membership("target user is not a member of the actor's supplier");
-            }
-            var d = delegatedAssignment(actorSup, subject, role, tenant, effScope);
-            grantId = d.grantId();
-            asgScope = d.scope();
-            asgTenant = d.tenant();
-            supplierRef = d.supplierId();
         }
-        String id = newId("asgmt");
+        for (String id : changed) touchTenantTree(id);
+        if (closure != null) touchAll(); // tree shape changed: subtree coverage may differ everywhere
+        audit("mipay", null, "org_tree_sync", Map.of("orgs", orgs.size(), "closure_rows", closureRows, "changed", changed));
+        return Map.of("ok", true, "orgs", orgs.size(), "closureRows", closureRows, "changed", changed.size());
+    }
+
+    // ------------------------------------------------------------------
+    // Registry (Appendix F/G.3): rows + used cells + the endpoints each cell protects
+    // ------------------------------------------------------------------
+
+    public record EndpointReg(String method, String path, String permission, String tenantSource, String handler) {}
+
+    @Transactional
+    public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints) {
+        if (service == null || service.isBlank()) throw ApiException.badRequest("service required");
+        int newRows = 0;
+        Set<String> rows = new LinkedHashSet<>();
+        List<String> rejected = new ArrayList<>();
+        for (Map<String, String> p : permissions) {
+            Verbs.Cell c = Verbs.parse(p.get("id"));
+            if (c == null) {
+                rejected.add(p.get("id"));
+                continue;
+            }
+            rows.add(c.row());
+        }
+        for (String row : rows) {
+            newRows += db.update("""
+                    INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING""",
+                    row, service, row.replace('.', ' '));
+        }
+        db.update("DELETE FROM rbac_cell_endpoints WHERE service=?", service);
+        int eps = 0;
+        if (endpoints != null) {
+            for (EndpointReg e : endpoints) {
+                Verbs.Cell c = Verbs.parse(e.permission());
+                if (c == null) continue;
+                eps += db.update("""
+                        INSERT INTO rbac_cell_endpoints (service, method, path, resource, verb, tenant_source, handler)
+                        VALUES (?,?,?,?,?,?,?) ON CONFLICT (service, method, path) DO UPDATE SET resource=EXCLUDED.resource,
+                            verb=EXCLUDED.verb, tenant_source=EXCLUDED.tenant_source, handler=EXCLUDED.handler""",
+                        service, e.method(), e.path(), c.row(), c.bit(), e.tenantSource(), e.handler());
+            }
+        }
+        // used = the cells that have an endpoint; rows nobody registers keep their declared cells
         db.update("""
-                INSERT INTO assignments (id, subject, tenant_id, role_name, scope, grant_id, supplier_id, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                id, subject, (asgTenant == null || asgTenant.isBlank()) ? null : asgTenant,
-                role, asgScope, grantId, supplierRef, actor);
-        touch("", List.of(subject));
-        audit(actor, asgTenant, "assignment_create", Map.of(
-                "assignment", id, "subject", subject, "role", role, "scope", asgScope,
-                "grant", grantId == null ? "" : grantId, "supplier", supplierRef == null ? "" : supplierRef));
-        return getAssignment(id);
+                UPDATE rbac_resources r SET used_verbs = COALESCE(
+                    (SELECT bit_or(verb) FROM rbac_cell_endpoints ce WHERE ce.resource = r.id), r.declared_verbs), updated_at=now()""");
+        policy.reload();
+        touchAll();
+        List<String> orphans = orphanTicks();
+        if (!orphans.isEmpty()) log.warn("[rbac] role ticks on cells no endpoint uses (shown greyed in the role pack): {}", orphans);
+        audit(service, null, "permission_register", Map.of("service", service, "cells", permissions.size(),
+                "endpoints", eps, "new_rows", newRows, "rejected", rejected));
+        return Map.of("service", service, "registered", permissions.size() - rejected.size(), "endpoints", eps,
+                "newRows", newRows, "rejected", rejected);
     }
 
-    public void revokeAssignment(String actor, String id) {
-        String actorSup = actorSupplier(actor);
-        List<Map<String, Object>> rows = db.queryForList(
-                "SELECT subject, supplier_id FROM assignments WHERE id=?", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        Object sup = rows.get(0).get("supplier_id");
-        String subject = String.valueOf(rows.get(0).get("subject"));
-        if (!actorSup.isBlank() && (sup == null || !actorSup.equals(String.valueOf(sup)))) {
-            throw ApiExceptionCodes.membership("assignment does not belong to the actor's supplier");
-        }
-        db.update("UPDATE assignments SET status='revoked' WHERE id=?", id);
-        touch("", List.of(subject));
-        audit(actor, null, "assignment_revoke", Map.of("assignment", id, "subject", subject));
-    }
-
-    public Map<String, Object> getAssignment(String id) {
-        List<Map<String, Object>> rows = db.queryForList("""
-                SELECT id, subject, tenant_id, role_name, scope, grant_id, supplier_id, group_id, status, created_by
-                FROM assignments WHERE id=?""", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        return assignmentMap(rows.get(0));
-    }
-
-    private Map<String, Object> assignmentMap(Map<String, Object> r) {
-        return assignmentRow((String) r.get("id"), (String) r.get("subject"), r.get("tenant_id"),
-                (String) r.get("role_name"), (String) r.get("scope"), r.get("grant_id"),
-                r.get("supplier_id"), r.get("group_id"), (String) r.get("status"), (String) r.get("created_by"));
-    }
-
-    public List<Map<String, Object>> listAssignments(String subject, String tenant, String supplier) {
-        StringBuilder q = new StringBuilder("""
-                SELECT id, subject, tenant_id, role_name, scope, grant_id, supplier_id, group_id, status, created_by
-                FROM assignments WHERE true""");
-        List<Object> args = new ArrayList<>();
-        if (subject != null && !subject.isBlank()) {
-            args.add(subject); q.append(" AND subject=?");
-        }
-        if (tenant != null && !tenant.isBlank()) {
-            args.add(tenant); q.append(" AND (tenant_id=? OR tenant_id IS NULL)");
-        }
-        if (supplier != null && !supplier.isBlank()) {
-            args.add(supplier); q.append(" AND supplier_id=?");
-        }
-        q.append(" ORDER BY created_at DESC LIMIT 200");
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList(q.toString(), args.toArray())) {
-            out.add(assignmentMap(r));
-        }
-        return out;
-    }
-
-    // ------------------------------------------------------------------
-    // Roles (root-owned catalog; CRUD)
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> createRole(String actor, String name, String description, List<String> perms) {
-        if (name == null || name.isBlank()) throw new ApiException(400, "bad_request", "role name required");
-        db.update("INSERT INTO roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING", name, description);
-        if (perms != null) for (String p : perms) {
-            db.update("INSERT INTO role_permissions (role_name, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", name, p);
-        }
-        audit(actor, null, "role_create", Map.of("role", name, "permissions", perms == null ? List.of() : perms));
-        return getRole(name);
-    }
-
-    public Map<String, Object> updateRole(String actor, String name, String description, List<String> perms) {
-        if (description != null && !description.isBlank()) {
-            db.update("UPDATE roles SET description=? WHERE name=?", description, name);
-        }
-        if (perms != null && !perms.isEmpty()) {
-            db.update("DELETE FROM role_permissions WHERE role_name=?", name);
-            for (String p : perms) {
-                db.update("INSERT INTO role_permissions (role_name, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", name, p);
+    /** "role row:verb" ticks whose cell no registered endpoint uses. */
+    public List<String> orphanTicks() {
+        Policy.Snapshot s = policy.get();
+        List<String> out = new ArrayList<>();
+        for (Policy.Role r : s.roles().values()) {
+            for (var g : r.grid().entrySet()) {
+                Policy.Resource res = s.resources().get(g.getKey());
+                int used = res == null ? 0 : res.used();
+                int orphan = g.getValue() & ~used;
+                for (String v : Verbs.names(orphan)) out.add(r.name() + " " + g.getKey() + ":" + v);
             }
-            List<String> subjects = db.queryForList(
-                    "SELECT DISTINCT subject FROM assignments WHERE role_name=?", String.class, name);
-            touch("", subjects);
         }
-        audit(actor, null, "role_update", Map.of("role", name));
-        return getRole(name);
-    }
-
-    public void deleteRole(String actor, String name) {
-        List<String> subjects = db.queryForList(
-                "SELECT DISTINCT subject FROM assignments WHERE role_name=?", String.class, name);
-        db.update("DELETE FROM assignments WHERE role_name=?", name);
-        db.update("DELETE FROM role_permissions WHERE role_name=?", name);
-        db.update("DELETE FROM roles WHERE name=?", name);
-        touch("", subjects);
-        audit(actor, null, "role_delete", Map.of("role", name));
-    }
-
-    public Map<String, Object> getRole(String name) {
-        List<Map<String, Object>> rows = db.queryForList(
-                "SELECT name, description FROM roles WHERE name=?", name);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        Map<String, Object> r = rows.get(0);
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("name", r.get("name"));
-        out.put("description", r.get("description"));
-        out.put("permissions", rolePermissions(name));
         return out;
+    }
+
+    // ------------------------------------------------------------------
+    // Roles and grids
+    // ------------------------------------------------------------------
+
+    public Map<String, Object> roleView(Policy.Role r) {
+        Policy.Snapshot s = policy.get();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", r.name());
+        m.put("description", r.description());
+        m.put("kind", r.kind());
+        m.put("approval", r.approval());
+        m.put("max_hours", r.maxHours());
+        m.put("seeded", r.seeded());
+        m.put("inherits", r.juniors());
+        Map<String, List<String>> grid = new LinkedHashMap<>();
+        for (var e : new java.util.TreeMap<>(r.grid()).entrySet()) grid.put(e.getKey(), Verbs.names(e.getValue()));
+        m.put("grid", grid);
+        m.put("all_rows", Verbs.names(r.allRowsVerbs()));
+        // flat effective list (own + inherited + all-rows), the shape the admin portal reads
+        List<String> perms = new ArrayList<>();
+        for (Policy.Resource res : s.resources().values()) {
+            int mask = s.mask(r.name(), res.id()) & res.used();
+            for (String v : Verbs.names(mask)) perms.add(res.id() + ":" + v);
+        }
+        m.put("permissions", perms);
+        return m;
     }
 
     public List<Map<String, Object>> listRoles() {
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList("SELECT name, description FROM roles ORDER BY name")) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("name", r.get("name"));
-            m.put("description", r.get("description"));
-            m.put("permissions", rolePermissions((String) r.get("name")));
-            out.add(m);
-        }
+        for (Policy.Role r : policy.get().roles().values()) out.add(roleView(r));
         return out;
     }
 
-    private List<String> rolePermissions(String name) {
-        return db.queryForList(
-                "SELECT permission_id FROM role_permissions WHERE role_name=? ORDER BY permission_id", String.class, name);
+    public Map<String, Object> getRole(String name) {
+        Policy.Role r = policy.get().roles().get(name);
+        if (r == null) throw ApiException.notFound();
+        return roleView(r);
     }
 
-    // ------------------------------------------------------------------
-    // Local supplier groups mapped onto delegated roles
-    // ------------------------------------------------------------------
-
-    public Map<String, Object> groupRow(String id, String supplier, String name, String createdBy,
-                                        List<Map<String, Object>> roles, List<Map<String, Object>> members) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", id);
-        m.put("supplier_id", supplier);
-        m.put("name", name);
-        m.put("created_by", createdBy);
-        m.put("roles", roles == null ? List.of() : roles);
-        m.put("members", members == null ? List.of() : members);
-        return m;
-    }
-
-    public Map<String, Object> createGroup(String actor, String actorSup, String name, String supplier) {
-        String sup = actorSup;
-        if (sup == null || sup.isBlank()) sup = supplier;
-        if (sup == null || sup.isBlank()) throw new ApiException(400, "bad_request", "supplier required");
-        String id = newId("grp");
-        db.update("INSERT INTO supplier_groups (id, supplier_id, name, created_by) VALUES (?, ?, ?, ?)", id, sup, name, actor);
-        audit(actor, null, "group_create", Map.of("group", id, "supplier", sup, "name", name));
-        return getGroup(id);
-    }
-
-    public Map<String, Object> getGroup(String id) {
-        List<Map<String, Object>> rows = db.queryForList(
-                "SELECT id, supplier_id, name, created_by FROM supplier_groups WHERE id=?", id);
-        if (rows.isEmpty()) throw ApiExceptionCodes.notFound(null);
-        Map<String, Object> r = rows.get(0);
-        List<Map<String, Object>> roles = new ArrayList<>();
-        for (Map<String, Object> gr : db.queryForList(
-                "SELECT role_name, scope FROM group_roles WHERE group_id=?", id)) {
-            roles.add(Map.of("role", gr.get("role_name"), "scope", String.valueOf(gr.get("scope"))));
-        }
-        List<Map<String, Object>> members = new ArrayList<>();
-        for (String u : db.queryForList("SELECT user_id FROM group_members WHERE group_id=?", String.class, id)) {
-            members.add(Map.of("user_id", u));
-        }
-        return groupRow((String) r.get("id"), (String) r.get("supplier_id"), (String) r.get("name"),
-                (String) r.get("created_by"), roles, members);
-    }
-
-    public List<String> listGroups(String supplier) {
-        return db.queryForList("SELECT id FROM supplier_groups WHERE (?='' OR supplier_id=?) ORDER BY created_at DESC",
-                String.class, supplier, supplier);
-    }
-
-    /** Binds a delegated role onto a local group (root grant boundary enforced). */
-    public Map<String, Object> mapGroupRole(String actor, String groupId, String role, String scope) {
-        String effScope = (scope == null || scope.isBlank()) ? "own" : scope;
-        Map<String, Object> group = getGroup(groupId);
-        String actorSup = actorSupplier(actor);
-        String groupSup = String.valueOf(group.get("supplier_id"));
-        if (!actorSup.isBlank() && !groupSup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("group does not belong to the actor's supplier");
-        }
-        if (db.queryForList("SELECT 1 FROM roles WHERE name=?", String.class, role).isEmpty()) {
-            throw new ApiException(400, "unknown_role", "role is not defined");
-        }
-        String grantId = coveringGrant(groupSup, role, effScope, "");
-        db.update("INSERT INTO group_roles (id, group_id, role_name, scope) VALUES (?, ?, ?, ?)",
-                newId("gr"), groupId, role, effScope);
-        // materialize assignments for existing members through this grant
-        for (String uid : db.queryForList("SELECT user_id FROM group_members WHERE group_id=?", String.class, groupId)) {
-            materializeGroupAssignment(actor, groupId, uid, role, effScope, grantId, groupSup);
-        }
-        audit(actor, null, "group_role_map", Map.of("group", groupId, "role", role, "scope", effScope));
-        return getGroup(groupId);
-    }
-
-    public Map<String, Object> groupAddMember(String actor, String groupId, String userId) {
-        Map<String, Object> group = getGroup(groupId);
-        String actorSup = actorSupplier(actor);
-        String groupSup = String.valueOf(group.get("supplier_id"));
-        if (!actorSup.isBlank() && !groupSup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("group does not belong to the actor's supplier");
-        }
-        List<String> sups = db.queryForList(
-                "SELECT supplier_id FROM users WHERE id=? AND status='active'", String.class, userId);
-        if (sups.isEmpty() || sups.get(0) == null || !sups.get(0).equals(groupSup)) {
-            throw ApiExceptionCodes.membership("target user is not a member of the group's supplier");
-        }
-        db.update("INSERT INTO group_members (group_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING", groupId, userId);
-        for (Map<String, Object> gr : db.queryForList(
-                "SELECT role_name, scope FROM group_roles WHERE group_id=?", groupId)) {
-            String role = String.valueOf(gr.get("role_name"));
-            String scope = String.valueOf(gr.get("scope"));
-            try {
-                String grantId = coveringGrant(groupSup, role, scope, "");
-                materializeGroupAssignment(actor, groupId, userId, role, scope, grantId, groupSup);
-            } catch (ApiException e) {
-                if (!"no_matching_grant".equals(e.error)) throw e;
-                // grant gone: membership without active grant = powerless
+    /** Parses either {grid: {row: [verbs]}} or the flat {permissions: ["row:verb"]} form. */
+    public Map<String, Integer> parseGrid(Map<String, List<String>> grid, List<String> flat) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        if (grid != null) {
+            for (var e : grid.entrySet()) {
+                try {
+                    out.merge(e.getKey(), Verbs.mask(e.getValue()), (a, b) -> a | b);
+                } catch (IllegalArgumentException ex) {
+                    throw ApiException.badRequest(ex.getMessage());
+                }
             }
         }
-        audit(actor, null, "group_member_add", Map.of("group", groupId, "user", userId));
-        return getGroup(groupId);
+        if (flat != null) {
+            for (String p : flat) {
+                Verbs.Cell c = Verbs.parse(p);
+                if (c == null) throw ApiException.badRequest("not a grid cell: " + p);
+                out.merge(c.row(), c.bit(), (a, b) -> a | b);
+            }
+        }
+        return out;
     }
 
-    private void materializeGroupAssignment(String actor, String groupId, String userId,
-                                            String role, String scope, String grantId, String supplier) {
-        int exists = 0;
+    /** Grid save rules (G.5): cells must exist; no same-row submit+authorize; no administer+authorize in a platform role; no simulate in production. */
+    public void validateGrid(String role, String kind, Map<String, Integer> grid) {
+        Policy.Snapshot s = policy.get();
+        boolean administer = false, authorize = false;
+        for (var e : grid.entrySet()) {
+            Policy.Resource res = s.resources().get(e.getKey());
+            if (res == null) throw new ApiException(400, "unknown_row", e.getKey());
+            int bad = e.getValue() & ~res.used();
+            if (bad != 0) throw new ApiException(400, "cell_not_used", e.getKey() + ":" + String.join(",", Verbs.names(bad)) + " has no endpoint");
+            int v = e.getValue();
+            if ((v & Verbs.SUBMIT) != 0 && (v & Verbs.AUTHORIZE) != 0 && !s.exemptions().containsKey(e.getKey())) {
+                throw new ApiException(409, "SOD_CONFLICT", role + ": " + e.getKey() + " ticks both submit and authorize (maker = checker)");
+            }
+            if ((v & Verbs.SIMULATE) != 0 && cfg.isProduction()) {
+                throw new ApiException(409, "SOD_CONFLICT", role + ": the simulate column is disabled in production");
+            }
+            // "admins don't approve customers": approving an access request (rbac.assignment:authorize)
+            // is access administration, not a customer decision, so rbac.* rows are not counted
+            if (!e.getKey().startsWith("rbac.")) {
+                administer |= (v & Verbs.ADMINISTER) != 0;
+                authorize |= (v & Verbs.AUTHORIZE) != 0;
+            }
+        }
+        if ("PLATFORM".equals(kind) && administer && authorize) {
+            throw new ApiException(409, "SOD_CONFLICT", role + ": a platform role may not both administer access and authorize (admins don't approve customers)");
+        }
+    }
+
+    @Transactional
+    public Map<String, Object> createRole(String actor, String name, String description, String kind,
+                                          Map<String, Integer> grid, List<String> inherits) {
+        if (name == null || !name.matches("^[a-z][a-z0-9_]{2,63}$")) throw ApiException.badRequest("role name must be lower_snake_case");
+        if (policy.get().roles().containsKey(name)) throw ApiException.conflict("role exists: " + name);
+        String k = kind == null ? "ORG" : kind;
+        if (!Set.of("ORG", "PLATFORM").contains(k)) throw ApiException.badRequest("kind must be ORG or PLATFORM");
+        validateGrid(name, k, grid);
+        db.update("INSERT INTO roles (name, description, kind, approval, seeded) VALUES (?,?,?,?,FALSE)",
+                name, description == null ? "" : description, k, "ORG".equals(k) ? "none" : "platform");
+        writeGrid(name, grid);
+        setInheritance(name, inherits);
+        policy.reload();
+        audit(actor, null, "role_create", Map.of("role", name, "kind", k, "grid", grid));
+        return getRole(name);
+    }
+
+    @Transactional
+    public Map<String, Object> updateRole(String actor, String name, String description, Map<String, Integer> grid, List<String> inherits) {
+        Policy.Role r = policy.get().roles().get(name);
+        if (r == null) throw ApiException.notFound();
+        if (description != null && !description.isBlank()) db.update("UPDATE roles SET description=?, updated_at=now() WHERE name=?", description, name);
+        Map<String, Object> diff = new LinkedHashMap<>();
+        if (grid != null) {
+            validateGrid(name, r.kind(), grid);
+            List<String> added = new ArrayList<>(), removed = new ArrayList<>();
+            Set<String> rows = new HashSet<>(grid.keySet());
+            rows.addAll(r.grid().keySet());
+            for (String row : rows) {
+                int before = r.grid().getOrDefault(row, 0), after = grid.getOrDefault(row, 0);
+                Verbs.names(after & ~before).forEach(v -> added.add(row + ":" + v));
+                Verbs.names(before & ~after).forEach(v -> removed.add(row + ":" + v));
+            }
+            diff.put("added", added);
+            diff.put("removed", removed);
+            writeGrid(name, grid);
+        }
+        if (inherits != null) setInheritance(name, inherits);
+        policy.reload();
+        touchAll();
+        Map<String, Object> details = new LinkedHashMap<>(diff);
+        details.put("role", name);
+        audit(actor, null, "role_update", details);
+        Map<String, Object> view = getRole(name);
+        view.put("diff", diff);
+        return view;
+    }
+
+    void writeGrid(String role, Map<String, Integer> grid) {
+        db.update("DELETE FROM rbac_role_grid WHERE role=?", role);
+        for (var e : grid.entrySet()) {
+            if (e.getValue() != 0) db.update("INSERT INTO rbac_role_grid (role, resource, verbs) VALUES (?,?,?)", role, e.getKey(), e.getValue());
+        }
+    }
+
+    void setInheritance(String role, List<String> juniors) {
+        if (juniors == null) return;
+        Map<String, List<String>> all = new HashMap<>();
+        for (Policy.Role r : policy.get().roles().values()) all.put(r.name(), new ArrayList<>(r.juniors()));
+        for (String j : juniors) if (!policy.get().roles().containsKey(j)) throw ApiException.badRequest("unknown role " + j);
+        all.put(role, juniors);
         try {
-            Integer e = db.queryForObject(
-                    "SELECT COUNT(*) FROM assignments WHERE subject=? AND role_name=? AND grant_id=? AND status='active'",
-                    Integer.class, userId, role, grantId);
-            exists = e == null ? 0 : e;
-        } catch (Exception ignore) {}
-        if (exists == 0) {
-            Object tenantId = db.queryForList("SELECT tenant_id FROM grants WHERE id=?", grantId)
-                    .stream().findFirst().map(m -> m.get("tenant_id")).orElse(null);
-            String id = newId("asgmt");
-            db.update("""
-                    INSERT INTO assignments (id, subject, tenant_id, role_name, scope, grant_id, supplier_id, group_id, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    id, userId, tenantId, role, scope, grantId, supplier, groupId, actor);
-            touch("", List.of(userId));
+            Policy.assertAcyclic(all);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(409, "hierarchy_cycle", e.getMessage());
         }
+        db.update("DELETE FROM role_inheritance WHERE senior=?", role);
+        for (String j : juniors) db.update("INSERT INTO role_inheritance (senior, junior) VALUES (?,?)", role, j);
     }
 
-    public void groupRemoveMember(String actor, String groupId, String userId) {
-        Map<String, Object> group = getGroup(groupId);
-        String actorSup = actorSupplier(actor);
-        String groupSup = String.valueOf(group.get("supplier_id"));
-        if (!actorSup.isBlank() && !groupSup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("group does not belong to the actor's supplier");
-        }
-        db.update("DELETE FROM group_members WHERE group_id=? AND user_id=?", groupId, userId);
-        db.update("DELETE FROM assignments WHERE group_id=? AND subject=?", groupId, userId);
-        touch("", List.of(userId));
-        audit(actor, null, "group_member_remove", Map.of("group", groupId, "user", userId));
-    }
-
-    public void deleteGroup(String actor, String groupId) {
-        Map<String, Object> group = getGroup(groupId);
-        String actorSup = actorSupplier(actor);
-        String groupSup = String.valueOf(group.get("supplier_id"));
-        if (!actorSup.isBlank() && !groupSup.equals(actorSup)) {
-            throw ApiExceptionCodes.membership("group does not belong to the actor's supplier");
-        }
-        List<String> subjects = db.queryForList(
-                "SELECT subject FROM assignments WHERE group_id=?", String.class, groupId);
-        db.update("DELETE FROM assignments WHERE group_id=?", groupId);
-        db.update("DELETE FROM group_members WHERE group_id=?", groupId);
-        db.update("DELETE FROM group_roles WHERE group_id=?", groupId);
-        db.update("DELETE FROM supplier_groups WHERE id=?", groupId);
-        touch("", subjects);
-        audit(actor, null, "group_delete", Map.of("group", groupId));
+    @Transactional
+    public void deleteRole(String actor, String name) {
+        Policy.Role r = policy.get().roles().get(name);
+        if (r == null) throw ApiException.notFound();
+        if (r.seeded()) throw ApiException.conflict("seeded roles change through the reviewed seed, not the API");
+        Integer used = db.queryForObject("SELECT count(*) FROM assignments WHERE role=? AND status IN ('ACTIVE','PENDING_APPROVAL')", Integer.class, name);
+        if (used != null && used > 0) throw ApiException.conflict("role has " + used + " active or pending assignments");
+        db.update("DELETE FROM role_inheritance WHERE junior=?", name);
+        db.update("DELETE FROM assignments WHERE role=?", name);
+        db.update("DELETE FROM roles WHERE name=?", name);
+        policy.reload();
+        touchAll();
+        audit(actor, null, "role_delete", Map.of("role", name));
     }
 
     // ------------------------------------------------------------------
-    // Audit + permission registry (auto pickup)
+    // Read models
     // ------------------------------------------------------------------
 
-    public List<Map<String, Object>> audit(String tenant, String supplier, int limit) {
-        int n = (limit <= 0 || limit > 500) ? 100 : limit;
-        StringBuilder q = new StringBuilder("""
-                SELECT actor, tenant_id, action, ts FROM audit_log
-                WHERE (?='' OR tenant_id=? OR tenant_id IS NULL)""");
-        List<Object> args = new ArrayList<>();
-        args.add(tenant); args.add(tenant);
-        if (supplier != null && !supplier.isBlank()) {
-            q.append(" AND details->>'supplier'=?");
-            args.add(supplier);
-        }
-        q.append(" ORDER BY id DESC LIMIT ").append(n);
+    public List<Map<String, Object>> resources() {
+        Policy.Snapshot s = policy.get();
+        Map<String, List<Map<String, Object>>> eps = new HashMap<>();
+        db.query("SELECT resource, verb, method, path, service, handler FROM rbac_cell_endpoints ORDER BY path, method", rs -> {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("verb", Verbs.names(rs.getInt("verb")).get(0));
+            e.put("method", rs.getString("method"));
+            e.put("path", rs.getString("path"));
+            e.put("service", rs.getString("service"));
+            e.put("handler", rs.getString("handler"));
+            eps.computeIfAbsent(rs.getString("resource"), k -> new ArrayList<>()).add(e);
+        });
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : db.queryForList(q.toString(), args.toArray())) {
+        for (Policy.Resource r : s.resources().values()) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("actor", r.get("actor"));
-            m.put("tenant", r.get("tenant_id"));
-            m.put("action", r.get("action"));
-            m.put("ts", rfc3339(r.get("ts")));
+            m.put("id", r.id());
+            m.put("service", r.service());
+            m.put("description", r.description());
+            m.put("used", Verbs.names(r.used()));
+            m.put("declared", Verbs.names(r.declared()));
+            m.put("tenant_types", r.tenantTypes());
+            m.put("entitlement", Verbs.names(r.grantVerbs()));
+            m.put("endpoints", eps.getOrDefault(r.id(), List.of()));
             out.add(m);
         }
         return out;
     }
 
-    /** Upserts a service's controller-derived permissions (auto pickup). */
-    public int registerCatalog(String service, List<Map<String, String>> perms) {
-        int n = 0;
-        for (Map<String, String> p : perms) {
-            n += db.update("INSERT INTO permissions (id, description) VALUES (?, ?) ON CONFLICT (id) DO NOTHING",
-                    p.get("id"), p.getOrDefault("description", ""));
-        }
-        audit(service, null, "permission_register", Map.of("service", service,
-                "count", perms.size(), "permissions", perms.stream().map(p -> p.get("id")).toList()));
-        return n;
+    public List<Map<String, Object>> audit(String tenant, int limit) {
+        int n = (limit <= 0 || limit > 500) ? 100 : limit;
+        List<Map<String, Object>> out = new ArrayList<>();
+        db.query("SELECT actor, tenant_id, action, details::text AS details, ts FROM audit_log WHERE (?='' OR tenant_id=? OR tenant_id IS NULL) ORDER BY id DESC LIMIT " + n,
+                rs -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("actor", rs.getString("actor"));
+                    m.put("tenant", rs.getString("tenant_id"));
+                    m.put("action", rs.getString("action"));
+                    m.put("details", rs.getString("details"));
+                    m.put("ts", rfc3339(rs.getTimestamp("ts")));
+                    out.add(m);
+                }, tenant, tenant);
+        return out;
     }
 
-    // ------------------------------------------------------------------
-    // Org-tree sync (MiPay backend pushes org closure for permission inheritance)
-    // ------------------------------------------------------------------
-
-    /** Replace the entire org_closure table atomically. */
-    public void replaceOrgClosure(List<Map<String, Object>> rows) {
-        db.update("DELETE FROM org_closure");
-        for (Map<String, Object> r : rows) {
-            db.update("INSERT INTO org_closure (ancestor_id, descendant_id, depth) VALUES (?, ?, ?)",
-                    r.get("ancestor"), r.get("descendant"), r.get("depth"));
-        }
-        audit("system", null, "org_closure_replace", Map.of("rows", rows.size()));
-    }
-
-    /** Replace the entire org_tenant_mapping table atomically. */
-    public void replaceOrgTenantMapping(List<Map<String, Object>> rows) {
-        db.update("DELETE FROM org_tenant_mapping");
-        for (Map<String, Object> r : rows) {
-            // the tenant must exist before it is mapped (FK); MiPay orgs become RBAC tenants here
-            Object tenant = r.get("tenant");
-            Object name = r.get("name") == null ? tenant : r.get("name");
-            db.update("INSERT INTO tenants (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING",
-                    tenant, name);
-            db.update("INSERT INTO org_tenant_mapping (org_id, tenant_id) VALUES (?, ?)",
-                    r.get("org"), tenant);
-        }
-        audit("system", null, "org_tenant_mapping_replace", Map.of("rows", rows.size()));
-    }
-
-    // ------------------------------------------------------------------
-    // helpers
-    // ------------------------------------------------------------------
-
-    private static String rfc3339(Object ts) {
+    public static String rfc3339(Object ts) {
         if (ts == null) return null;
-        if (ts instanceof Timestamp t) return RFC3339.format(t.toInstant().atOffset(ZoneOffset.UTC));
-        if (ts instanceof OffsetDateTime o) return RFC3339.format(o.toInstant().atOffset(ZoneOffset.UTC));
-        if (ts instanceof Instant i) return RFC3339.format(i.atOffset(ZoneOffset.UTC));
-        if (ts instanceof BigDecimal b) return RFC3339.format(Instant.ofEpochMilli(b.longValue()).atOffset(ZoneOffset.UTC));
+        if (ts instanceof Timestamp t) return RFC3339.format(t.toInstant());
+        if (ts instanceof OffsetDateTime o) return RFC3339.format(o.toInstant());
+        if (ts instanceof Instant i) return RFC3339.format(i);
         return String.valueOf(ts);
     }
 }

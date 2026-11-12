@@ -10,8 +10,7 @@ package trustplane.shared;
  */
 public sealed interface Failure
         permits Failure.NotFound, Failure.Forbidden, Failure.BadRequest,
-                Failure.Conflict, Failure.NoMatchingGrant, Failure.ScopeExceeded,
-                Failure.InsufficientPermission, Failure.MissingContext {
+                Failure.Conflict, Failure.InsufficientPermission, Failure.MissingContext {
 
     String code();
 
@@ -23,7 +22,7 @@ public sealed interface Failure
         public String message() { return "resource not found: " + subject; }
     }
 
-    /** 403 with a specific code — membership, supplier_isolation, maker_checker, ... */
+    /** 403 with a specific code — membership, maker_checker, ... */
     record Forbidden(String code, String message) implements Failure {
         public String code() { return code; }
         public String message() { return message; }
@@ -41,19 +40,7 @@ public sealed interface Failure
         public String message() { return message; }
     }
 
-    /** 403 — no active root grant covers (supplier, role, scope, tenant). */
-    record NoMatchingGrant() implements Failure {
-        public String code() { return "no_matching_grant"; }
-        public String message() { return "root RBAC has not delegated this role to the supplier"; }
-    }
-
-    /** 403 — a grant covers the role but the requested scope exceeds it. */
-    record ScopeExceeded() implements Failure {
-        public String code() { return "scope_exceeds_grant"; }
-        public String message() { return "requested scope exceeds the root delegation grant"; }
-    }
-
-    /** 403 — the subject does not hold the required CRUD permission. */
+    /** 403 — the subject does not hold the required grid cell. */
     record InsufficientPermission(String permission) implements Failure {
         public String code() { return "insufficient_permission"; }
         public String message() { return "subject lacks " + permission; }
@@ -71,14 +58,6 @@ public sealed interface Failure
         return new Forbidden("membership", message);
     }
 
-    static Forbidden creatorOnly(String message) {
-        return new Forbidden("creator_only", message);
-    }
-
-    static Forbidden isolation(String message) {
-        return new Forbidden("supplier_isolation", message);
-    }
-
     static Forbidden forbidden(String message) {
         return new Forbidden("forbidden", message);
     }
@@ -90,8 +69,6 @@ public sealed interface Failure
             case Forbidden g -> new ApiException(403, g.code(), g.message());
             case BadRequest b -> new ApiException(400, b.code(), b.message());
             case Conflict c -> new ApiException(409, c.code(), c.message());
-            case NoMatchingGrant ignored -> new ApiException(403, ignored.code(), ignored.message());
-            case ScopeExceeded ignored -> new ApiException(403, ignored.code(), ignored.message());
             case InsufficientPermission p -> new ApiException(403, p.code(), p.message());
             case MissingContext ignored -> new ApiException(401, ignored.code(), ignored.message());
         };

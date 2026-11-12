@@ -6,12 +6,12 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a mapped endpoint as intentionally public (e.g. liveness probes such
- * as GET /healthz). The endpoint-permission audit skips these methods; every
- * other endpoint on a {@link CrudResource} controller must carry an explicit
- * {@link Permission} binding or startup fails.
+ * Marks a mapped endpoint that carries no grid cell: a liveness probe, or a mesh-internal
+ * endpoint whose caller is identified by its mTLS certificate instead of a gateway context
+ * (the reason says which). Every other endpoint must carry {@link Permission}.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD})
 public @interface PublicEndpoint {
+    String value() default "";
 }

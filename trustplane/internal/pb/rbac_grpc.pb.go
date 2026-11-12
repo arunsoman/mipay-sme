@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.4.0
 // - protoc             v7.36.1
-// source: internal/pb/rbac.proto
+// source: rbac.proto
 
 package pb
 
@@ -19,25 +19,34 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	Rbac_Check_FullMethodName           = "/rbac.v1.Rbac/Check"
-	Rbac_ListPermissions_FullMethodName = "/rbac.v1.Rbac/ListPermissions"
-	Rbac_Watch_FullMethodName           = "/rbac.v1.Rbac/Watch"
-	Rbac_Ping_FullMethodName            = "/rbac.v1.Rbac/Ping"
+	Rbac_Check_FullMethodName              = "/rbac.v1.Rbac/Check"
+	Rbac_CheckBatch_FullMethodName         = "/rbac.v1.Rbac/CheckBatch"
+	Rbac_ListPermissions_FullMethodName    = "/rbac.v1.Rbac/ListPermissions"
+	Rbac_ListHolders_FullMethodName        = "/rbac.v1.Rbac/ListHolders"
+	Rbac_ValidateActivation_FullMethodName = "/rbac.v1.Rbac/ValidateActivation"
+	Rbac_Watch_FullMethodName              = "/rbac.v1.Rbac/Watch"
+	Rbac_Ping_FullMethodName               = "/rbac.v1.Rbac/Ping"
 )
 
 // RbacClient is the client API for Rbac service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Rbac is the low-latency decision API consumed by the API gateway (PEP).
-// Transport: gRPC over HTTP/2 with mutual TLS, gzip compression, keepalives.
+// Rbac is the low-latency decision API consumed by the API gateway and the core (PEPs).
+// Transport: gRPC over HTTP/2 with mutual TLS. Subjects are core user ids (the token's uid);
+// operations are grid cells "<row>:<verb>" (docs/plans/fapi2-design.md Appendix B, G).
 type RbacClient interface {
-	// Check decides whether `subject` may perform `operation` in `tenant`.
-	// fresh=true bypasses any caching on the caller side (sensitive writes).
+	// Check decides whether `subject` may perform `operation` in `tenant` ("" = in any tenant).
 	Check(ctx context.Context, in *CheckRequest, opts ...grpc.CallOption) (*CheckResponse, error)
-	// ListPermissions returns every operation the subject currently holds.
+	// CheckBatch answers many checks at once (list screens, button states).
+	CheckBatch(ctx context.Context, in *CheckBatchRequest, opts ...grpc.CallOption) (*CheckBatchResponse, error)
+	// ListPermissions returns every cell the subject holds in the tenant.
 	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
-	// Watch streams invalidation events whenever tenant permissions change,
+	// ListHolders returns who holds a role in a tenant (own, subtree above, or platform-wide).
+	ListHolders(ctx context.Context, in *ListHoldersRequest, opts ...grpc.CallOption) (*ListHoldersResponse, error)
+	// ValidateActivation checks the roles a session wants active against dynamic SoD.
+	ValidateActivation(ctx context.Context, in *ActivationRequest, opts ...grpc.CallOption) (*ActivationResponse, error)
+	// Watch streams invalidation events whenever permissions change,
 	// letting the gateway purge its decision cache in near-real-time.
 	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (Rbac_WatchClient, error)
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
@@ -61,10 +70,40 @@ func (c *rbacClient) Check(ctx context.Context, in *CheckRequest, opts ...grpc.C
 	return out, nil
 }
 
+func (c *rbacClient) CheckBatch(ctx context.Context, in *CheckBatchRequest, opts ...grpc.CallOption) (*CheckBatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckBatchResponse)
+	err := c.cc.Invoke(ctx, Rbac_CheckBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *rbacClient) ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPermissionsResponse)
 	err := c.cc.Invoke(ctx, Rbac_ListPermissions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rbacClient) ListHolders(ctx context.Context, in *ListHoldersRequest, opts ...grpc.CallOption) (*ListHoldersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListHoldersResponse)
+	err := c.cc.Invoke(ctx, Rbac_ListHolders_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rbacClient) ValidateActivation(ctx context.Context, in *ActivationRequest, opts ...grpc.CallOption) (*ActivationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActivationResponse)
+	err := c.cc.Invoke(ctx, Rbac_ValidateActivation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,15 +157,21 @@ func (c *rbacClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.Cal
 // All implementations must embed UnimplementedRbacServer
 // for forward compatibility
 //
-// Rbac is the low-latency decision API consumed by the API gateway (PEP).
-// Transport: gRPC over HTTP/2 with mutual TLS, gzip compression, keepalives.
+// Rbac is the low-latency decision API consumed by the API gateway and the core (PEPs).
+// Transport: gRPC over HTTP/2 with mutual TLS. Subjects are core user ids (the token's uid);
+// operations are grid cells "<row>:<verb>" (docs/plans/fapi2-design.md Appendix B, G).
 type RbacServer interface {
-	// Check decides whether `subject` may perform `operation` in `tenant`.
-	// fresh=true bypasses any caching on the caller side (sensitive writes).
+	// Check decides whether `subject` may perform `operation` in `tenant` ("" = in any tenant).
 	Check(context.Context, *CheckRequest) (*CheckResponse, error)
-	// ListPermissions returns every operation the subject currently holds.
+	// CheckBatch answers many checks at once (list screens, button states).
+	CheckBatch(context.Context, *CheckBatchRequest) (*CheckBatchResponse, error)
+	// ListPermissions returns every cell the subject holds in the tenant.
 	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
-	// Watch streams invalidation events whenever tenant permissions change,
+	// ListHolders returns who holds a role in a tenant (own, subtree above, or platform-wide).
+	ListHolders(context.Context, *ListHoldersRequest) (*ListHoldersResponse, error)
+	// ValidateActivation checks the roles a session wants active against dynamic SoD.
+	ValidateActivation(context.Context, *ActivationRequest) (*ActivationResponse, error)
+	// Watch streams invalidation events whenever permissions change,
 	// letting the gateway purge its decision cache in near-real-time.
 	Watch(*WatchRequest, Rbac_WatchServer) error
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
@@ -140,8 +185,17 @@ type UnimplementedRbacServer struct {
 func (UnimplementedRbacServer) Check(context.Context, *CheckRequest) (*CheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Check not implemented")
 }
+func (UnimplementedRbacServer) CheckBatch(context.Context, *CheckBatchRequest) (*CheckBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckBatch not implemented")
+}
 func (UnimplementedRbacServer) ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPermissions not implemented")
+}
+func (UnimplementedRbacServer) ListHolders(context.Context, *ListHoldersRequest) (*ListHoldersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListHolders not implemented")
+}
+func (UnimplementedRbacServer) ValidateActivation(context.Context, *ActivationRequest) (*ActivationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateActivation not implemented")
 }
 func (UnimplementedRbacServer) Watch(*WatchRequest, Rbac_WatchServer) error {
 	return status.Errorf(codes.Unimplemented, "method Watch not implemented")
@@ -180,6 +234,24 @@ func _Rbac_Check_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Rbac_CheckBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RbacServer).CheckBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Rbac_CheckBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RbacServer).CheckBatch(ctx, req.(*CheckBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Rbac_ListPermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPermissionsRequest)
 	if err := dec(in); err != nil {
@@ -194,6 +266,42 @@ func _Rbac_ListPermissions_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RbacServer).ListPermissions(ctx, req.(*ListPermissionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Rbac_ListHolders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListHoldersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RbacServer).ListHolders(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Rbac_ListHolders_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RbacServer).ListHolders(ctx, req.(*ListHoldersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Rbac_ValidateActivation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActivationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RbacServer).ValidateActivation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Rbac_ValidateActivation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RbacServer).ValidateActivation(ctx, req.(*ActivationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -249,8 +357,20 @@ var Rbac_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Rbac_Check_Handler,
 		},
 		{
+			MethodName: "CheckBatch",
+			Handler:    _Rbac_CheckBatch_Handler,
+		},
+		{
 			MethodName: "ListPermissions",
 			Handler:    _Rbac_ListPermissions_Handler,
+		},
+		{
+			MethodName: "ListHolders",
+			Handler:    _Rbac_ListHolders_Handler,
+		},
+		{
+			MethodName: "ValidateActivation",
+			Handler:    _Rbac_ValidateActivation_Handler,
 		},
 		{
 			MethodName: "Ping",
@@ -264,5 +384,5 @@ var Rbac_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "internal/pb/rbac.proto",
+	Metadata: "rbac.proto",
 }

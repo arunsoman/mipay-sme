@@ -34,6 +34,22 @@ dependencies {
     compileOnly("org.projectlombok:lombok")
     annotationProcessor(platform("org.springframework.boot:spring-boot-dependencies:$boot"))
     annotationProcessor("org.projectlombok:lombok")
+
+    // tests run the store, decisions and access rules against a scratch Postgres (TEST_RBAC_DSN)
+    // JUnit 5.12 pinned for tests (strictly: wins over the Boot BOM's JUnit line)
+    for (m in listOf("junit-jupiter", "junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params")) {
+        testImplementation("org.junit.jupiter:$m") { version { strictly("5.12.2") } }
+    }
+    for (m in listOf("junit-platform-launcher", "junit-platform-engine", "junit-platform-commons")) {
+        testImplementation("org.junit.platform:$m") { version { strictly("1.12.2") } }
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    environment("TEST_RBAC_DSN", System.getenv("TEST_RBAC_DSN") ?: "")
+    environment("TEST_RBAC_SEED", rootProject.file("../config/rbac/grid.yaml").absolutePath)
+    testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
 
 sourceSets {

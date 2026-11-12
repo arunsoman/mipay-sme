@@ -6,17 +6,22 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Binds an endpoint method to a concrete permission id
- * (e.g. "rbac.role:approve"). The security contract is:
+ * Binds an endpoint method to ONE cell of the permission grid (fapi2-design.md Appendix G):
+ * {@code "<row>:<verb>"}, e.g. {@code "rbac.assignment:create"}, with the verb from the fixed
+ * ten (read, create, modify, delete, submit, authorize, execute, export, administer, simulate).
  *
- *   resource action        &lt;-&gt;  {@code @Permission("rbac.role:approve")}
- *                                   + {@code @PreAuthorize("hasAuthority('rbac.role:approve')")}
- *
- * The {@link EndpointPermissionAuditor} fails startup if any mapped endpoint
- * lacks the annotation — the CRUD+approve matrix is not optional.
+ * {@link PermissionRegistrar} fails startup if a mapped trustplane endpoint has neither this
+ * annotation nor {@link PublicEndpoint}, and registers every cell with its endpoints in RBAC.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD})
 public @interface Permission {
+    /** The cell, {@code "<row>:<verb>"}. */
     String value();
+
+    /** Where the tenant comes from: PATH | BODY | NONE (shown on the grid screen). */
+    String tenantSource() default "NONE";
+
+    /** Shown in the catalogue and on the Roles & access screen. */
+    String description() default "";
 }

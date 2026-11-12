@@ -14,6 +14,7 @@ import java.util.List;
  */
 public record GatewayContext(
         String sub,
+        String uid,
         String clientId,
         String tokenId,
         String certThumb,
@@ -29,6 +30,7 @@ public record GatewayContext(
         JsonNode n = MAPPER.readTree(payloadJson); // Jackson 3 exceptions are unchecked
         return new GatewayContext(
                 n.path("sub").asText(""),
+                n.path("uid").asText(""),
                 n.path("client_id").asText(""),
                 n.path("token_jti").asText(""),
                 n.path("cert_thumb").asText(""),
@@ -47,6 +49,9 @@ public record GatewayContext(
         }
         return out;
     }
+
+    /** The RBAC subject: the core user id when the token carries one, else the token subject. */
+    public String subject() { return uid != null && !uid.isBlank() ? uid : sub; }
 
     public boolean hasPerm(String op) { return perms != null && perms.contains(op); }
 

@@ -5,16 +5,17 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-import trustplane.rbac.web.RegistryService;
+import trustplane.rbac.core.RbacStore;
 import trustplane.shared.PermissionRegistrar;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
- * Boot sequence step 2 (after schema+seed):
- *  1. fail-fast permission audit: every mapped endpoint under trustplane.*
- *     MUST carry its {@code @Permission} binding;
- *  2. self-registration: the RBAC service registers its OWN controller
- *     catalog (rbac.supplier:create, rbac.grant:delete, ...) — the same
- *     auto-pickup mechanism business services use, applied locally.
+ * Boot step 2 (after schema and seed): every RBAC admin endpoint must bind a grid cell
+ * (startup fails otherwise), and RBAC registers its own cells with their endpoints the same
+ * way business services do over the mesh.
  */
 @Component
 @Order(2)
@@ -23,22 +24,20 @@ import trustplane.shared.PermissionRegistrar;
 public class BootRunner implements ApplicationRunner {
 
     private final ApplicationContext app;
-    private final RegistryService registry;
+    private final RbacStore store;
 
     @Override
     public void run(ApplicationArguments args) {
-        PermissionRegistrar registrar = new PermissionRegistrar(app, "rbac", catalog ->
-                registry.register(catalog.service(), catalog.permissions().stream()
-                        .map(p -> {
-                            java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
-                            m.put("id", p.id());
-                            m.put("description", p.description());
-                            return m;
-                        })
-                        .toList()));
-        registrar.auditEndpoints();
-        registrar.registerWithRetry(3);
-        log.info("[rbac] permission catalog self-registered ({} permissions)",
-                registrar.scan().permissions().size());
+        PermissionRegistrar.Catalog c = new PermissionRegistrar(app, "rbac").scan();
+        List<Map<String, String>> perms = c.permissions().stream().map(p -> {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("id", p.id());
+            m.put("description", p.description());
+            return m;
+        }).toList();
+        List<RbacStore.EndpointReg> eps = c.endpoints().stream().filter(e -> !e.isPublic())
+                .map(e -> new RbacStore.EndpointReg(e.method(), e.path(), e.permission(), e.tenantSource(), e.handler())).toList();
+        Map<String, Object> r = store.registerCatalog("rbac", perms, eps);
+        log.info("[rbac] own catalogue registered: {}", r);
     }
 }
