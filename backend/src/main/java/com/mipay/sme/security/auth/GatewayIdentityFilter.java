@@ -52,7 +52,9 @@ public final class GatewayIdentityFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (!"gateway".equals(properties.getIdentityMode()) || request.getRequestURI().equals("/actuator/health")) {
+        if (!"gateway".equals(properties.getIdentityMode())
+                || request.getRequestURI().equals("/actuator/health")
+                || request.getRequestURI().startsWith("/internal/")) {
             chain.doFilter(request, response);
             return;
         }

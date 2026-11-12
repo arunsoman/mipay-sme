@@ -36,6 +36,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/auth/**", "/api/env", "/api/onboarding/**", "/api/customer/**",
                                 "/api/auth/activate",
+                                "/internal/auth/events",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health").permitAll()
                         .requestMatchers("/api/orgs/**").authenticated()
                         .requestMatchers("/api/merchant/**").hasRole("MERCHANT")

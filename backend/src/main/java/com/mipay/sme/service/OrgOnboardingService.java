@@ -60,6 +60,7 @@ public class OrgOnboardingService {
     private final OrgLifecycleService lifecycle;
     private final OrgUserService orgUsers;
     private final ActivationService activation;
+    private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
     private final UsernamePolicy usernamePolicy;
     private final ComplianceService complianceService;
     private final ProvisioningService provisioningService;
@@ -130,19 +131,34 @@ public class OrgOnboardingService {
         usernamePolicy.validate(spec.username());   // [H6]
         validateTypeProfile(childType, spec, name);
 
-        // 3) admin user (PENDING, no password, orgRole=ADMIN) + entities + org + closures
-        User admin = new User();
-        admin.setName(spec.ownerName() == null ? name : spec.ownerName());
-        admin.setPhone(spec.phone());
-        admin.setEmail(spec.email());
-        // usernames are system-created and sent with the activation link (portals no longer collect one)
-        admin.setUsername(spec.username() == null || spec.username().isBlank()
-                ? usernamePolicy.generate(admin.getName(), spec.email()) : spec.username());
-        admin.setRole(roleFor(childType));
-        admin.setStatus(Enums.UserStatus.PENDING);
-        admin.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        admin.setCreatedBy(caller.userId());
-        userRepo.save(admin);
+        // 3) the org row FIRST (a user is never created outside an existing org), then rights and
+        //    ceilings, then the admin through the UserLifecycleService — whose enrolment command
+        //    commits atomically with the user row it belongs to
+        Organization org = new Organization();
+        org.setOrgType(childType);
+        org.setName(name);
+        org.setRegistrationNumber(spec.registrationNumber());
+        org.setParentId(parent.getId());
+        org.setLicenceType(parent.getLicenceType() == null ? "PSP" : parent.getLicenceType());
+        org.setLifecycle(Enums.OrgStatus.PENDING);
+        org.setOnboardedBy(caller.userId());
+        org.setCreatedBy(caller.userId());
+        orgRepo.save(org);
+
+        for (OrgSubtreeRow anc : closureRepo.findAncestors(parent.getId())) {
+            closureRepo.save(OrgClosure.of(anc.getOrg().getId(), org.getId(), anc.getDepth() + 1));
+        }
+        closureRepo.save(OrgClosure.of(org.getId(), org.getId(), 0));
+
+        // rights rows are written NOW, while the org is PENDING ([M5]); they bind when ACTIVE
+        orgProvisioning.writeRights(org.getId(), proposal.direct(), proposal.ceiling(), caller.userId());
+        if (spec.roleCeiling() != null) {
+            roleCeilings.set(org.getId(), spec.roleCeiling(), spec.roleDelegable(), caller.userId(), caller.role());
+        }
+
+        User admin = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                org.getId(), spec.ownerName() == null ? name : spec.ownerName(), spec.username(),
+                spec.phone(), spec.email(), roleFor(childType), Enums.OrgMemberRole.ADMIN, caller.userId()));
 
         String entityId = null;
         switch (childType) {
@@ -185,31 +201,10 @@ public class OrgOnboardingService {
             default -> { }
         }
 
-        Organization org = new Organization();
-        org.setOrgType(childType);
-        org.setName(name);
+        // the entity rows reference the admin; the org regains its entityId after they exist
         org.setEntityId(entityId);
-        org.setRegistrationNumber(spec.registrationNumber());
-        org.setParentId(parent.getId());
-        org.setLicenceType(parent.getLicenceType() == null ? "PSP" : parent.getLicenceType());
-        org.setLifecycle(Enums.OrgStatus.PENDING);
-        org.setOnboardedBy(caller.userId());
-        org.setCreatedBy(caller.userId());
         orgRepo.save(org);
 
-        admin.setOrgId(org.getId());
-        userRepo.save(admin);
-
-        for (OrgSubtreeRow anc : closureRepo.findAncestors(parent.getId())) {
-            closureRepo.save(OrgClosure.of(anc.getOrg().getId(), org.getId(), anc.getDepth() + 1));
-        }
-        closureRepo.save(OrgClosure.of(org.getId(), org.getId(), 0));
-
-        // 4) rights rows written NOW, while the org is PENDING ([M5]); they bind when ACTIVE
-        orgProvisioning.writeRights(org.getId(), proposal.direct(), proposal.ceiling(), caller.userId());
-        if (spec.roleCeiling() != null) {
-            roleCeilings.set(org.getId(), spec.roleCeiling(), spec.roleDelegable(), caller.userId(), caller.role());
-        }
 
         // 5) supplier bank account (independent approval still applies downstream)
         if (childType == OrgType.SUPPLIER) {
