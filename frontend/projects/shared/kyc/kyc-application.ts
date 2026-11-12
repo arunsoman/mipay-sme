@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -19,6 +19,9 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
   template: `
     @if (loadError(); as e) {<div class="err">{{ e }}</div>}
     @if (view(); as v) {
+      @if (wizard()) {
+        @if (v.status === 'DRAFT' && v.decisionNote) {<div class="note warn">Returned for correction: {{ v.decisionNote }}</div>}
+      } @else {
       <header class="card">
       <div class="ptitle">{{ v.orgName }} <span class="chip">{{ v.orgType }}</span>
         <span class="chip {{ cls(v.status) }}">{{ v.status.replace('_', ' ') }}</span>
@@ -41,6 +44,7 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
         @case ('DRAFT') {@if (v.decisionNote) {<div class="note warn">Returned for correction: {{ v.decisionNote }}</div>}}
       }
       </header>
+      }
 
       @if (v.orgType === 'PLATFORM') {
         <div class="muted">The platform root is MiPay itself and has no KYC application. Pick an organization below it.</div>
@@ -50,8 +54,8 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
       } @else if (doc(); as d) {
         @if (schema(); as sch) {
           @for (k of [docKey()]; track k) {
-            <mp-kyc-schema-editor [schema]="sch" [doc]="d" [disabled]="!v.canEdit || readOnly()" [context]="context()"
-                                  [problems]="problems()" />
+            <mp-kyc-schema-editor #ed [schema]="sch" [doc]="d" [disabled]="!v.canEdit || readOnly()" [context]="context()"
+                                  [problems]="problems()" [wizard]="wizard()" [startStep]="reopenStep() ?? startStep()" />
           }
         } @else {
           <div class="muted">Loading the KYC form…</div>
@@ -62,7 +66,21 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
         <div class="muted">No KYC application has been started for this organization.</div>
       }
 
-      @if (readOnly()) {
+      @if (wizard() && v.canEdit && doc()) {
+        <div class="wfoot">
+          @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+          <div class="wrow">
+            <button type="button" class="ghost" (click)="back()" [disabled]="busy() || (editor()?.stepIdx() ?? 0) === 0">Back</button>
+            <span class="grow"></span>
+            <button type="button" class="ghost" (click)="save()" [disabled]="busy()">Save draft</button>
+            @if (editor()?.isLastStep()) {
+              <button type="button" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
+            } @else {
+              <button type="button" class="primary" (click)="next()" [disabled]="busy()">Continue</button>
+            }
+          </div>
+        </div>
+      } @else if (readOnly()) {
         @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
       } @else if (v.canEdit && v.orgType !== 'PLATFORM') {
         <div class="actions" [class.stuck]="!!doc()">
@@ -105,6 +123,12 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
     .flash { font-size: var(--fs-sm); padding: 8px 12px; border-radius: 8px; white-space: pre-line; }
     .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
     .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
+    .wfoot { position: sticky; bottom: -18px; z-index: 2; margin: 8px -22px -18px; padding: 14px 22px;
+             background: color-mix(in srgb, #111 94%, transparent); backdrop-filter: blur(6px);
+             border-top: 1px solid var(--a-border); display: grid; gap: 10px; }
+    .wrow { display: flex; gap: 10px; align-items: center; }
+    .wrow .grow { flex: 1; }
+    .wrow button { min-height: 42px; padding: 0 20px; }
   `],
 })
 export class KycApplication {
@@ -115,6 +139,24 @@ export class KycApplication {
   readonly readOnly = input(false);
   /** Emitted by the read-only view's Edit / Start button. */
   readonly edit = output<string>();
+  /** Onboarding wizard: no header, one footer (Back · Save draft · Continue / Submit). */
+  readonly wizard = input(false);
+  /** Step the form opens on (0-based). */
+  readonly startStep = input(0);
+  readonly editor = viewChild<KycSchemaEditor>('ed');
+
+  back() {
+    const e = this.editor();
+    if (e) e.goto(e.stepIdx() - 1);
+    this.flash.set(null);
+  }
+
+  /** Continue: the draft is saved on the way, so nothing typed is ever lost. */
+  async next() {
+    const e = this.editor();
+    if (!e) return;
+    await this.save(true, e.stepIdx() + 1);
+  }
   private snapshot = '';
 
   /** True when the form has changes that are not saved yet. */
@@ -169,7 +211,11 @@ export class KycApplication {
     }
   }
 
-  private show(v: KycApplicationView) {
+  /** Step to reopen on after a save re-creates the editor. */
+  readonly reopenStep = signal<number | null>(null);
+
+  private show(v: KycApplicationView, keepStep?: number) {
+    if (keepStep !== undefined) this.reopenStep.set(keepStep);
     this.view.set(v);
     // the editable draft for editors; the submitted copy for read-only viewers
     const editableDraft = v.canEdit && v.id && v.status === 'DRAFT';
@@ -204,17 +250,21 @@ export class KycApplication {
 
   private listOf(detail: string) { return detail.split('; ').filter(Boolean); }
 
-  async save() {
+  /** quiet: no "Draft saved." note; then: the step to open once saved (Continue). */
+  async save(quiet = false, then?: number): Promise<boolean> {
     this.busy.set(true);
     this.flash.set(null);
+    const step = then ?? this.editor()?.stepIdx() ?? 0;
     try {
       const v = await this.put();
       this.problems.set([]);
-      this.show(v);
-      this.flash.set({ kind: 'ok', text: 'Draft saved.' });
+      this.show(v, step);
+      if (!quiet) this.flash.set({ kind: 'ok', text: 'Draft saved.' });
       this.changed.emit(v);
+      return true;
     } catch (e) {
       this.onRefused(e, 'Not saved');
+      return false;
     } finally {
       this.busy.set(false);
     }
@@ -225,7 +275,7 @@ export class KycApplication {
     this.flash.set(null);
     try {
       const saved = await this.put();
-      this.show(saved);
+      this.show(saved, this.editor()?.stepIdx() ?? 0);
       this.changed.emit(saved);
       try {
         const v = await firstValueFrom(this.http.post<KycApplicationView>(
