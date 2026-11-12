@@ -43,7 +43,7 @@ services:
       APP_RBAC_REGISTRY_URL: https://rbac:8443/rbac/internal/permissions/register
       APP_RBAC_URL: https://rbac:8443
     volumes:
-      - trustplane-pki:/pki:ro            # mipay-mesh client cert + platform CA (trustplane pki-init)
+      - trustplane-backend-pki:/pki:ro    # restricted export from trustplane pki-init
     ports: ["8080:8080"]
     depends_on:
       db:
@@ -123,6 +123,6 @@ networks:
     external: true
 
 volumes:
-  trustplane-pki:
+  trustplane-backend-pki:
     external: true
-    name: trustplane_pki                 # created by the trustplane stack (pki-init)
+    name: trustplane_backend-pki          # only backend mesh identity, trust CA and context verifier secret
