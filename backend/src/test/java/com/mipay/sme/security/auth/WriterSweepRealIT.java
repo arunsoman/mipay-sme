@@ -44,7 +44,9 @@ import static org.junit.jupiter.api.Assertions.*;
         "app.auth-provider=trustplane",
         "app.auth-url=https://127.0.0.1:18443",
         "app.outbox.poll-millis=3600000",
-        "app.gateway-context-secret-file=build/test-pki/_vol/ctx-secret"
+        "app.gateway-context-secret-file=build/test-pki/_vol/ctx-secret",
+        "logging.level.org.hibernate.SQL=DEBUG",
+        "logging.level.org.hibernate.orm.jdbc.bind=TRACE"
 })
 class WriterSweepRealIT {
 
@@ -77,6 +79,11 @@ class WriterSweepRealIT {
     @Autowired DeviceSessionRepository sessions;
     @Autowired AuthOutboxRepository outboxRepo;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    org.springframework.transaction.support.TransactionTemplate txManager() {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    }
 
     @BeforeAll
     static void provisionDb() throws Exception {
@@ -178,13 +185,16 @@ class WriterSweepRealIT {
     @Test
     void preBindingUserIsEnrolledWhenItIsBoundToItsHomeOrg() {
         String uid = "it-" + UUID.randomUUID().toString().substring(0, 8);
-        // self-registration: the user row exists before its org (merchants.user_id is NOT NULL)
-        String boundId = lifecycle.createPreBinding(Enums.UserRole.MERCHANT, "Bound Sweep " + uid,
-                "+264834" + Math.abs(uid.hashCode()) % 10000000, null, "sweep-it").getId();
-        assertTrue(users.existsByPhone("+264834" + Math.abs(uid.hashCode()) % 10000000));
-        lifecycle.bindToOrg(boundId, rootId(), Enums.OrgMemberRole.ADMIN, "sweep-it");
-        // re-binding to the same org is a no-op (ensureEntityOrg runs on every access path):
-        // still exactly one enrolment
+        String phone = "+264834" + Math.abs(uid.hashCode()) % 10000000;
+        // new-model self-registration in one transaction: the entity org exists before the
+        // user, so the user is born bound (users.org_id is NOT NULL, V15_1) and the enrol
+        // enqueues from lifecycle.create
+        String boundId = txManager().execute(status ->
+                lifecycle.create(new UserLifecycleService.Registration(rootId(), "Bound Sweep " + uid,
+                        null, phone, null, Enums.UserRole.MERCHANT, Enums.OrgMemberRole.ADMIN, "sweep-it")).getId());
+        assertTrue(users.existsByPhone(phone));
+        // the self-registration path's ensureEntityOrg re-binds on every access path:
+        // a no-op, still exactly one enrolment
         lifecycle.bindToOrg(boundId, rootId(), Enums.OrgMemberRole.ADMIN, "sweep-it");
         assertEquals(1, outboxRepo.findAll().stream()
                 .filter(r -> boundId.equals(r.getUserId()) && "ENROL".equals(r.getCommand())).count());

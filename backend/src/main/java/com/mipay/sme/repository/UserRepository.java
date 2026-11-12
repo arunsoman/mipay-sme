@@ -27,6 +27,8 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     List<User> findByOrgIdIn(List<String> orgIds);
 
+    List<User> findByOrgIdIsNull();
+
     /**
      * Login identifier lookup [H6]: phone OR username must resolve to EXACTLY
      * one user; an ambiguous match is refused.

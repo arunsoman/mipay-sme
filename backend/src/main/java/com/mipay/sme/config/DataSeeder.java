@@ -1,6 +1,7 @@
 package com.mipay.sme.config;
 
 import com.mipay.sme.domain.Enums;
+import com.mipay.sme.domain.org.Organization;
 import com.mipay.sme.domain.core.Merchant;
 import com.mipay.sme.domain.core.Supplier;
 import com.mipay.sme.domain.credit.Lender;
@@ -201,24 +202,31 @@ public class DataSeeder implements ApplicationRunner {
         platformFunctions.save(sf);
 
         // ---------------------------------------------------------------- lender (L01)
+        // The user is born bound: its entity org is provisioned first (pregenerated id), so
+        // users.org_id (NOT NULL, V15_1) is satisfied from the INSERT on in both modes.
+        String lenderId = java.util.UUID.randomUUID().toString().toLowerCase();
+        Organization lenderOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.LENDER, lenderId,
+                "FNB SME Credit (SIMULATED lender)");
         User lenderUser;
         if (gateway) {
-            // the lender org does not exist yet: pre-binding user, bound (and enrolled)
-            // when the entity's org is ensured below
-            lenderUser = userLifecycle.createPreBinding(Enums.UserRole.LENDER, "FNB Credit SME",
-                    "0813333333", "lender@mipay.na", SEED_ACTOR);
+            lenderUser = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    lenderOrg.getId(), "FNB Credit SME", null, "0813333333", "lender@mipay.na",
+                    Enums.UserRole.LENDER, Enums.OrgMemberRole.ADMIN, SEED_ACTOR));
         } else {
-            lenderUser = new User();
+            lenderUser = new User();   // seeded demo user: ACTIVE with the local bcrypt hash
             lenderUser.setName("FNB Credit SME");
             lenderUser.setPhone("0813333333");
             lenderUser.setEmail("lender@mipay.na");
             lenderUser.setPasswordHash(passwordEncoder.encode("lender123"));
             lenderUser.setRole(Enums.UserRole.LENDER);
             lenderUser.setStatus(Enums.UserStatus.ACTIVE);
+            lenderUser.setOrgId(lenderOrg.getId());
+            lenderUser.setOrgRole(Enums.OrgMemberRole.ADMIN);
             userRepo.save(lenderUser);
         }
 
         Lender lender = new Lender();
+        lender.setId(lenderId);
         lender.setName("FNB SME Credit (SIMULATED lender)");
         lender.setLicenceRef("NAM-FIN-00099");
         lender.setUserId(lenderUser.getId());
@@ -228,7 +236,6 @@ public class DataSeeder implements ApplicationRunner {
         lender.setMaxDailyDeduction(new BigDecimal("2000"));
         lender.setLenderLimit(new BigDecimal("25000"));
         lenderRepo.save(lender);
-        if (gateway) orgProvisioning.ensureEntityOrg(Enums.OrgType.LENDER, lender.getId(), lender.getName(), lenderUser.getId());
 
         // ---------------------------------------------------------------- merchant scene 1 (TC-SET-01, TC-ONB-01)
         onboardingService.registerMerchant(new Dtos.RegisterMerchantRequest(

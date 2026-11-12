@@ -68,6 +68,10 @@ public class OnboardingService {
         if (userRepo.existsByPhone(req.phone())) {
             throw new ConflictException("Phone already registered");
         }
+        // the entity org is provisioned FIRST (pregenerated id) so the user is born bound:
+        // users.org_id is NOT NULL (cut-over V15_1), and binding happens at INSERT time
+        String merchantId = java.util.UUID.randomUUID().toString().toLowerCase();
+        Organization mOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, merchantId, req.businessName());
         User user;
         if (properties.getIdentityMode().equals("legacy")) {
             user = new User();
@@ -75,15 +79,18 @@ public class OnboardingService {
             user.setPhone(req.phone());
             user.setRole(Enums.UserRole.MERCHANT);
             user.setStatus(Enums.UserStatus.ACTIVE);
+            user.setOrgId(mOrg.getId());
+            user.setOrgRole(Enums.OrgMemberRole.ADMIN);   // the registered owner admins its org
             userRepo.save(user);
         } else {
-            // gateway mode: PENDING pre-binding user — the entity's org binding (below)
-            // enrols it, exactly like the seeder's lender path
-            user = userLifecycle.createPreBinding(Enums.UserRole.MERCHANT, req.ownerName(),
-                    req.phone(), null, "self-registration");
+            // gateway mode: PENDING user, enrolled through the org lifecycle path
+            user = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    mOrg.getId(), req.ownerName(), null, req.phone(), null,
+                    Enums.UserRole.MERCHANT, Enums.OrgMemberRole.ADMIN, "self-registration"));
         }
 
         Merchant m = new Merchant();
+        m.setId(merchantId);
         m.setUserId(user.getId());
         m.setBusinessName(req.businessName());
         m.setBusinessType(req.businessType());
@@ -95,8 +102,6 @@ public class OnboardingService {
         m.setApprovalStatus(Enums.ApprovalStatus.PENDING);
         merchantRepo.save(m);
 
-        orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, m.getId(), m.getBusinessName(), user.getId());
-
         auditService.record(user.getId(), "MERCHANT", "merchant_registered", "merchant", m.getId(),
                 null, null, "self registration", false, null);
         return new Dtos.Message("Registration received - pending TPTS approval (UAT SB p.8)", null);
@@ -107,6 +112,9 @@ public class OnboardingService {
         if (userRepo.existsByPhone(req.phone())) {
             throw new ConflictException("Phone already registered");
         }
+        // the entity org is provisioned FIRST (pregenerated id) so the user is born bound
+        String supplierId = java.util.UUID.randomUUID().toString().toLowerCase();
+        Organization sOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.SUPPLIER, supplierId, req.businessName());
         User user;
         if (properties.getIdentityMode().equals("legacy")) {
             user = new User();
@@ -114,13 +122,17 @@ public class OnboardingService {
             user.setPhone(req.phone());
             user.setRole(Enums.UserRole.SUPPLIER);
             user.setStatus(Enums.UserStatus.ACTIVE);
+            user.setOrgId(sOrg.getId());
+            user.setOrgRole(Enums.OrgMemberRole.ADMIN);   // the registered owner admins its org
             userRepo.save(user);
         } else {
-            user = userLifecycle.createPreBinding(Enums.UserRole.SUPPLIER, req.ownerName(),
-                    req.phone(), null, "self-registration");
+            user = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    sOrg.getId(), req.ownerName(), null, req.phone(), null,
+                    Enums.UserRole.SUPPLIER, Enums.OrgMemberRole.ADMIN, "self-registration"));
         }
 
         Supplier s = new Supplier();
+        s.setId(supplierId);
         s.setUserId(user.getId());
         s.setBusinessName(req.businessName());
         s.setRegistrationNumber(req.registrationNumber());
@@ -129,8 +141,6 @@ public class OnboardingService {
         s.setApprovalStatus(Enums.ApprovalStatus.PENDING);
         supplierRepo.save(s);
 
-        Organization sOrg = orgProvisioning.ensureEntityOrg(Enums.OrgType.SUPPLIER, s.getId(),
-                s.getBusinessName(), user.getId());
         OrgBankAccount account = new OrgBankAccount();
         account.setOrg(sOrg);
         account.setBankName(req.bankName());

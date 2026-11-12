@@ -83,6 +83,7 @@ class AuthSyncRealIT {
     @Autowired UserRepository users;
     @Autowired IdentityLinkRepository links;
     @Autowired AuthOutboxRepository outboxRepo;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired JdbcTemplate jdbc;
     @Autowired MockMvc mockMvc;
     @Autowired com.mipay.sme.security.rbac.OrgTreeSyncService orgTreeSync;
@@ -110,26 +111,33 @@ class AuthSyncRealIT {
 
     private Seeded seedMerchant(String tag, boolean pending) {
         // the IdP keeps its accounts across IT runs: the phone must be fresh every run
-        User admin = lifecycle.createPreBinding(Enums.UserRole.MERCHANT, "Merchant " + tag,
-                "+264836" + String.format("%08d", new java.util.SplittableRandom().nextInt(100_000_000)),
-                tag + "@sync.test", "sync-it");
-        String id = admin.getId();
-        jdbc.update("""
-                INSERT INTO merchants (id, user_id, business_name, business_type, approval_status, kyc_status)
-                VALUES (?, ?, ?, 'RETAIL', 'PENDING', 'PENDING')
-                """, "mer-" + tag, id, "Sync IT " + tag);
-        var org = orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, "mer-" + tag, "Sync IT " + tag, id);
+        String phone = "+264836" + String.format("%08d", new java.util.SplittableRandom().nextInt(100_000_000));
+        // new-model self-registration in one transaction: the entity org exists first, so the
+        // user is born bound (users.org_id is NOT NULL since cut-over V15_1) and the enrol
+        // enqueues from lifecycle.create — the INSERT never carries a NULL home org
+        String id = new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
+            String merchantId = "mer-" + tag;
+            var org = orgProvisioning.ensureEntityOrg(Enums.OrgType.MERCHANT, merchantId, "Sync IT " + tag);
+            User admin = lifecycle.create(new UserLifecycleService.Registration(org.getId(), "Merchant " + tag,
+                    null, phone, tag + "@sync.test", Enums.UserRole.MERCHANT, Enums.OrgMemberRole.ADMIN, "sync-it"));
+            jdbc.update("""
+                    INSERT INTO merchants (id, user_id, business_name, business_type, approval_status, kyc_status)
+                    VALUES (?, ?, ?, 'RETAIL', 'PENDING', 'PENDING')
+                    """, merchantId, admin.getId(), "Sync IT " + tag);
+            return admin.getId();
+        });
+        String orgId = jdbc.queryForObject("SELECT org_id FROM users WHERE id=?", String.class, id);
         tick();   // the binding's enrol completes against the real IdP
         AuthOutbox row = outboxRepo.findAll().stream()
                 .filter(r -> id.equals(r.getUserId()) && "ENROL".equals(r.getCommand())).findFirst().orElseThrow();
         assertEquals(AuthOutbox.State.DONE, row.getState(), "bound user enrolled by the org binding: " + row.getLastError());
         if (!pending) {
-            jdbc.update("UPDATE organizations SET status='ACTIVE' WHERE id=?", org.getId());
+            jdbc.update("UPDATE organizations SET status='ACTIVE' WHERE id=?", orgId);
             jdbc.update("UPDATE users SET status='ACTIVE' WHERE id=?", id);
             jdbc.update("UPDATE identity_links SET status='ACTIVE', idp_enabled=true WHERE user_id=?", id);
             jdbc.update("UPDATE merchants SET approval_status='APPROVED' WHERE id=?", "mer-" + tag);
         }
-        return new Seeded(org.getId(), "mer-" + tag, id);
+        return new Seeded(orgId, "mer-" + tag, id);
     }
 
     private void tick() {

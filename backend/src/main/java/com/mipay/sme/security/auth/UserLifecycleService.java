@@ -98,26 +98,7 @@ public class UserLifecycleService {
         return user;
     }
 
-    /**
-     * Pre-binding creation for self registration and seeding: the user row exists before its
-     * home org does (the entity row that owns the org references the user id). The user is
-     * PENDING without credentials; binding to the org (bindToOrg) is what triggers enrolment.
-     */
-    @Transactional
-    public User createPreBinding(Enums.UserRole role, String name, String phone, String email, String createdBy) {
-        if (users.existsByPhone(phone)) throw new SimException("DUPLICATE_PHONE", "Phone already registered");
-        User user = new User();
-        user.setName(name);
-        user.setPhone(phone);
-        user.setEmail(email);
-        user.setRole(role);
-        user.setStatus(Enums.UserStatus.PENDING);
-        user.setCreatedBy(createdBy == null ? "lifecycle" : createdBy);
-        users.save(user);
-        em.flush();
-        return user;
-    }
-
+    
     /**
      * Binds a pre-binding user to its home org — only from unbound, since a home org is
      * immutable once set — and enrols the now-eligible user. Idempotent for the same org.
@@ -131,6 +112,11 @@ public class UserLifecycleService {
                 throw new ConflictException("ORG_MOVE_REFUSED", "a user's home org is immutable");
             return user;   // ensureEntityOrg is called on every access path: re-binding is a no-op
         }
+        // the home org is written BEFORE anything that may flush: a pre-binding user's INSERT
+        // is still pending and users.org_id refuses NULL per statement. If the org turns out
+        // ineligible the transaction rolls back, so nothing half-bound persists (P3.10a/D4).
+        user.setOrgId(orgId);
+        if (orgRole != null) user.setOrgRole(orgRole);
         Organization org = orgs.findById(orgId)
                 .orElseThrow(() -> new ForbiddenException("NO_ORG", "home org does not exist"));
         boolean pendingApplicant = org.getLifecycle() == Enums.OrgStatus.PENDING && orgRole == Enums.OrgMemberRole.ADMIN;
@@ -138,8 +124,6 @@ public class UserLifecycleService {
                 && !orgAccess.isOperational(org.getId()) && !pendingApplicant) {
             throw new ConflictException("ORG_INELIGIBLE", "users may only bind to operational or pending-applicant orgs");
         }
-        user.setOrgId(org.getId());
-        if (orgRole != null) user.setOrgRole(orgRole);
         if (createdBy != null) user.setCreatedBy(createdBy);
         if (user.getUsername() == null || user.getUsername().isBlank())
             user.setUsername(usernamePolicy.generate(user.getName(), user.getEmail()));
