@@ -23,6 +23,8 @@ docker compose --env-file .env --env-file release.env -f docker-compose.yml -f r
 docker compose --env-file .env --env-file release.env -f ../../trustplane/docker-compose.yml -f trustplane.override.yml -f ../../trustplane/release.override.yml config --quiet
 ```
 
+**Order matters.** Deploy the trustplane stack first: its `pki-init` exports the backend's restricted trust material to the external volume `trustplane_backend-pki`, which the mipay backend mounts. Then run `./preflight.sh` and only deploy the mipay stack when it passes; otherwise the backend fails to start on the missing volume.
+
 The overrides remove app image builds and require all nine image variables. Check that every value contains `@sha256:` before deployment. For an approved deployment, pull and start each stack with these same `-f` options, using `docker compose pull` followed by `docker compose up -d --no-build`. Save `release.env` with the release record; restoring the prior file and running the same commands provides an image rollback. Database changes may require a separate rollback plan.
 
 The Postgres, Alpine and other base images still use version tags. Pinning those digests, promoting candidates between environments, and an automated post-deploy image inventory remain to be done.

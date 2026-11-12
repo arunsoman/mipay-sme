@@ -45,7 +45,7 @@ public class OrgAccessMeshController {
     public record AssignBody(String actor, Boolean core_authorized, String subject, String role, String scope,
                              String expires_at, String reason, String source) {}
 
-    public record DecideBody(String actor, Boolean core_authorized, String reason) {}
+    public record DecideBody(String actor, Boolean core_authorized, String reason, String source) {}
 
     public record ApproveBody(String actor, Boolean approve, String reason) {}
 
@@ -135,10 +135,13 @@ public class OrgAccessMeshController {
         String actor = actorOf(b.actor());
         // the core decides its own writes (backfill, KYC go-live, user lifecycle): when the core
         // names a system source the decision flows as the core made it, otherwise core_portal
-        String source = b.source() != null && SYSTEM_SOURCES.contains(b.source()) ? b.source() : SOURCE;
+        // A system source is the core's own decision, not a portal user's: it never rides on the
+        // temporary core_authorized bridge, so go-live keeps working after the bridge closes.
+        boolean system = isSystem(b.source());
+        String source = system ? b.source() : SOURCE;
         return access.request(actor, new AccessService.AssignRequest(b.subject(), b.role(), tenant,
                         b.scope() == null || b.scope().isBlank() ? "own" : b.scope(), WebSupport.instant(b.expires_at()), b.reason()),
-                source, WebSupport.coreAuthorized(b.core_authorized(), cfg));
+                source, system || WebSupport.coreAuthorized(b.core_authorized(), cfg));
     }
 
     @PublicEndpoint("mesh: the core revokes a role assignment in the org on behalf of an org admin")
@@ -148,7 +151,12 @@ public class OrgAccessMeshController {
         core(req, svc);
         if (b == null) throw ApiException.badRequest("body required");
         if (!tenant.equals(access.view(id).get("tenant"))) throw ApiException.notFound();
-        return access.revoke(actorOf(b.actor()), id, b.reason(), false, WebSupport.coreAuthorized(b.core_authorized(), cfg));
+        boolean system = isSystem(b.source());
+        return access.revoke(actorOf(b.actor()), id, b.reason(), system, !system && WebSupport.coreAuthorized(b.core_authorized(), cfg));
+    }
+
+    private static boolean isSystem(String source) {
+        return source != null && SYSTEM_SOURCES.contains(source);
     }
 
     @PublicEndpoint("mesh: the core lists pending role requests in the org that the actor may decide")

@@ -63,7 +63,7 @@ public class PlatformRbacController {
         own.sort(null);
         return new Dtos.RbacRoleView(String.valueOf(m.get("name")), String.valueOf(m.getOrDefault("description", "")),
                 strings(m.get("permissions")), String.valueOf(m.get("kind")), String.valueOf(m.get("approval")),
-                Boolean.TRUE.equals(m.get("seeded")), strings(m.get("inherits")), own, strings(m.get("all_rows")));
+                Boolean.TRUE.equals(m.get("seeded")), Boolean.TRUE.equals(m.get("locked")), strings(m.get("inherits")), own, strings(m.get("all_rows")));
     }
 
     static Dtos.RbacAssignmentView assignment(Map<String, Object> m) {

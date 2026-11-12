@@ -29,9 +29,18 @@ public class OrgLifecycleService {
     private final AuditService auditService;
     private final com.mipay.sme.security.auth.AuthSyncService authSync;
 
+    public static final java.util.Set<Enums.OrgStatus> TERMINAL = java.util.EnumSet.of(Enums.OrgStatus.REJECTED, Enums.OrgStatus.BLOCKED);
+
     @Transactional
     public Organization transition(Organization org, Enums.OrgStatus to, String actorId) {
         Enums.OrgStatus from = org.getLifecycle();
+        // REJECTED and BLOCKED are terminal (cut-over plan U4, §3.3c): users are archived,
+        // RBAC assignments revoked and org-defined roles retired. A business that comes back
+        // is onboarded again as a new org, never revived.
+        if (from != null && from != to && TERMINAL.contains(from)) {
+            throw new com.mipay.sme.common.ConflictException("ORG_TERMINAL",
+                    "Organization is " + from + "; terminal states cannot be left - onboard it again as a new organization");
+        }
         org.setLifecycle(to);
         orgRepoMirror(org, to, actorId);
         auditService.record(actorId, "SYSTEM", "org_lifecycle", "organization", org.getId(),

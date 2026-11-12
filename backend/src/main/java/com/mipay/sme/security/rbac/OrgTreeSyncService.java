@@ -130,6 +130,13 @@ public class OrgTreeSyncService {
                 String.class);
     }
 
+    /** Rows with a blank id, and every row of a duplicated id, are left out of the sync. */
+    static List<Organization> validOrgs(List<Organization> all) {
+        Map<String, Long> counts = new HashMap<>();
+        for (Organization o : all) if (o.getId() != null && !o.getId().isBlank()) counts.merge(o.getId(), 1L, Long::sum);
+        return all.stream().filter(o -> o.getId() != null && !o.getId().isBlank() && counts.get(o.getId()) == 1L).toList();
+    }
+
     static boolean snapshotCountMatches(long expected, long actual) {
         return expected >= 0 && expected == actual;
     }
@@ -147,13 +154,17 @@ public class OrgTreeSyncService {
         if (rbacUrl == null || rbacUrl.isBlank()) return;
         try {
             String fp = fingerprint();
-            List<Organization> sourceOrgs = orgRepo.findAll();
+            List<Organization> allOrgs = orgRepo.findAll();
             long expectedOrgCount = jdbc.queryForObject("SELECT count(*) FROM organizations", Long.class);
-            if (!snapshotCountMatches(expectedOrgCount, sourceOrgs.size())
-                    || sourceOrgs.stream().anyMatch(o -> o.getId() == null || o.getId().isBlank())
-                    || sourceOrgs.stream().map(Organization::getId).distinct().count() != sourceOrgs.size()) {
-                log.error("[rbac-sync] refusing incomplete org snapshot: database={}, rows={}", expectedOrgCount, sourceOrgs.size());
+            if (!snapshotCountMatches(expectedOrgCount, allOrgs.size())) {
+                // a concurrent insert or a partial read: the next tick retries (fingerprint unchanged)
+                log.warn("[rbac-sync] org snapshot moved while reading (database={}, rows={}); retrying next tick", expectedOrgCount, allOrgs.size());
                 return;
+            }
+            // one bad row must not freeze the sync for every org: skip it loudly, sync the rest
+            List<Organization> sourceOrgs = validOrgs(allOrgs);
+            if (sourceOrgs.size() != allOrgs.size()) {
+                log.error("[rbac-sync] skipping {} org row(s) with a blank or duplicate id; fix the data", allOrgs.size() - sourceOrgs.size());
             }
 
             var sourceClosure = closureRepo.findAll();

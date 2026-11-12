@@ -689,7 +689,7 @@ public final class Dtos {
      * (what the matrix edits); {@code permissions} = effective (own + inherited + all-rows).
      */
     public record RbacRoleView(String name, String description, List<String> permissions,
-                               String kind, String approval, boolean seeded, List<String> inherits,
+                               String kind, String approval, boolean seeded, boolean locked, List<String> inherits,
                                List<String> own, List<String> allRows) { }
 
     /** Request to set a role's OWN cells ("row:verb"); inherited cells come from its juniors. */

@@ -292,8 +292,10 @@ public class AuthSyncService {
     /**
      * The KYC applicant becomes the org's admin at go-live: the RBAC kyc_applicant assignment
      * is revoked and org_admin granted in the org tenant (no duplicate account — the user row
-     * does not change). Failures are logged, never fatal: the nightly reconcile and RBAC's own
-     * subtree sync repair drifted assignments.
+     * does not change). Both writes use the system source kyc_go_live, so they do not depend on
+     * the temporary core_authorized bridge. Failures are logged at error level, never fatal;
+     * the per-org RBAC reconciliation report shows the drift. If the grant fails the applicant
+     * keeps kyc_applicant rather than being left with nothing.
      */
     @Transactional
     public void applicantBecomesAdmin(String orgId, String adminUid, String actorId) {
@@ -303,10 +305,15 @@ public class AuthSyncService {
         }
         String actor = actorId == null ? ACTOR_SYSTEM_KYC : actorId;
         try {
+            // a system source: the core's own decision, independent of the core_authorized bridge
+            // core_authorized only for an older RBAC during a rolling deploy; a current RBAC
+            // decides system sources without the bridge, so it keeps working after expiry
             rbac.assign(orgId, Map.of("actor", actor, "core_authorized", true, "subject", adminUid,
                     "role", "org_admin", "scope", "own", "reason", "kyc go-live", "source", "kyc_go_live"));
         } catch (Exception e) {
-            log.warn("go-live org_admin grant failed for {} in {}: {}", adminUid, orgId, e.getMessage());
+            log.error("[go-live] org_admin grant FAILED for {} in {} - the org admin has no RBAC admin role until repaired: {}",
+                    adminUid, orgId, e.getMessage());
+            return; // keep kyc_applicant: never leave the admin with neither role
         }
         // revoke the applicant's kyc_applicant assignment (there should be exactly one ACTIVE)
         try {
@@ -316,13 +323,14 @@ public class AuthSyncService {
                         && "ACTIVE".equalsIgnoreCase(String.valueOf(row.get("status")))) {
                     Map<String, Object> body = new LinkedHashMap<>();
                     body.put("actor", actor);
-                    body.put("core_authorized", true);
+                    body.put("source", "kyc_go_live");
+                    body.put("core_authorized", true);   // older RBAC only; see the grant above
                     body.put("reason", "kyc go-live: applicant becomes the org admin");
                     rbac.revoke(orgId, String.valueOf(row.get("id")), body);
                 }
             }
         } catch (Exception e) {
-            log.warn("go-live kyc_applicant revoke failed for {} in {}: {}", adminUid, orgId, e.getMessage());
+            log.error("[go-live] kyc_applicant revoke FAILED for {} in {}: {}", adminUid, orgId, e.getMessage());
         }
     }
 }

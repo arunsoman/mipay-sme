@@ -16,8 +16,9 @@ import {
  * - RBAC applies the grid save rules (no submit + authorize on one row, no simulate in
  *   production, platform roles don't both administer access and authorize customers) and
  *   refuses with a reason.
- * - Seeded roles are read-only here; changes go through the reviewed grid.yaml until the
- *   multi-approver matrix workflow is available. Org-defined roles are managed per org.
+ * - Seeded roles are editable in dev/sandbox (until the next grid.yaml change) and locked
+ *   in uat/production, where the reviewed grid.yaml is the only path until the
+ *   multi-approver matrix workflow exists. Org-defined roles are managed per org.
  */
 @Component({
   selector: 'mpa-permission-matrix',
@@ -98,10 +99,11 @@ import {
           <div class="meta small">
             <span>inherits: {{ r.inherits.length ? r.inherits.join(', ') : 'nothing' }}</span>
             <span>granting needs: {{ r.approval }}</span>
-            @if (r.seeded) {<span class="chip amber">seeded · read-only</span>}
+            @if (r.locked) {<span class="chip amber">seeded · read-only</span>}
+            @else if (r.seeded) {<span class="chip amber">seeded · sandbox edit, lasts until the next grid.yaml change</span>}
           </div>
-          @if (r.seeded) {
-            <div class="seeded-warning" role="status">Seeded roles cannot be changed in the UI yet. Update the reviewed grid.yaml and deploy it.</div>
+          @if (r.locked) {
+            <div class="seeded-warning" role="status">Seeded roles cannot be changed here in this environment. Update the reviewed grid.yaml and deploy it.</div>
           }
           <div class="legend small">
             <span><i class="sw own"></i> own (editable)</span>
@@ -127,7 +129,7 @@ import {
                         <input type="checkbox" [attr.aria-label]="row.id + ':' + v"
                                [class]="st" [class.dirty]="isDirty(row.id, v)"
                                [checked]="st === 'own' || st === 'inherited'"
-                               [disabled]="r.seeded || st === 'na' || st === 'inherited' || busy()"
+                               [disabled]="r.locked || st === 'na' || st === 'inherited' || busy()"
                                (change)="toggle(row.id, v)" />
                       </td>
                     }
@@ -305,7 +307,7 @@ export class PermissionMatrix implements OnInit {
   }
 
   toggle(row: string, v: RbacVerb) {
-    if (this.selected()?.seeded) return;
+    if (this.selected()?.locked) return;
     const c = `${row}:${v}`;
     const w = new Set(this.work());
     if (w.has(c)) w.delete(c); else w.add(c);
@@ -320,7 +322,7 @@ export class PermissionMatrix implements OnInit {
 
   async save() {
     const r = this.selected();
-    if (!r || r.seeded) return;
+    if (!r || r.locked) return;
     this.busy.set(true);
     this.saveError.set('');
     try {

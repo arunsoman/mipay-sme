@@ -96,13 +96,21 @@ public class OrgGoLiveBridge {
         if (!properties.getIdentityMode().equals("legacy")) {
             List<String> subtree = closureRepo.findSubtree(org.getId()).stream()
                     .map(r -> r.getOrg().getId()).toList();
-            List<String> orgIds = subtree.isEmpty() ? List.of(org.getId()) : subtree;
-            for (User u : userRepo.findByOrgIdIn(orgIds)) archiveUser(u);
-            try {
-                if (rbac.configured()) rbac.revokeAll(org.getId(), "org rejected/closed: subtree archived");
-            } catch (Exception e) {
-                // assignments are reconcilable: the log records the drift, the next run repairs
-                log.warn("rbac revoke-all failed for {}: {}", org.getId(), e.getMessage());
+            java.util.LinkedHashSet<String> orgIds = new java.util.LinkedHashSet<>();
+            orgIds.add(org.getId());
+            orgIds.addAll(subtree);
+            for (User u : userRepo.findByOrgIdIn(List.copyOf(orgIds))) archiveUser(u);
+            // every tenant in the subtree loses its assignments, grants and org-defined roles,
+            // not only the terminated org itself
+            if (rbac.configured()) {
+                for (String tenant : orgIds) {
+                    try {
+                        rbac.revokeAll(tenant, tenant.equals(org.getId()) ? "org rejected/closed: subtree archived"
+                                : "ancestor " + org.getId() + " rejected/closed: subtree archived");
+                    } catch (Exception e) {
+                        log.error("[terminate] rbac revoke-all FAILED for {} (subtree of {}): {}", tenant, org.getId(), e.getMessage());
+                    }
+                }
             }
             return;
         }

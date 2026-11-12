@@ -247,6 +247,8 @@ export interface RbacRoleView {
   kind: string;
   approval: string;
   seeded: boolean;
+  /** seeded and the environment is uat/production: change it through the reviewed grid.yaml */
+  locked: boolean;
   inherits: string[];
   own: string[];
   allRows: string[];

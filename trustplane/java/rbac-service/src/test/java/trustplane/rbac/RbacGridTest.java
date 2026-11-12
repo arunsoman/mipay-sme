@@ -327,9 +327,12 @@ class RbacGridTest {
         assertEquals(400, status(() -> store.createRole("ua1", "phantom", "", "ORG",
                 store.parseGrid(Map.of("merchant.account", List.of("delete")), null), List.of())), "a cell no endpoint uses can't be ticked");
         assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null, null, List.of("org_admin"))), "hierarchy cycles refused");
-        // Seeded production grids require a reviewed seed change; custom roles remain editable.
-        assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null,
-                store.parseGrid(Map.of("merchant.account", List.of("read")), null), null)), "seeded roles are read-only");
+        // Seeded grids are locked in uat/production (reviewed seed change only); custom roles remain editable.
+        RbacStore uatStore = new RbacStore(db, new WatchHub(), policy, config("uat"), ceilings);
+        assertTrue(uatStore.seedLocked());
+        assertFalse(store.seedLocked(), "dev keeps seeded grids editable");
+        assertEquals(409, status(() -> uatStore.updateRole("ua1", "org_viewer", null,
+                store.parseGrid(Map.of("merchant.account", List.of("read")), null), null)), "seeded roles are read-only in uat");
         store.createRole("ua1", "editable_viewer", "", "ORG",
                 store.parseGrid(Map.of("merchant.account", List.of("read"), "kyc.application", List.of("read")), null), List.of());
         store.updateRole("ua1", "editable_viewer", null, store.parseGrid(Map.of("merchant.account", List.of("read")), null), null);
@@ -399,7 +402,8 @@ class RbacGridTest {
 
     @Test
     void seedIsIdempotentAndSeededRolesRequireReviewedChanges() throws Exception {
-        assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null,
+        RbacStore uatStore = new RbacStore(db, new WatchHub(), policy, config("uat"), ceilings);
+        assertEquals(409, status(() -> uatStore.updateRole("ua1", "org_viewer", null,
                 store.parseGrid(Map.of("org.tree", List.of("read")), null), null)));
         seed.apply();
         assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "an unchanged seed remains authoritative");
@@ -553,7 +557,7 @@ class RbacGridTest {
                 closure.add(Map.of("ancestor", cur, "descendant", e.getKey(), "depth", depth));
             }
             rows.add(new RbacStore.OrgRow(e.getKey(), e.getKey(), e.getValue()[0], e.getValue()[1],
-                    "oka2".equals(e.getKey()) ? "CLOSED" : "ACTIVE", false, List.of()));
+                    "oka2".equals(e.getKey()) ? "BLOCKED" : "ACTIVE", false, List.of()));
         }
         store.syncOrgs(closure, rows);
         assertTrue(policy.get().roles().get("counter@oka2").retired());
@@ -568,5 +572,13 @@ class RbacGridTest {
         assertFalse(policy.get().roles().get("counter@oka2").retired());
         assertTrue(policy.get().roles().get("stock_clerk@oka").retired(), "explicit core revocation is not undone");
         assertEquals("REVOKED", access.view(counterAssignment).get("status"));
+
+        // CLOSED / ARCHIVED are final: a later non-terminal lifecycle never revives the roles
+        List<RbacStore.OrgRow> archived = rows.stream().map(o -> new RbacStore.OrgRow(
+                o.id(), o.name(), o.type(), o.parent(), "oka2".equals(o.id()) ? "ARCHIVED" : "ACTIVE", o.held(), o.holds())).toList();
+        store.syncOrgs(closure, archived);
+        assertTrue(policy.get().roles().get("counter@oka2").retired());
+        store.syncOrgs(closure, corrected);
+        assertTrue(policy.get().roles().get("counter@oka2").retired(), "archived orgs are never revived");
     }
 }

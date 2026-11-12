@@ -125,7 +125,9 @@ public class RbacStore {
                     o.id(), o.name() == null ? o.id() : o.name(), o.type(), o.parent(), lifecycle, o.held(), holds);
             Map<String, Object> b = before.get(o.id());
             if (b == null || !Boolean.valueOf(o.held()).equals(b.get("held")) || !lifecycle.equals(b.get("lifecycle"))) changed.add(o.id());
-            if (b != null && Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(b.get("lifecycle"))
+            // The core never leaves REJECTED/BLOCKED (OrgLifecycleService), so this only fires when
+            // a wrong lifecycle is corrected. CLOSED and ARCHIVED are final here too: never revived.
+            if (b != null && Set.of("REJECTED", "BLOCKED").contains(b.get("lifecycle"))
                     && !Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(lifecycle)) reactivated.add(o.id());
             if (o.ceilingSent()) {
                 List<String> roles = o.roleCeiling() == null ? null : o.roleCeiling().stream().distinct().sorted().toList();
@@ -156,7 +158,7 @@ public class RbacStore {
             }
         }
         changed.addAll(ceilings.clampAll()); // child within parent (extended-rbac X4)
-        // Restore role definitions on recovery; historical assignment revocations remain final.
+        // Restore role definitions after a lifecycle correction; revoked assignments stay revoked.
         restoreOrgRoles(reactivated, "mipay");
         retireOrgRoles(db.queryForList("SELECT id FROM tenants WHERE source='mipay' AND lifecycle IN ('REJECTED','BLOCKED','CLOSED','ARCHIVED')", String.class), "mipay");
         for (String id : changed) touchTenantTree(id);
@@ -236,6 +238,15 @@ public class RbacStore {
     // Roles and grids
     // ------------------------------------------------------------------
 
+    /**
+     * Seeded grids are locked in uat and production (a reviewed grid.yaml change is the only
+     * path there). In dev and sandbox they stay editable so the matrix can be tried out; the
+     * edit lasts until the next seed change.
+     */
+    public boolean seedLocked() {
+        return !Set.of("dev", "sandbox").contains(cfg.environment());
+    }
+
     public Map<String, Object> roleView(Policy.Role r) {
         Policy.Snapshot s = policy.get();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -245,6 +256,7 @@ public class RbacStore {
         m.put("approval", r.approval());
         m.put("max_hours", r.maxHours());
         m.put("seeded", r.seeded());
+        m.put("locked", r.seeded() && seedLocked());
         m.put("inherits", r.juniors());
         m.put("owner_tenant", r.ownerTenant());
         m.put("base_roles", r.baseRoles());
@@ -346,8 +358,8 @@ public class RbacStore {
     public Map<String, Object> updateRole(String actor, String name, String description, Map<String, Integer> grid, List<String> inherits) {
         Policy.Role r = policy.get().roles().get(name);
         if (r == null) throw ApiException.notFound();
-        if (r.seeded()) throw new ApiException(409, "REVIEWED_SEED_REQUIRED",
-                "seeded roles are read-only until a multi-approver matrix workflow is available; change the reviewed grid.yaml seed");
+        if (r.seeded() && seedLocked()) throw new ApiException(409, "REVIEWED_SEED_REQUIRED",
+                "seeded roles are read-only in " + cfg.environment() + " until a multi-approver matrix workflow is available; change the reviewed grid.yaml seed");
         if (description != null && !description.isBlank()) db.update("UPDATE roles SET description=?, updated_at=now() WHERE name=?", description, name);
         Map<String, Object> diff = new LinkedHashMap<>();
         if (grid != null) {
