@@ -47,6 +47,11 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // This export utility is run explicitly with ROLE_PACK_DSN and ROLE_PACK_OUT. Keeping it
+    // out of ordinary test runs prevents an intentional JUnit skip from hiding test coverage.
+    if (System.getenv("ROLE_PACK_DSN").isNullOrBlank() || System.getenv("ROLE_PACK_OUT").isNullOrBlank()) {
+        exclude("**/RolePackExport.class")
+    }
     environment("TEST_RBAC_DSN", System.getenv("TEST_RBAC_DSN") ?: "")
     // CI must exercise the Postgres-backed policy tests instead of accepting JUnit skips.
     environment("REQUIRE_RBAC_DSN", System.getenv("REQUIRE_RBAC_DSN") ?: if (System.getenv("CI") == "true") "true" else "")
