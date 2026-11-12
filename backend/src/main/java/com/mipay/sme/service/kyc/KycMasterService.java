@@ -134,6 +134,11 @@ public class KycMasterService {
         KycSchemaVersion schema = schemaRepo.findById(profile.getSchemaVersionId())
                 .orElseThrow(() -> new ConflictException("KYC_MASTER_BROKEN",
                         "Schema version " + profile.getSchemaVersionId() + " does not exist"));
+        return bundleOf(profile, schema);
+    }
+
+    /** The profile's workflow and params over the given schema version's sections, fields and rules. */
+    private ProfileBundle bundleOf(KycProfile profile, KycSchemaVersion schema) {
         List<KycSection> sections = sectionRepo.findBySchemaVersionIdOrderBySortAsc(schema.getId());
         Map<String, List<KycField>> fields = new LinkedHashMap<>();
         for (KycSection section : sections) {
@@ -153,11 +158,23 @@ public class KycMasterService {
         if (cached != null) return cached;
         KycSchemaVersion schema = schemaRepo.findById(schemaVersionId)
                 .orElseThrow(() -> new NotFoundException("Schema version not found"));
-        List<KycProfile> profiles = profileRepo.findByActiveTrue().stream()
+        List<KycProfile> active = profileRepo.findByActiveTrue();
+        List<KycProfile> profiles = active.stream()
                 .filter(p -> schemaVersionId.equals(p.getSchemaVersionId()))
                 .toList();
-        if (profiles.isEmpty()) throw new NotFoundException("No profile uses this schema version");
-        ProfileBundle bundle = bundleOf(profiles.get(0));
+        ProfileBundle bundle;
+        if (!profiles.isEmpty()) {
+            bundle = bundleOf(profiles.get(0));
+        } else {
+            // A superseded version: applications pinned to it keep its form and rules, and run
+            // under the workflow of the profile that moved on to the successor of the same code.
+            KycProfile successor = active.stream()
+                    .filter(p -> schemaRepo.findById(p.getSchemaVersionId())
+                            .map(v -> v.getCode().equals(schema.getCode())).orElse(false))
+                    .findFirst().orElse(active.isEmpty() ? null : active.get(0));
+            if (successor == null) throw new NotFoundException("No profile uses this schema version");
+            bundle = bundleOf(successor, schema);
+        }
         profileCache.put(key, bundle);
         return bundle;
     }

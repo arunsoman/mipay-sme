@@ -402,7 +402,22 @@ class TUat19KycApplicationTests extends UatSupport {
         assertThat(w.status()).isEqualTo("WITHDRAWN");
     }
 
+    @Test
+    @Order(9)
+    @DisplayName("TC-KYCAPP-09 · an application pinned to a superseded form still opens with that form")
+    void tc09_supersededVersionStillLoads() {
+        var v1 = schemaVersions.findByCodeAndVersion("NA-PSP-BUSINESS", 1).orElseThrow();
+        var bundle = kycMaster.bySchemaVersion(v1.getId());
+        assertThat(bundle.schema().getId()).isEqualTo(v1.getId());
+        assertThat(bundle.sections()).isNotEmpty()
+                .allMatch(s -> s.getSchemaVersionId().equals(v1.getId()));
+        assertThat(bundle.profile()).isNotNull();
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    @Autowired private com.mipay.sme.repository.KycSchemaVersionRepository schemaVersions;
+    @Autowired private com.mipay.sme.service.kyc.KycMasterService kycMaster;
 
     private KycApplication open(String orgId) {
         return kycRepo.findFirstByOrgIdAndStatusInOrderByCreatedAtDesc(orgId, KycApplication.OPEN_STATUSES)
