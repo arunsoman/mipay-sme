@@ -39,6 +39,7 @@ sign_server() { # name, cn, san...
 sign_server gateway "sme-gateway" "DNS:gateway,DNS:localhost,DNS:idp.fapi.local,DNS:api.fapi.local,DNS:rbac.fapi.local"
 sign_server idp    "sme-idp"    "DNS:idp"
 sign_server rbac   "sme-rbac"   "DNS:rbac"
+sign_server comms  "sme-comms"  "DNS:comms"
 
 # gateway mesh CLIENT cert (used for upstream mTLS)
 if [ ! -f "$PKI/gateway-mesh.pem" ]; then
@@ -102,6 +103,12 @@ partner_cert() { # name, cn
 partner_cert cert-a "partner-cli-a"
 partner_cert cert-b "partner-cli-b"
 
+# ---- comms plane data key (AES-GCM for queued secrets and contacts, blind index) ----
+# Separate from the KYC and MFA keys (comms-design.md §9).
+if [ ! -f "$PKI/comms-data-key" ]; then
+  openssl rand -hex 32 > "$PKI/comms-data-key"
+fi
+
 # ---- gateway context HMAC secret -------------------------------------------
 if [ ! -f "$PKI/ctx-secret" ]; then
   openssl rand -hex 32 > "$PKI/ctx-secret"
@@ -110,7 +117,7 @@ fi
 
 # service containers run as uid 10001: they must be able to read their keys
 chown -R 10001:10001 "$PKI" 2>/dev/null || true
-chmod 640 "$PKI"/*-key.pem "$PKI"/signing/*.pem "$PKI"/clients/*.pem "$PKI"/ctx-secret 2>/dev/null || true
+chmod 640 "$PKI"/*-key.pem "$PKI"/signing/*.pem "$PKI"/clients/*.pem "$PKI"/ctx-secret "$PKI"/comms-data-key 2>/dev/null || true
 chmod 755 "$PKI" "$PKI/signing" "$PKI/clients"
 
 echo "[pki] ready:"

@@ -1,0 +1,77 @@
+# Comms plane B0 configuration (docs/plans/comms-design.md §5, §6, §8, §12 P0).
+#
+# callers:        mesh certificate CN (normalised: "sme-idp" -> "idp", "sme-mipay-mesh" -> "mipay")
+#                 -> event-code prefixes it may send (comms-design §9: "callers may only use
+#                 event codes granted to them").
+# contact_writers: callers allowed to write contact details. The core is the ONLY writer
+#                 (idp-rbac-cutover-plan.md §1.2, 2fa-design.md D10).
+# providers:      one provider per channel in B0. `sandbox` writes to sim_outbox and is refused
+#                 when COMMS_ENVIRONMENT=production. Real SMS/email providers arrive in B1.
+# event_policies: the "how" per event code: category, lane, channel chain (first channel the
+#                 recipient has a contact for), default TTL, and which variables are secret
+#                 (encrypted in the queue, never stored in messages, wiped on a terminal state).
+# templates:      platform defaults, imported as PUBLISHED version 1 (immutable once published).
+
+callers:
+  idp: ["auth."]
+  mipay: ["account.", "kyc.", "org.", "payment.", "auth.security."]
+
+contact_writers: [mipay]
+
+providers:
+  sms: {kind: sandbox}
+  email: {kind: sandbox}
+
+event_policies:
+  auth.otp.sms:
+    category: SECURITY
+    lane: CRITICAL
+    channels: [sms]
+    ttl: 5m
+    require_expiry: true
+    secret: [code]
+  auth.password.reset:
+    category: SECURITY
+    lane: CRITICAL
+    channels: [sms, email]
+    ttl: 1h
+    require_expiry: true
+    secret: [link]
+  auth.security.notice:
+    category: SECURITY
+    lane: CRITICAL
+    channels: [email, sms]
+    ttl: 24h
+  account.setup:
+    category: SECURITY
+    lane: CRITICAL
+    channels: [email, sms]
+    ttl: 72h
+    require_expiry: true
+    secret: [link]
+
+templates:
+  - event: auth.otp.sms
+    channel: sms
+    body: "Your MiPay sign-in code is {{code}}. It expires in 5 minutes. Never share it."
+  - event: auth.password.reset
+    channel: sms
+    body: "Reset your MiPay password (link works once, expires in 1 hour): {{link}}"
+  - event: auth.password.reset
+    channel: email
+    subject: "Reset your MiPay password"
+    body: "Someone asked to reset the password of your MiPay account.\n\nReset it here (the link works once and expires in 1 hour):\n{{link}}\n\nIf this was not you, ignore this message and tell your administrator."
+  - event: auth.security.notice
+    channel: email
+    subject: "MiPay security notice"
+    body: "{{message}}"
+  - event: auth.security.notice
+    channel: sms
+    body: "MiPay security notice: {{message}}"
+  - event: account.setup
+    channel: email
+    subject: "Set up your MiPay account"
+    body: "Hello {{name}},\n\nYour MiPay account is ready. Set your password here (the link works once and expires in 72 hours):\n{{link}}"
+  - event: account.setup
+    channel: sms
+    body: "Hello {{name}}, set up your MiPay account (link expires in 72 hours): {{link}}"
