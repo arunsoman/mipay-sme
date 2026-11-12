@@ -74,6 +74,13 @@ public class PlatformRbacController {
     // ---------------- roles and the grid ----------------
 
     @Perm(resource = "rbac.role", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Whether RBAC decides application access (shadow | enforce | off)")
+    @GetMapping("/mode")
+    public Map<String, Object> mode() {
+        return Map.of("mode", rbacMode);
+    }
+
+    @Perm(resource = "rbac.role", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "List the standard RBAC roles with their own and effective cells")
     @GetMapping("/roles")
     public List<Dtos.RbacRoleView> roles() {

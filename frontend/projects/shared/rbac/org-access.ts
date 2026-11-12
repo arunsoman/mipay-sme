@@ -28,9 +28,13 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, Modal, RoleCeiling],
   template: `
-    <div class="rbac-status" role="status">
-      RBAC roles and ceilings are not yet enforced for MiPay application access. Existing legacy role checks still control access.
-    </div>
+    @if (roles(); as rv) {
+      @if (rv.rbac_mode && rv.rbac_mode !== 'enforce') {
+        <div class="rbac-status" role="status">
+          RBAC is in {{ rv.rbac_mode }} mode: these roles and ceilings do not yet decide MiPay application access; the legacy role checks do.
+        </div>
+      }
+    }
     @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
 
     <section class="panel pad">

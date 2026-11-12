@@ -333,6 +333,56 @@ roles:
       merchant.payment: [simulate]
       merchant.advance: [simulate]
 
+  # Legacy parity (OA8, enforce): the cells today's TPTS_OPS / MINDLABS_ADMIN reach that
+  # the designed roles above do not. RBacBackfill assigns them next to the D9 roles so
+  # switching enforcement on changes nobody's access. The legacy checks still run as
+  # well, so these never widen effective access. Shrink them in the matrix as the D9
+  # split takes over; delete them when empty. Split in two each because a platform role
+  # may not both administer and authorize.
+  legacy_tpts_ops:
+    kind: PLATFORM
+    approval: platform
+    description: "Legacy parity: today's TPTS ops access to org onboarding, org users, org roles and KYC editing, beyond the D9 roles"
+    grid:
+      kyc.application: [modify, submit, delete]
+      org.onboarding: [create, authorize]
+      org.user: [create, delete]
+      rbac.role: [create, modify, delete]
+      rbac.assignment: [create, authorize, administer]
+
+  legacy_tpts_ops_admin:
+    kind: PLATFORM
+    approval: platform
+    description: "Legacy parity: today's TPTS ops administration of org rights, suspensions and org users"
+    grid:
+      org.rights: [administer]
+      org.suspension: [administer]
+      org.user: [administer]
+
+  legacy_mindlabs_admin:
+    kind: PLATFORM
+    approval: platform
+    description: "Legacy parity: today's MiNdLABS admin access to KYC, onboarding, compliance screens and org administration, beyond the D9 roles"
+    grid:
+      admin.aml_alert: [read]
+      admin.dsar: [read, create, export]
+      admin.sar: [read, create, submit]
+      admin.bootstrap: [administer]
+      kyc.application: [read, modify, submit, delete]
+      kyc.form: [read]
+      kyc.task: [read]
+      org.onboarding: [read, create]
+      org.rights: [read, administer]
+      org.suspension: [administer]
+
+  legacy_mindlabs_review:
+    kind: PLATFORM
+    approval: platform
+    description: "Legacy parity: today's MiNdLABS admin decisions on KYC tasks and onboarding requests"
+    grid:
+      kyc.task: [authorize]
+      org.onboarding: [authorize]
+
 # ---------------------------------------------------------------------------
 # Role ceilings (docs/plans/extended-rbac.md X3): ORG roles inside EVERY org's ceiling,
 # whatever the onboarder chose, so an org can always fill in its KYC and be administered.

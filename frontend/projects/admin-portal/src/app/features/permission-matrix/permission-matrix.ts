@@ -79,9 +79,11 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
   template: `
-    <div class="rbac-status" role="status">
-      This matrix configures RBAC policy data. RBAC is not yet enforced for MiPay application access; existing legacy role checks still control access.
-    </div>
+    @if (rbacMode() && rbacMode() !== 'enforce') {
+      <div class="rbac-status" role="status">
+        RBAC is in {{ rbacMode() }} mode: these roles do not yet decide MiPay application access; the legacy role checks do.
+      </div>
+    }
 
     <div class="head">
       <h2>Permission Matrix</h2>
@@ -348,6 +350,8 @@ export class PermissionMatrix implements OnInit {
   /** The edited role's own cells (all rows, not only the visible ones). */
   readonly work = signal<Set<string>>(new Set());
   readonly loading = signal(false);
+  /** app.rbac.mode on the backend; the warning shows only while RBAC does not decide. */
+  readonly rbacMode = signal('');
   readonly busy = signal(false);
   readonly problem = signal('');
   readonly saveError = signal('');
@@ -441,7 +445,11 @@ export class PermissionMatrix implements OnInit {
     return n;
   });
 
-  async ngOnInit() { await this.reload(); }
+  async ngOnInit() {
+    firstValueFrom(this.http.get<{ mode: string }>('/api/admin/rbac/mode'))
+      .then((m) => this.rbacMode.set(m.mode)).catch(() => this.rbacMode.set('unknown'));
+    await this.reload();
+  }
 
   async reload() {
     this.loading.set(true);

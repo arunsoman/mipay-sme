@@ -141,6 +141,23 @@ public class MeshController {
         return access.revokeGrant(AccessService.SYSTEM, id, true);
     }
 
+    public record CheckBody(String subject, String tenant, String operation, Map<String, String> attributes) {}
+
+    /**
+     * The core's @Perm decision (cut-over P6 / OA8): the same answer as gRPC Check, over the
+     * mesh the core already speaks. tenant "" = in any tenant.
+     */
+    @PublicEndpoint("mesh: the core asks for a decision on one grid cell (@Perm enforcement)")
+    @PostMapping("/rbac/internal/check")
+    public Map<String, Object> check(@RequestBody CheckBody b, @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc,
+                                     HttpServletRequest req) {
+        WebSupport.meshCaller(req, svc, core());
+        Decisions.Decision d = decisions.check(new Decisions.Request(b.subject(), b.tenant() == null ? "" : b.tenant(),
+                b.operation(), List.of(), b.attributes() == null ? Map.of() : b.attributes()));
+        return Map.of("allowed", d.allowed(), "reason", d.reason(), "decision_id", d.decisionId(),
+                "tenant_version", d.tenantVersion(), "matched_roles", d.matchedRoles());
+    }
+
     @PublicEndpoint("liveness probe (mTLS at the listener)")
     @GetMapping("/healthz")
     public ResponseEntity<String> health() {

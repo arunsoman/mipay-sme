@@ -108,7 +108,9 @@ public class OrgAccessController {
     @GetMapping("/roles")
     public Map<String, Object> roles(@PathVariable String id) {
         tree.visible(Current.get(), id);
-        return rbac.rolesFor(id);
+        Map<String, Object> out = new LinkedHashMap<>(rbac.rolesFor(id));
+        out.put("rbac_mode", rbacMode); // the portal's "not yet enforced" note shows only outside enforce
+        return out;
     }
 
     /** {name (slug), description, baseRoles[], permissions["row:verb"]} */

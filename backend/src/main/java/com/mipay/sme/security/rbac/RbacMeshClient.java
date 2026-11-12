@@ -153,6 +153,12 @@ public class RbacMeshClient {
         return call("POST", "/rbac/internal/platform/assignments/" + enc(id) + "/revoke", body, new TypeReference<>() { });
     }
 
+    /** One @Perm decision: {allowed, reason, decision_id, ...}. tenant "" = in any tenant. */
+    public Map<String, Object> check(String subject, String tenant, String operation) {
+        return call("POST", "/rbac/internal/check", Map.of("subject", subject, "tenant", tenant == null ? "" : tenant,
+                "operation", operation), new TypeReference<>() { });
+    }
+
     // ------------------------------------------------------------------
 
     private HttpClient http() throws Exception {

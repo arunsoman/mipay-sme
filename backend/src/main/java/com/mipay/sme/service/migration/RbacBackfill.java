@@ -126,9 +126,12 @@ public class RbacBackfill {
         for (User u : users.findAll().stream()
                 .filter(x -> x.getRole() == Enums.UserRole.TPTS_OPS || x.getRole() == Enums.UserRole.MINDLABS_ADMIN)
                 .toList()) {
+            // the D9 roles, plus the legacy-parity roles (grid.yaml) so enforcement changes no
+            // one's access; sandbox_tester covers the simulation screens and is refused in production
             List<String> roles = u.getRole() == Enums.UserRole.TPTS_OPS
-                    ? List.of("platform_ops_reviewer", "platform_operations")
-                    : List.of("platform_user_admin", "platform_engineer");
+                    ? List.of("platform_ops_reviewer", "platform_operations", "legacy_tpts_ops", "legacy_tpts_ops_admin")
+                    : List.of("platform_user_admin", "platform_engineer", "legacy_mindlabs_admin",
+                            "legacy_mindlabs_review", "sandbox_tester");
             for (String role : roles) {
                 if (!dry && assign(rows, u.getId(), role, platformTenant, "all")) assignments++;
                 else if (dry) rows.add(new Row(u.getId(), role, platformTenant, "WOULD_ASSIGN", "from " + u.getRole()));

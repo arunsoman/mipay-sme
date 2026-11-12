@@ -159,6 +159,20 @@ class RbacGridTest {
     }
 
     @Test
+    void legacyParityRolesBackfillCleanly() {
+        // RbacBackfill's sets for today's TPTS_OPS and MINDLABS_ADMIN pass SoD and the grid rules
+        for (String r : List.of("platform_ops_reviewer", "platform_operations", "legacy_tpts_ops", "legacy_tpts_ops_admin"))
+            assertEquals("ACTIVE", assign("ops1", r, null, "all").get("status"), r);
+        for (String r : List.of("platform_user_admin", "platform_engineer", "legacy_mindlabs_admin", "legacy_mindlabs_review", "sandbox_tester"))
+            assertEquals("ACTIVE", assign("ml1", r, null, "all").get("status"), r);
+        assertTrue(allowed("ops1", "oka", "org.suspension:administer"), "ops keeps suspend / lift");
+        assertTrue(allowed("ops1", "", "org.onboarding:authorize"), "ops keeps onboarding decisions");
+        assertTrue(allowed("ml1", "", "admin.aml_alert:read"), "admin keeps the AML alerts screen");
+        assertTrue(allowed("ml1", "oka", "kyc.application:read"), "admin keeps the Organizations page");
+        assertFalse(allowed("ops1", "", "admin.config:modify"), "parity adds nothing legacy refused");
+    }
+
+    @Test
     void workedExampleG7() {
         assertTrue(allowed("selma", "oka", "kyc.application:modify"), "1. Selma saves the KYC draft");
         assertTrue(allowed("selma", "oka", "kyc.application.modify"), "design spelling row.verb accepted");

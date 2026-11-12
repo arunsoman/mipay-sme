@@ -38,6 +38,8 @@ export interface OrgRolesView {
   ceiling: { unrestricted: boolean; explicit: boolean; inherited_from: string | null; roles: string[]; delegable: string[]; baseline: string[] };
   roles: RbacRole[];
   org_roles: RbacRole[];
+  /** app.rbac.mode on the backend: shadow | enforce | off */
+  rbac_mode?: string;
 }
 
 export interface RoleAssignment {
