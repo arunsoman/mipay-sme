@@ -29,8 +29,13 @@ const (
 var ErrBadContext = errors.New("ctxauth: invalid gateway context")
 
 type Context struct {
+	Issuer     string   `json:"iss,omitempty"`
 	Sub        string   `json:"sub"`
 	UID        string   `json:"uid,omitempty"` // core user id (RBAC subject); idp-rbac-cutover-plan.md P1.7
+	SID        string   `json:"sid,omitempty"`
+	ACR        string   `json:"acr,omitempty"`
+	AMR        []string `json:"amr,omitempty"`
+	AuthTime   int64    `json:"auth_time,omitempty"`
 	ClientID   string   `json:"client_id,omitempty"`
 	TokenID    string   `json:"token_jti,omitempty"`
 	CertThumb  string   `json:"cert_thumb,omitempty"`

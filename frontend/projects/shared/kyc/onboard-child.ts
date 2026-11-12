@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, OnInit, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, OnInit, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -205,6 +205,8 @@ export class OnboardChild implements OnInit {
   readonly kycChanged = output<string>();
 
   private readonly http = inject(HttpClient);
+  private readonly destroyRef = inject(DestroyRef);
+  private loadingGrantable = false;
   readonly businessTypes = ['RETAIL', 'WHOLESALE', 'SERVICES', 'FOOD', 'TRANSPORT', 'OTHER'];
 
   readonly grantable = signal<GrantableView | null>(null);
@@ -230,7 +232,18 @@ export class OnboardChild implements OnInit {
   needsOwner(t: string) { return t === 'MERCHANT' || t === 'SUPPLIER'; }
   allowedSummary(g: GrantableView) { return g.children.map((c) => this.title(c.type)).join(', '); }
 
-  async ngOnInit() { await this.loadGrantable(); }
+  async ngOnInit() {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void this.loadGrantable();
+    }, 10000);
+    const refresh = () => { if (!document.hidden) void this.loadGrantable(); };
+    document.addEventListener('visibilitychange', refresh);
+    this.destroyRef.onDestroy(() => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    });
+    await this.loadGrantable();
+  }
 
   /** Something typed in step 1 that closing would lose. */
   dirty() {
@@ -243,6 +256,8 @@ export class OnboardChild implements OnInit {
   }
 
   async loadGrantable() {
+    if (this.loadingGrantable) return;
+    this.loadingGrantable = true;
     this.grantError.set('');
     try {
       const g = await firstValueFrom(this.http.get<GrantableView>('/api/orgs/me/grantable'));
@@ -251,9 +266,19 @@ export class OnboardChild implements OnInit {
       this.roleUse.update(cur => new Set([...cur].filter(r => offered.has(r))));
       this.roleHand.update(cur => new Set([...cur].filter(r => offered.has(r))));
       const keep = g.children.find((c) => c.type === this.childType());
-      if (keep) this.pickType(keep);
+      if (keep) {
+        const allowed = new Set(keep.allowedCeiling);
+        this.ceiling.update(current => new Set([...current].filter(t => allowed.has(t))));
+        this.direct.update(current => new Set([...current].filter(t => allowed.has(t))));
+      } else if (this.childType()) {
+        this.childType.set(null);
+        this.direct.set(new Set());
+        this.ceiling.set(new Set());
+      }
     } catch (e) {
       this.grantError.set(refusal(e, KYC_HINTS));
+    } finally {
+      this.loadingGrantable = false;
     }
   }
 

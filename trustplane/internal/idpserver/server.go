@@ -55,9 +55,12 @@ var DDL = []string{
 		token_hash TEXT PRIMARY KEY,
 		subject TEXT NOT NULL REFERENCES accounts(subject) ON DELETE CASCADE,
 		purpose TEXT NOT NULL CHECK (purpose IN ('SETUP','RESET','RECOVERY')),
+		idempotency_key TEXT,
 		expires_at TIMESTAMPTZ NOT NULL,
 		used_at TIMESTAMPTZ,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`ALTER TABLE account_links ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS account_links_idem_uq ON account_links(subject,purpose,idempotency_key) WHERE idempotency_key IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS account_links_subject_idx ON account_links (subject, purpose)`,
 	`CREATE TABLE IF NOT EXISTS otp_challenges(
 		id TEXT PRIMARY KEY,

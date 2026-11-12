@@ -21,7 +21,7 @@ public final class Enums {
 
     // ---------- identity ----------
     public enum UserRole { MERCHANT, SUPPLIER, LENDER, MANUFACTURER, DISTRIBUTOR, TPTS_OPS, MINDLABS_ADMIN }
-    public enum UserStatus { PENDING, ACTIVE, SUSPENDED }
+    public enum UserStatus { PENDING, ACTIVE, SUSPENDED, ARCHIVED }
 
     // ---------- org hierarchy ----------
     public enum OrgType { PLATFORM, MANUFACTURER, DISTRIBUTOR, SUPPLIER, MERCHANT, LENDER }

@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"trustplane/internal/breaker"
 	"trustplane/internal/ctxauth"
-	"trustplane/internal/mtlsx"
 	"trustplane/internal/jwtx"
+	"trustplane/internal/mtlsx"
 	"trustplane/internal/ratelimit"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // compiledRoute is a route plus its matcher segments.
@@ -40,29 +40,29 @@ type seg struct {
 }
 
 type Gateway struct {
-	cfg     *Config
-	routes  []*compiledRoute
-	up      map[string]*upstream
-	limiter *ratelimit.Limiter
-	global  chan struct{}
-	jwks    *jwksCache
-	intro   *introspector
-	rbac    *rbacClient
-	dpopOK  *replayCache
+	cfg        *Config
+	routes     []*compiledRoute
+	up         map[string]*upstream
+	limiter    *ratelimit.Limiter
+	global     chan struct{}
+	jwks       *jwksCache
+	intro      *introspector
+	rbac       *rbacClient
+	dpopOK     *replayCache
 	logoutSeen *replayCache // back-channel logout token jti (single use)
-	reqID   uint64
-	reqMu   sync.Mutex
-	secret  []byte
+	reqID      uint64
+	reqMu      sync.Mutex
+	secret     []byte
 
 	// Lane A: browser BFF
-	store    *SessionStore
-	bffID    string      // gateway-bff OAuth client id
-	bffKey   crypto.Signer // gateway-bff private key
-	bffKid   string
-	bffIDP     string      // https://idp:8443 (mesh, server-to-server)
-	bffIDPPublic string    // https://idp.fapi.local:8443 (browser redirect)
-	bffAbs   time.Duration // session absolute lifetime
-	bffIdle  time.Duration // session idle timeout
+	store        *SessionStore
+	bffID        string        // gateway-bff OAuth client id
+	bffKey       crypto.Signer // gateway-bff private key
+	bffKid       string
+	bffIDP       string        // https://idp:8443 (mesh, server-to-server)
+	bffIDPPublic string        // https://idp.fapi.local:8443 (browser redirect)
+	bffAbs       time.Duration // session absolute lifetime
+	bffIdle      time.Duration // session idle timeout
 }
 
 // ---------------------------------------------------------------------------
@@ -82,13 +82,13 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		return err
 	}
 	g := &Gateway{
-		cfg:     cfg,
-		up:      map[string]*upstream{},
-		limiter: ratelimit.New(),
-		global:  make(chan struct{}, cfg.Limits.GlobalConcurrency),
-		dpopOK:  newReplayCache(),
+		cfg:        cfg,
+		up:         map[string]*upstream{},
+		limiter:    ratelimit.New(),
+		global:     make(chan struct{}, cfg.Limits.GlobalConcurrency),
+		dpopOK:     newReplayCache(),
 		logoutSeen: newReplayCache(),
-		secret:  secret,
+		secret:     secret,
 	}
 	for name, u := range cfg.Upstreams {
 		upc, err := newUpstream(u, cfg.Limits.UpstreamConcurrency, 30*time.Second)
@@ -182,7 +182,6 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		log.Printf("[gateway] bff: client=%s idp=%s absLife=%v idleLife=%v",
 			g.bffID, g.bffIDP, g.bffAbs, g.bffIdle)
 	}
-
 
 	for i := range cfg.Routes {
 		cr, err := compile(&cfg.Routes[i], i)
@@ -518,6 +517,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		perms := []string{}
 		if route.route.Permission != "" {
 			if g.rbac == nil {
 				writeAuthError(w, 503, "upstream_unavailable: authorization service not configured")
@@ -534,19 +534,22 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 				writeAuthError(w, 403, fmt.Sprintf("insufficient_permission: subject lacks %q in tenant %q", route.route.Permission, tenant))
 				return
 			}
-			perms, err := g.rbac.Perms(r.Context(), principalID(ident), tenant)
+			perms, err = g.rbac.Perms(r.Context(), principalID(ident), tenant)
 			if err != nil {
 				log.Printf("[gateway] perms load failed for %s: %v", principalID(ident), err)
 				writeAuthError(w, 503, "upstream_unavailable: cannot load permissions")
 				return
 			}
-			c := ctxauth.Context{
-				Sub: ident.sub, UID: ident.uid, ClientID: ident.clientID, TokenID: ident.jti,
-				CertThumb: ident.certThumb, Scopes: ident.scopes, Perms: perms,
-				Tenant: tenant, TS: time.Now().Unix(),
-			}
-			ctxVal = ctxauth.Sign(c, g.secret)
 		}
+		// The core needs a signed identity even when a route has no gateway RBAC cell.
+		// It resolves (iss, sub, uid) and enforces its own user/org lifecycle state.
+		c := ctxauth.Context{
+			Issuer: ident.issuer, Sub: ident.sub, UID: ident.uid, SID: ident.sid,
+			ACR: ident.acr, AMR: ident.amr, AuthTime: ident.authTime,
+			ClientID: ident.clientID, TokenID: ident.jti, CertThumb: ident.certThumb,
+			Scopes: ident.scopes, Perms: perms, Tenant: params["tenant"], TS: time.Now().Unix(),
+		}
+		ctxVal = ctxauth.Sign(c, g.secret)
 	}
 	g.forward(w, r, &route.route, body, ctxVal, certThumbForProxy(&route.route, certThumb))
 }

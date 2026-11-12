@@ -307,7 +307,7 @@ export class KycSchemaEditor implements OnInit {
       if (sec.kind === 'LIST' && rows.length < (sec.minItems ?? 0)) missing += (sec.minItems ?? 0) - rows.length;
       for (const row of rows) {
         for (const fl of sec.fields) {
-          if (!this.visible(fl, row) || !this.requiredNow(fl, row) || fl.derivedFrom) continue;
+          if (!this.visible(fl, row) || !this.requiredNow(fl, row) || this.isServerDerived(fl)) continue;
           const v = row[fl.key];
           if (v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) missing++;
         }
@@ -616,9 +616,18 @@ export class KycSchemaEditor implements OnInit {
     return !!(fl.listParentField && !this.schema().lists[fl.listCode!] && item[fl.listParentField] == null);
   }
 
-  /** A derived field (industryVertical ← mcc) is filled by the server once its source is set. */
+  /**
+   * A derived field (industryVertical ← mcc) is filled by the server. A field whose
+   * derivedFrom is also its list parent (branch ← bankCode) only records lineage: it is
+   * a cascading pick the user makes, so it must stay editable.
+   */
+  isServerDerived(fl: SchemaField) {
+    return !!fl.derivedFrom && fl.derivedFrom !== fl.listParentField;
+  }
+
+  /** A server-derived field is locked once its source is set. */
   isDerivedLocked(fl: SchemaField, item: Doc) {
-    return !!(fl.derivedFrom && item[fl.derivedFrom] != null && item[fl.derivedFrom] !== '');
+    return this.isServerDerived(fl) && item[fl.derivedFrom!] != null && item[fl.derivedFrom!] !== '';
   }
 
   parentLabel(fl: SchemaField, key: string | null | undefined = fl.listParentField) {

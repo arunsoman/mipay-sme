@@ -36,11 +36,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final com.mipay.sme.repository.UserRepository userRepo;
     private final com.mipay.sme.repository.OrganizationRepository orgRepo;
     private final com.mipay.sme.service.OrgAccess orgAccess;
+    private final com.mipay.sme.config.AppProperties appProperties;
 
     @Override
     @SuppressWarnings("NullableProblems")
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
+        if ("gateway".equals(appProperties.getIdentityMode())) {
+            chain.doFilter(request, response);
+            return;
+        }
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith("Bearer ")) {
             try {
@@ -55,18 +60,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 String orgId = c.get("orgId", String.class);
                 String orgType = c.get("orgType", String.class);
                 com.mipay.sme.domain.core.User user = userRepo.findById(c.getSubject()).orElse(null);
-                if (user != null) {
-                    // tokens issued before the org claims existed resolve from the DB ([M9])
-                    if (orgId == null && user.getOrgId() != null) {
-                        orgId = user.getOrgId();
-                        orgType = orgRepo.findById(orgId).map(o -> o.getOrgType().name()).orElse(null);
-                    }
-                    // per-request suspension gate ([M1]): a login racing a suspension dies here
-                    if (user.getOrgId() != null && !orgAccess.isOperational(user.getOrgId())) {
-                        SecurityContextHolder.clearContext();
-                        chain.doFilter(request, response);
-                        return;
-                    }
+                if (user == null || user.getStatus() != com.mipay.sme.domain.Enums.UserStatus.ACTIVE) {
+                    SecurityContextHolder.clearContext();
+                    chain.doFilter(request, response);
+                    return;
+                }
+                // tokens issued before the org claims existed resolve from the DB ([M9])
+                if (orgId == null && user.getOrgId() != null) {
+                    orgId = user.getOrgId();
+                    orgType = orgRepo.findById(orgId).map(o -> o.getOrgType().name()).orElse(null);
+                }
+                // per-request suspension gate ([M1]): a login racing a suspension dies here
+                if (user.getOrgId() != null && !orgAccess.isOperational(user.getOrgId())) {
+                    SecurityContextHolder.clearContext();
+                    chain.doFilter(request, response);
+                    return;
                 }
                 Current.Principal principal = new Current.Principal(
                         c.getSubject(),

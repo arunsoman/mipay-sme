@@ -17,7 +17,16 @@ public final class Current {
 
     public record Principal(String userId, String role, String name, String phone,
                             String merchantId, String supplierId, String lenderId,
-                            String orgId, String orgType, String orgRole) {
+                            String orgId, String orgType, String orgRole,
+                            String linkId, String acr, java.util.List<String> amr,
+                            java.time.Instant authTime, String sid, String clientId) {
+
+        public Principal(String userId, String role, String name, String phone,
+                         String merchantId, String supplierId, String lenderId,
+                         String orgId, String orgType, String orgRole) {
+            this(userId, role, name, phone, merchantId, supplierId, lenderId,
+                    orgId, orgType, orgRole, null, null, java.util.List.of(), null, null, null);
+        }
 
         /** Legacy shape (org fields null) used by sim/runAs helpers. */
         public Principal(String userId, String role, String name, String phone,

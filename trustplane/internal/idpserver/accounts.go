@@ -8,6 +8,7 @@ package idpserver
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -149,6 +150,49 @@ func (s *Server) issueLink(ctx context.Context, q execer, subject, purpose strin
 	}
 	if _, err := q.Exec(ctx, `INSERT INTO account_links (token_hash, subject, purpose, expires_at) VALUES ($1,$2,$3,$4)`,
 		linkHash(token), subject, purpose, exp); err != nil {
+		return "", time.Time{}, err
+	}
+	return s.cfg.Issuer + "/account/setup?token=" + urlEscape(token), exp, nil
+}
+
+// issueEnrolLink makes a lost-response retry return the same setup URL without
+// storing the raw token. The token is keyed by the account subject and command id;
+// deleting and recreating an account cannot revive its old link.
+func (s *Server) issueEnrolLink(ctx context.Context, tx pgx.Tx, subject, idempotencyKey string, ttl time.Duration) (string, time.Time, error) {
+	if idempotencyKey == "" {
+		return s.issueLink(ctx, tx, subject, PurposeSetup, ttl)
+	}
+	if len(idempotencyKey) > 200 {
+		return "", time.Time{}, errors.New("idempotency key too long")
+	}
+	key, err := readMFAKey(s.cfg.MFAKeyFile)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("enrol:" + subject + ":" + idempotencyKey))
+	token := jwtx.B64UEnc(mac.Sum(nil))
+	hash := linkHash(token)
+	var storedHash string
+	var exp time.Time
+	var used *time.Time
+	err = tx.QueryRow(ctx, `SELECT token_hash,expires_at,used_at FROM account_links
+		WHERE subject=$1 AND purpose='SETUP' AND idempotency_key=$2`, subject, idempotencyKey).Scan(&storedHash, &exp, &used)
+	if err == nil {
+		if storedHash != hash || used != nil || !exp.After(time.Now()) {
+			return "", time.Time{}, errors.New("enrolment link is no longer usable")
+		}
+		return s.cfg.Issuer + "/account/setup?token=" + urlEscape(token), exp, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", time.Time{}, err
+	}
+	exp = time.Now().Add(ttl).UTC().Truncate(time.Second)
+	if _, err := tx.Exec(ctx, `UPDATE account_links SET used_at=now() WHERE subject=$1 AND purpose='SETUP' AND used_at IS NULL`, subject); err != nil {
+		return "", time.Time{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO account_links(token_hash,subject,purpose,idempotency_key,expires_at)
+		VALUES($1,$2,'SETUP',$3,$4)`, hash, subject, idempotencyKey, exp); err != nil {
 		return "", time.Time{}, err
 	}
 	return s.cfg.Issuer + "/account/setup?token=" + urlEscape(token), exp, nil
@@ -357,7 +401,7 @@ func (s *Server) apiEnrol(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, 500, "server_error", "storage failure")
 		return
 	}
-	link, exp, err := s.issueLink(ctx, tx, subject, PurposeSetup, s.cfg.LinkTTL)
+	link, exp, err := s.issueEnrolLink(ctx, tx, subject, r.Header.Get("Idempotency-Key"), s.cfg.LinkTTL)
 	if err != nil || tx.Commit(ctx) != nil {
 		apiErr(w, 500, "server_error", "storage failure")
 		return

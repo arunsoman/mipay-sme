@@ -251,8 +251,13 @@ func hashKey(s string) string {
 // ---------------------------------------------------------------------------
 
 type identity struct {
+	issuer    string
 	sub       string
 	uid       string // core user id (idp-rbac-cutover-plan.md P1.7); RBAC subject
+	sid       string
+	acr       string
+	amr       []string
+	authTime  int64
 	clientID  string
 	scopes    []string
 	jti       string
@@ -383,8 +388,13 @@ func (g *Gateway) authenticate(r *http.Request) (*identity, int, string) {
 		return nil, 401, "invalid_token: unsupported cnf claim"
 	}
 	id := &identity{
+		issuer:    jwtx.ClaimString(claims, "iss"),
 		sub:       jwtx.ClaimString(claims, "sub"),
 		uid:       jwtx.ClaimString(claims, "uid"),
+		sid:       jwtx.ClaimString(claims, "sid"),
+		acr:       jwtx.ClaimString(claims, "acr"),
+		amr:       jwtx.ClaimStrings(claims, "amr"),
+		authTime:  func() int64 { n, _ := jwtx.ClaimInt64(claims, "auth_time"); return n }(),
 		clientID:  jwtx.ClaimString(claims, "client_id"),
 		scopes:    strings.Fields(jwtx.ClaimString(claims, "scope")),
 		jti:       jti,

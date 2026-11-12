@@ -48,11 +48,26 @@ public class OrgAccess {
         if (org == null) return true;   // legacy rows without an org: no tree gate
         if (org.getLifecycle() != Enums.OrgStatus.ACTIVE) return false;
 
+        return ancestorsActiveAndUnheld(orgId);
+    }
+
+    /** An applicant may use a PENDING org only while all ancestors are ACTIVE and none is held. */
+    public boolean isPendingApplicantOrg(String orgId) {
+        Organization org = orgRepo.findById(orgId).orElse(null);
+        return org != null && org.getLifecycle() == Enums.OrgStatus.PENDING && ancestorsActiveAndUnheld(orgId);
+    }
+
+    private boolean ancestorsActiveAndUnheld(String orgId) {
+        Organization org = orgRepo.findById(orgId).orElse(null);
+        if (org == null) return false;
+
         // ancestor-or-self closure ids (self row included)
         List<String> ids = new ArrayList<>();
         ids.add(org.getId());
         for (OrgSubtreeRow r : closureRepo.findAncestors(org.getId())) {
-            if (!ids.contains(r.getOrg().getId())) ids.add(r.getOrg().getId());
+            Organization ancestor = r.getOrg();
+            if (!ancestor.getId().equals(orgId) && ancestor.getLifecycle() != Enums.OrgStatus.ACTIVE) return false;
+            if (!ids.contains(ancestor.getId())) ids.add(ancestor.getId());
         }
         return suspensionRepo.findByOrgIdInAndLiftedAtIsNull(ids).isEmpty();
     }

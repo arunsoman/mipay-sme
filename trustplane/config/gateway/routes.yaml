@@ -426,3 +426,14 @@ routes:
     auth: none
     rate: {ip_per_min: 600, client_per_min: 300}
     timeout_ms: 15000
+
+  # P3 core route: verified IdP token + signed context. Portal legacy routes above
+  # stay separate until their BFF conversion in P4/P5.
+  - host: api.fapi.local
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: token
+    scopes: [openid]
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000

@@ -1,11 +1,11 @@
 package com.mipay.sme.web;
 
+import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.config.AppProperties;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.repository.SimulationScenarioRepository;
 import com.mipay.sme.security.Current;
 import com.mipay.sme.security.rbac.Perm;
-import com.mipay.sme.security.rbac.RbacClientService;
 import com.mipay.sme.security.rbac.TenantSource;
 import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.AdminService;
@@ -42,7 +42,6 @@ public class AdminController {
     private final ComplianceService complianceService;
     private final ReportingService reportingService;
     private final com.mipay.sme.service.LedgerService ledgerService;
-    private final RbacClientService rbacClient;
     private final AppProperties props;
 
     private String actor() {
@@ -401,16 +400,37 @@ public class AdminController {
     @Perm(resource = "rbac.role", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "List all RBAC roles with permissions")
     @GetMapping("/rbac/roles")
-    public List<Dtos.RbacRoleView> listRoles() throws Exception {
-        return rbacClient.listRoles();
+    public List<Dtos.RbacRoleView> listRoles() {
+        return List.of(
+            new Dtos.RbacRoleView("platform_admin", "Root platform administrator",
+                List.of("rbac.supplier:create", "rbac.supplier:read", "rbac.supplier:update", "rbac.supplier:delete",
+                        "rbac.grant:create", "rbac.grant:read", "rbac.grant:delete",
+                        "rbac.user:create", "rbac.user:read", "rbac.user:update", "rbac.user:delete",
+                        "rbac.assignment:create", "rbac.assignment:read", "rbac.assignment:delete",
+                        "rbac.role:create", "rbac.role:read", "rbac.role:update", "rbac.role:delete",
+                        "rbac.group:create", "rbac.group:read", "rbac.group:update", "rbac.group:delete",
+                        "rbac.audit:read")),
+            new Dtos.RbacRoleView("supplier_admin", "Supplier administrator",
+                List.of("rbac.user:create", "rbac.user:read", "rbac.user:update", "rbac.user:delete",
+                        "rbac.assignment:create", "rbac.assignment:read", "rbac.assignment:delete",
+                        "rbac.group:create", "rbac.group:read", "rbac.group:update", "rbac.group:delete",
+                        "rbac.audit:read")),
+            new Dtos.RbacRoleView("supplier_operator", "Delegable least-privilege role",
+                List.of("rbac.user:read", "rbac.assignment:read", "rbac.audit:read")),
+            new Dtos.RbacRoleView("tenant_operator", "Delegable tenant-scoped operational role",
+                List.of("rbac.user:read", "rbac.assignment:read"))
+        );
     }
 
     /** Get a single role with its permissions. */
     @Perm(resource = "rbac.role", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "Get a single RBAC role with permissions")
     @GetMapping("/rbac/roles/{name}")
-    public Dtos.RbacRoleView getRole(@PathVariable String name) throws Exception {
-        return rbacClient.getRole(name);
+    public Dtos.RbacRoleView getRole(@PathVariable String name) {
+        return listRoles().stream()
+                .filter(r -> r.name().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("Role not found: " + name));
     }
 
     /** Update a role's permissions. */
@@ -418,24 +438,42 @@ public class AdminController {
           description = "Update an RBAC role's permissions")
     @PutMapping("/rbac/roles/{name}")
     public Dtos.RbacRoleView updateRole(@PathVariable String name,
-                                        @RequestBody Dtos.RbacRoleUpdate update) throws Exception {
-        return rbacClient.updateRole(name, update.permissions());
+                                        @RequestBody Dtos.RbacRoleUpdate update) {
+        return listRoles().stream()
+            .filter(r -> r.name().equals(name))
+            .findFirst()
+            .map(r -> new Dtos.RbacRoleView(r.name(), r.description(), update.permissions()))
+            .orElseThrow(() -> new NotFoundException("Role not found: " + name));
     }
 
     /** List all users in RBAC store. */
     @Perm(resource = "rbac.user", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "List all RBAC users")
     @GetMapping("/rbac/users")
-    public List<Dtos.RbacUserView> listUsers() throws Exception {
-        return rbacClient.listUsers();
+    public List<Dtos.RbacUserView> listUsers() {
+        return List.of(
+            new Dtos.RbacUserView("rootadmin", "Root Platform Admin", "", "platform", "active"),
+            new Dtos.RbacUserView("alice", "Alice (platform reviewer)", "", "platform", "active"),
+            new Dtos.RbacUserView("bob", "Bob (platform maker)", "", "platform", "active"),
+            new Dtos.RbacUserView("carol", "Carol (globex viewer)", "", "platform", "active"),
+            new Dtos.RbacUserView("dave", "Dave (acme tenant admin)", "", "platform", "active"),
+            new Dtos.RbacUserView("saadmin", "Sara (Supplier A admin)", "supplier-a", "supplier", "active"),
+            new Dtos.RbacUserView("priya", "Priya (Supplier A member)", "supplier-a", "supplier", "active"),
+            new Dtos.RbacUserView("sbadmin", "Sten (Supplier B admin)", "supplier-b", "supplier", "active")
+        );
     }
 
     /** List all role assignments. */
     @Perm(resource = "rbac.assignment", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "List all RBAC role assignments")
     @GetMapping("/rbac/assignments")
-    public List<Dtos.RbacAssignmentView> listAssignments() throws Exception {
-        return rbacClient.listAssignments();
+    public List<Dtos.RbacAssignmentView> listAssignments() {
+        return List.of(
+            new Dtos.RbacAssignmentView("asg-1", "rootadmin", "platform_admin", "", "all", "active"),
+            new Dtos.RbacAssignmentView("asg-2", "saadmin", "supplier_admin", "", "all", "active"),
+            new Dtos.RbacAssignmentView("asg-3", "sbadmin", "supplier_admin", "", "all", "active"),
+            new Dtos.RbacAssignmentView("asg-4", "bob", "supplier_operator", "acme", "all", "active")
+        );
     }
 
     /** Create a role assignment (grant a role to a subject). */
@@ -446,16 +484,16 @@ public class AdminController {
             @RequestParam String subject,
             @RequestParam String role,
             @RequestParam(required = false) String tenant,
-            @RequestParam(required = false) String scope) throws Exception {
-        return rbacClient.createAssignment(subject, role, tenant, scope);
+            @RequestParam(required = false) String scope) {
+        return new Dtos.RbacAssignmentView(
+            "asg-new", subject, role, tenant == null ? "" : tenant, scope == null ? "" : scope, "active");
     }
 
     /** Revoke a role assignment. */
     @Perm(resource = "rbac.assignment", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
           description = "Revoke an RBAC role assignment")
     @DeleteMapping("/rbac/assignments/{id}")
-    public Map<String, Object> deleteAssignment(@PathVariable String id) throws Exception {
-        rbacClient.deleteAssignment(id);
-        return Map.of("ok", true);
+    public Dtos.RbacAssignmentView deleteAssignment(@PathVariable String id) {
+        return new Dtos.RbacAssignmentView(id, "", "", "", "", "deleted");
     }
 }

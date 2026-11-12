@@ -41,6 +41,7 @@ services:
       POSTGRES_USER: mipay
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mipay}
       APP_RBAC_REGISTRY_URL: https://rbac:8443/rbac/internal/permissions/register
+      APP_RBAC_URL: https://rbac:8443
     volumes:
       - trustplane-pki:/pki:ro            # mipay-mesh client cert + platform CA (trustplane pki-init)
     ports: ["8080:8080"]

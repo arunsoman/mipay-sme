@@ -2,9 +2,9 @@
 
 ## Outcome
 
-Complete P3 of [the IdP/RBAC cutover plan](docs/plans/idp-rbac-cutover-plan.md): the core owns users and their organisation membership and status; the IdP owns credentials and authentication; the core resolves every gateway identity to an authorised core user; and lifecycle changes reach the IdP and RBAC reliably. Provide a simulated communications and positive-action flow so the whole P3 journey can be exercised without real SMS, email or a real second factor.
+Complete P3 of [the IdP/RBAC cutover plan](docs/plans/idp-rbac-cutover-plan.md): the core owns users and their organisation membership and status; the IdP owns credentials and authentication; the core resolves every gateway identity to an authorised core user; and lifecycle changes reach the IdP and RBAC reliably. Use the existing Java comms sandbox to retrieve setup links and SMS codes in tests, and complete user actions through the normal IdP flow. TOTP provides a working second factor without comms.
 
-This document replaces the migration assumptions and P3 acceptance gate in the cutover plan. The rest of the plan remains in force unless explicitly changed below. This is an implementation goal, not a claim that these features already exist.
+This document replaces the migration assumptions and P3 acceptance gate in the cutover plan. The rest of the plan remains in force unless explicitly changed below. Unchecked items are still required; the comms and IdP MFA capabilities named below are already implemented.
 
 ## Clean-start decision
 
@@ -19,11 +19,12 @@ Existing users, organisations, credentials, test sessions, RBAC tenants, assignm
 
 ### Contracts, storage and lifecycle
 
-- [ ] Implement `AuthPluginContracts`, provider registry and Trustplane provider with mesh-authenticated operations: enrol, reset scopes, enable, disable, revoke sessions, update login details, set MFA profile, unlink and map assurance. Reuse/refactor the mesh TLS client so it is accessible from the auth package. Add the planned identity, provider and RBAC switches, with safe defaults and startup validation.
-- [ ] Add `identity_links`, a durable retryable provider-command outbox and deduplicated event storage; add `ARCHIVED` to user status. Enforce unique `(issuer, subject)`, one Trustplane link per user, valid state transitions and an immutable, non-null home organisation FK. Support all planned audit timestamps and `idp_enabled`/assurance state.
+- [x] Implement and test `AuthPluginContracts`, the provider registry and the Trustplane mTLS client for enrol, reset scopes, enable/disable, session revocation, login changes, MFA profile, unlink and assurance mapping. Validate the identity/provider switches and HTTPS provider URLs at startup.
+- [x] Add and verify the additive PostgreSQL identity foundation: `identity_links`, `auth_outbox`, `auth_events_seen`, link uniqueness, audit columns, and `ARCHIVED` user status. The V15 migration passed against a disposable copy of the current schema.
+- [ ] Wire lifecycle changes into the durable provider-command outbox and event store, including leasing, retries, deduplication and state transitions. Enforce a non-null, immutable home-org FK after the clean reset and all user writers have moved to the lifecycle service.
 - [ ] Implement `UserLifecycleService` as the only path for creation, user status and login/contact changes. Require an existing eligible org; reject org moves. Route onboarding, team management, platform staff, recovery, provisioning, KYC and all other user writers through it. Make user-management actions org-scoped and check the relevant org permission.
 - [ ] Persist core changes and outbox commands atomically; process commands with bounded retries, idempotency, observability and recovery after restart. Enrolment and link delivery must tolerate lost responses and retries without silently invalidating a delivered link or persisting raw links in durable core records. Define the protocol with the IdP and comms, and test the failure windows.
-- [ ] Replace activation on onboarding/go-live with provider enrolment and setup-link delivery. Enrol a KYC applicant when the application starts; on go-live replace `kyc_applicant` with `org_admin`, without creating a duplicate account. Implement resend/reset and reviewed replacement-admin recovery. Expose the P3 admin access view and link/session actions.
+- [ ] Replace activation on onboarding/go-live with provider enrolment and setup-link delivery. Enrol a KYC applicant when the application starts; on go-live replace `kyc_applicant` with `org_admin`, without creating a duplicate account. Implement setup-link resend and credential reset. Expose the P3 admin access view and link/session actions.
 - [ ] Provision and update comms contacts as the core's responsibility. Reconcile MFA profile from RBAC roles and org policy, and synchronize fresh assignments and rights with RBAC. Define the new DIRECT/CEILING representation and delegation behavior against the actual RBAC grant API; no historical conversion is required.
 
 ### Identity, organisation and KYC
@@ -37,29 +38,29 @@ Existing users, organisations, credentials, test sessions, RBAC tenants, assignm
 
 ### Gateway integration needed for P3
 
-- [ ] Pull gateway context v2 forward: carry verified `iss`, `sub`, `uid`, `sid`, `acr`, `amr`, `auth_time` and `client_id`; strip incoming `X-SME-*`; sign and forward context for every relevant authenticated MiPay route, not only routes with an RBAC permission. Reject missing `uid` for these routes.
+- [x] Extend and test the gateway's signed context with `iss`, `sub`, `uid`, `sid`, `acr`, `amr`, `auth_time` and `client_id`, including token-authenticated MiPay routes without a gateway RBAC cell. Verify signature rejection and spoofed-header stripping.
+- [ ] Complete gateway-to-core routing and end-to-end tests for every relevant authenticated MiPay route, including missing-`uid` refusal.
 - [ ] Implement the core gateway identity filter, verify HMAC and freshness, resolve the link and build the principal. A missing, invalid or forged context must fail closed in gateway mode. Provide a test gateway-context helper and an end-to-end route for P3 validation.
-- [ ] Choose and document whether a temporary dual mode is useful for development. It is not a migration requirement; if implemented, fall back to legacy authentication only when the gateway header is absent, never when it is present but invalid. Full portal BFF routing and portal conversion remain P4/P5 unless pulled forward separately.
+- [ ] Run the P3 acceptance flow with gateway identities. Full portal BFF routing and portal conversion remain P4/P5.
 
-### Simulated comms and positive user actions
+### Comms and MFA used by P3 tests
 
-The development comms plane is now the Java `comms-service`, with a sandbox provider,
-`sim_outbox`, message APIs, capabilities and a sandbox outbox API. Extend these
-interfaces for any further simulator work. Message delivery is simulated; a user
-action or second-factor approval still requires the IdP's verification step.
+The Java `comms-service` already accepts messages and core-owned contacts over
+mTLS, reports capabilities, and writes rendered development SMS/email to
+`sim_outbox` and a labelled log. `IDP_MFA_MODE=enforce` already requires a verified
+TOTP or eligible SMS second factor before issuing a session. No automatic
+approval service or separate MFA simulator is needed for P3.
 
-- [ ] Expose the comms APIs to authorised test clients over the existing gateway/mesh, with clear environment configuration and access control. Continue to support core-owned contact registration, message submission/status and capabilities. In the simulator, print rendered messages to a clearly labelled development console and expose them through the sandbox outbox; report simulated delivery as successful. Keep codes and links confined to the test-only output and avoid logging them in normal environments.
-- [ ] Add an explicit, configurable **auto-positive-action** simulator for supported actions: consume a setup/reset link with a test credential, submit a received OTP or approve a simulated challenge using the owning IdP's normal test interfaces and state transitions. A successful delivery alone must not mark a user activated or claim a factor was verified. Record which action was simulated and expose its result for tests. Define unsupported actions as unsupported, not successful.
-- [ ] Run automatic actions asynchronously with bounded retries and idempotency; handle expiry, replay, invalid links/codes and provider failure. Offer a manual mode and failure injection so negative and retry paths remain testable. Do not auto-approve real financial, KYC or administrative decisions merely because a message was sent.
-- [ ] The simulator and any test credential/approval hooks must be explicitly enabled only in designated non-production environments, unavailable and refused at startup in production, authenticated, and unreachable from public production routes. Label simulated assurance and do not assert real AAL2 or a real enrolled factor. Full 2FA implementation, real channel delivery and real assurance remain the separate 2FA/comms tracks.
+- [ ] Have the core register and update each user's comms contacts as part of lifecycle changes. Use the existing mesh APIs and development outbox to retrieve setup/reset links and SMS codes in tests. Submit those links and codes through the ordinary IdP endpoints; delivery alone must never activate an account or verify MFA.
+- [ ] Verify the P3 journey with `IDP_MFA_MODE=enforce`: TOTP setup and login work when comms is absent; SMS login works when the sandbox has a contact; missing contacts, unavailable channels, wrong/expired codes and replay fail closed. Keep sandbox output confined to non-production. Real SMS/email delivery and additional MFA methods remain separate comms/2FA work.
 
 ## Acceptance: P3 is done
 
 - [ ] A clean reset and reseed runs twice reproducibly in a disposable environment. The platform admin and org fixtures have valid org membership, links and RBAC assignments; no legacy user/password/org migration is needed.
-- [ ] On a real scratch database and mesh, run: create pending org and applicant → enrol → simulated delivery and positive setup action → authenticated, KYC-only applicant → KYC go-live → org admin. Verify non-KYC access is denied before go-live and the normal event, link and user states are correct.
+- [ ] On a real scratch database and mesh, run: create pending org and applicant → enrol → read the setup link from the Java sandbox outbox → complete setup through the IdP → sign in and verify TOTP → authenticated, KYC-only applicant → KYC go-live → org admin. Verify non-KYC access is denied before go-live and the normal event, link and user states are correct.
 - [ ] Verify unknown/mismatched/disabled links and users, absent orgs, forged or stale contexts, duplicate and invalid events, wrong and expired OTPs/links, and repeat actions are refused; verify retry, restart, missed-event and reconciliation recovery.
 - [ ] Verify parent holds, nested holds, lift, individual suspension, KYC lapse, rejection/closure, subtree archive, platform reviewer independence and immediate refusal across backend instances. Verify no forbidden user creation or org move.
-- [ ] Verify provider/RBAC/comms outages: core state remains authoritative, queued operations recover and the user is refused when appropriate. Verify link delivery cannot be silently invalidated by a retry and the simulator can exercise both success and failure.
+- [ ] Verify provider/RBAC/comms outages: core state remains authoritative, queued operations recover and the user is refused when appropriate. Verify link delivery cannot be silently invalidated by a retry; TOTP remains available without comms.
 - [ ] Run the relevant backend, IdP, gateway, RBAC and comms tests, including Postgres-backed integration tests (not skipped), and the applicable UAT workflows using gateway contexts. Record actual results and any remaining issues; no P3 requirement above is left as a stub.
 
 P3 completion does not by itself mean portal cutover or RBAC enforcement is complete. P4–P7 and their applicable release gates still require their own implementation and verification; there is no claim of a seven-day production shadow period where no real traffic exists.

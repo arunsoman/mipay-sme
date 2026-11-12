@@ -18,10 +18,10 @@ import java.util.Base64;
  * mTLS client context for the trustplane mesh, from PEM files (pki-init output):
  * MESH_CERT, MESH_KEY (PKCS#8, EC or RSA), MESH_CA. Defaults to /pki/mipay-mesh*.pem.
  */
-final class MeshTls {
+public final class MeshTls {
     private MeshTls() { }
 
-    static SSLContext clientContext() throws Exception {
+    public static SSLContext clientContext() throws Exception {
         String cert = env("MESH_CERT", "/pki/mipay-mesh.pem");
         String key = env("MESH_KEY", "/pki/mipay-mesh-key.pem");
         String ca = env("MESH_CA", "/pki/platform-ca.pem");

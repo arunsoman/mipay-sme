@@ -18,12 +18,12 @@ public class AppProperties {
 
     private String environment = "sandbox";  // sandbox | uat | production
     private String devOtp = "123456";        // fixed OTP in sandbox for the UAT demos
-    private String rbacUrl = "https://trustplane-rbac:8443";  // trustplane RBAC service
+    private String rbacUrl = "https://rbac:8443";  // trustplane RBAC mesh service
 
     /**
-     * Identity mode (idp-rbac-cutover-plan.md §3): legacy → dual → gateway.
-     * legacy = own JWT only; dual = gateway context or own JWT; gateway = gateway context only.
-     * Read by GatewayIdentityFilter (cut-over P3.8); no effect until then.
+     * Identity mode (idp-rbac-cutover-plan.md §3): legacy → gateway.
+     * The gateway filter is part of P3; legacy remains the default until it is installed.
+     * The provider registry validates the setting at startup.
      */
     private String identityMode = "legacy";
 
@@ -32,6 +32,13 @@ public class AppProperties {
      * When set, user lifecycle changes queue provider commands and enrolment replaces activation (P3).
      */
     private String authProvider = "none";
+
+    /** Core-to-IdP mesh endpoint; the provider uses the core's mTLS certificate. */
+    private String authUrl = "https://idp:8443";
+    private String authIssuer = "https://idp.fapi.local:8443";
+
+    /** Same raw HMAC key file the gateway reads when signing X-SME-Context. */
+    private String gatewayContextSecretFile = "/pki/ctx-secret";
 
     /** When true, role and org changes are also written to RBAC assignments and grants (P3.11). */
     private boolean rbacSync = false;

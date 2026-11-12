@@ -295,6 +295,47 @@ func TestEnrolmentAPIAcceptsOnlyTheCore(t *testing.T) {
 	}
 }
 
+func TestEnrolmentRetryKeepsDeliveredLink(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mfa-key")
+	if err := os.WriteFile(keyFile, []byte(strings.Repeat("ab", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(c *Config) { c.MFAKeyFile = keyFile })
+	body := `{"uid":"u-retry","login_name":"retry-user","phone":"","display_name":"Retry User"}`
+	send := func(key string) (int, map[string]any) {
+		r := httptest.NewRequest("POST", "/accounts", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Idempotency-Key", key)
+		r.TLS = peer("sme-mipay-mesh")
+		w := httptest.NewRecorder()
+		h.h.ServeHTTP(w, r)
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return w.Code, out
+	}
+	firstStatus, first := send("enrol:u-retry")
+	retryStatus, retry := send("enrol:u-retry")
+	if firstStatus != 201 || retryStatus != 200 || first["link"] != retry["link"] {
+		t.Fatalf("lost-response retry changed setup link: first=%d %v retry=%d %v", firstStatus, first, retryStatus, retry)
+	}
+	var count int
+	if err := h.s.pool.QueryRow(context.Background(), `SELECT count(*) FROM account_links WHERE subject=$1 AND used_at IS NULL`, first["subject"]).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("want one usable setup link after retry, got %d", count)
+	}
+	changedStatus, changed := send("explicit-new-command")
+	if changedStatus != 200 || changed["link"] == first["link"] {
+		t.Fatalf("a new command must issue a new setup link: %d %v", changedStatus, changed)
+	}
+	if w := h.setPassword(tokenOf(first["link"].(string)), "a-good-long-password"); w.Code != 400 {
+		t.Fatalf("explicitly replaced link must be refused: %d", w.Code)
+	}
+}
+
 func TestSetupLinkPasswordPolicyAndCredentialSet(t *testing.T) {
 	h := newHarness(t, nil)
 	_, tok := h.enrol("u-10", "tomas", "+264811234567")
@@ -531,21 +572,33 @@ func TestEnforcedMFASMSAfterPassword(t *testing.T) {
 
 func TestEnforcedMFASMSCanSwitchToAuthenticator(t *testing.T) {
 	keyFile := filepath.Join(t.TempDir(), "mfa-key")
-	if err := os.WriteFile(keyFile, []byte(hex.EncodeToString([]byte(strings.Repeat("k", 32)))), 0o600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(keyFile, []byte(hex.EncodeToString([]byte(strings.Repeat("k", 32)))), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	h := newHarness(t, func(c *Config) { c.MFAMode = "enforce"; c.MFAKeyFile = keyFile })
-	h.s.SetComms(&sandboxComms{pool: h.s.pool, live: map[string]bool{"sms":true}})
+	h.s.SetComms(&sandboxComms{pool: h.s.pool, live: map[string]bool{"sms": true}})
 	_, link := h.enrol("u-switch", "switch-user", "+264810000056")
-	if w := h.setPassword(link,"correct-password-123"); w.Code != 200 { t.Fatalf("password setup: %d",w.Code) }
-	w, uri := h.login("switch-user","correct-password-123")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "Set up an authenticator instead") { t.Fatalf("SMS page: %d %s",w.Code,w.Body.String()) }
+	if w := h.setPassword(link, "correct-password-123"); w.Code != 200 {
+		t.Fatalf("password setup: %d", w.Code)
+	}
+	w, uri := h.login("switch-user", "correct-password-123")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Set up an authenticator instead") {
+		t.Fatalf("SMS page: %d %s", w.Code, w.Body.String())
+	}
 	challenge := regexp.MustCompile(`name="challenge" value="([^"]+)"`).FindStringSubmatch(w.Body.String())[1]
-	switched := h.form("/login/mfa/switch",url.Values{"request_uri":{uri},"challenge":{challenge}})
-	if switched.Code != 200 || !strings.Contains(switched.Body.String(), "Set up your authenticator") { t.Fatalf("switch: %d %s",switched.Code,switched.Body.String()) }
+	switched := h.form("/login/mfa/switch", url.Values{"request_uri": {uri}, "challenge": {challenge}})
+	if switched.Code != 200 || !strings.Contains(switched.Body.String(), "Set up your authenticator") {
+		t.Fatalf("switch: %d %s", switched.Code, switched.Body.String())
+	}
 	secretText := regexp.MustCompile(`<code>([A-Z2-7]+)</code>`).FindStringSubmatch(switched.Body.String())[1]
 	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secretText)
-	if err != nil { t.Fatal(err) }
-	verified := h.form("/login/mfa/verify",url.Values{"request_uri":{uri},"challenge":{challenge},"code":{totpAt(secret,time.Now().Unix()/30)}})
-	if verified.Code != 200 || len(verified.Result().Cookies()) == 0 { t.Fatalf("verified: %d %s",verified.Code,verified.Body.String()) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := h.form("/login/mfa/verify", url.Values{"request_uri": {uri}, "challenge": {challenge}, "code": {totpAt(secret, time.Now().Unix()/30)}})
+	if verified.Code != 200 || len(verified.Result().Cookies()) == 0 {
+		t.Fatalf("verified: %d %s", verified.Code, verified.Body.String())
+	}
 }
 
 func TestPhoneOTPForMerchants(t *testing.T) {

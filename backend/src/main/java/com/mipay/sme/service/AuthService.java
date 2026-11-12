@@ -53,7 +53,7 @@ public class AuthService {
         if (user.getRole() != Enums.UserRole.MERCHANT) {
             throw new ForbiddenException("Use password login for role " + user.getRole());
         }
-        if (user.getStatus() == Enums.UserStatus.SUSPENDED) {
+        if (user.getStatus() == Enums.UserStatus.SUSPENDED || user.getStatus() == Enums.UserStatus.ARCHIVED) {
             throw new ForbiddenException("Account suspended");
         }
         String otp = props.isSimulatedEnvironment() ? props.getDevOtp()
@@ -81,6 +81,9 @@ public class AuthService {
     private void assertLoginAllowed(User user) {
         if (user.getStatus() == Enums.UserStatus.SUSPENDED) {
             throw new ForbiddenException("Account suspended");
+        }
+        if (user.getStatus() == Enums.UserStatus.ARCHIVED) {
+            throw new ForbiddenException("Account archived");
         }
         // org-tree users must complete activation before any login ([C4/H8]); PENDED users are out ([H5])
         if (user.getStatus() == Enums.UserStatus.PENDING) {
