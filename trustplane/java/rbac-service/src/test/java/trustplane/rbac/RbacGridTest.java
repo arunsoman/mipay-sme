@@ -544,6 +544,7 @@ class RbacGridTest {
 
         // an org that reaches a terminal state through the org-tree sync loses its roles as well
         assertFalse(policy.get().roles().get("counter@oka2").retired());
+        String counterAssignment = (String) assign("maya", "counter@oka2", "oka2", "own").get("id");
         List<Map<String, Object>> closure = new ArrayList<>();
         List<RbacStore.OrgRow> rows = new ArrayList<>();
         for (var e : tree.entrySet()) {
@@ -556,7 +557,16 @@ class RbacGridTest {
         }
         store.syncOrgs(closure, rows);
         assertTrue(policy.get().roles().get("counter@oka2").retired());
+        assertEquals("REVOKED", access.view(counterAssignment).get("status"));
         String md = new RolePack(db, policy).render("dev");
         assertFalse(md.contains("stock_clerk@oka") || md.contains("counter@oka2"), "retired roles leave the role pack");
+
+        // A corrected core lifecycle restores the role definition, never the old grants.
+        List<RbacStore.OrgRow> corrected = rows.stream().map(o -> new RbacStore.OrgRow(
+                o.id(), o.name(), o.type(), o.parent(), "ACTIVE", o.held(), o.holds())).toList();
+        store.syncOrgs(closure, corrected);
+        assertFalse(policy.get().roles().get("counter@oka2").retired());
+        assertTrue(policy.get().roles().get("stock_clerk@oka").retired(), "explicit core revocation is not undone");
+        assertEquals("REVOKED", access.view(counterAssignment).get("status"));
     }
 }

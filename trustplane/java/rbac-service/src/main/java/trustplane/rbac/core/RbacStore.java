@@ -110,6 +110,7 @@ public class RbacStore {
         }
         Set<String> changed = new LinkedHashSet<>();
         Set<String> seen = new HashSet<>();
+        Set<String> reactivated = new LinkedHashSet<>();
         for (OrgRow o : orgs) {
             if (o.id() == null || o.id().isBlank()) continue;
             seen.add(o.id());
@@ -124,6 +125,8 @@ public class RbacStore {
                     o.id(), o.name() == null ? o.id() : o.name(), o.type(), o.parent(), lifecycle, o.held(), holds);
             Map<String, Object> b = before.get(o.id());
             if (b == null || !Boolean.valueOf(o.held()).equals(b.get("held")) || !lifecycle.equals(b.get("lifecycle"))) changed.add(o.id());
+            if (b != null && Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(b.get("lifecycle"))
+                    && !Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(lifecycle)) reactivated.add(o.id());
             if (o.ceilingSent()) {
                 List<String> roles = o.roleCeiling() == null ? null : o.roleCeiling().stream().distinct().sorted().toList();
                 List<String> deleg = roles == null ? null : (o.roleDelegable() == null ? List.<String>of()
@@ -153,8 +156,9 @@ public class RbacStore {
             }
         }
         changed.addAll(ceilings.clampAll()); // child within parent (extended-rbac X4)
-        // an org that reached a terminal state (or vanished) keeps no usable org-defined roles
-        retireOrgRoles(db.queryForList("SELECT id FROM tenants WHERE lifecycle IN ('REJECTED','BLOCKED','CLOSED','ARCHIVED')", String.class), "mipay");
+        // Restore role definitions on recovery; historical assignment revocations remain final.
+        restoreOrgRoles(reactivated, "mipay");
+        retireOrgRoles(db.queryForList("SELECT id FROM tenants WHERE source='mipay' AND lifecycle IN ('REJECTED','BLOCKED','CLOSED','ARCHIVED')", String.class), "mipay");
         for (String id : changed) touchTenantTree(id);
         if (closure != null || !changed.isEmpty()) touchAll(); // tree shape or a ceiling changed: subjects anywhere may be affected
         audit("mipay", null, "org_tree_sync", Map.of("orgs", orgs.size(), "closure_rows", closureRows, "changed", changed));
@@ -511,6 +515,19 @@ public class RbacStore {
         touchSubjects(new ArrayList<>(new LinkedHashSet<>(subjects)));
         touchAll();
         audit(actor, null, "org_roles_retired", Map.of("roles", names, "assignments_revoked", subjects.size()));
+        return names;
+    }
+
+    /** A recovered org may reuse its roles, but former holders need fresh assignments. */
+    public List<String> restoreOrgRoles(java.util.Collection<String> tenants, String actor) {
+        if (tenants == null || tenants.isEmpty()) return List.of();
+        List<String> names = db.queryForList(
+                "UPDATE roles SET retired_at=NULL, updated_at=now() WHERE owner_tenant = ANY(?::text[]) AND retired_at IS NOT NULL RETURNING name",
+                String.class, SchemaAndSeed.pgArray(new ArrayList<>(tenants)));
+        if (names.isEmpty()) return names;
+        policy.reload();
+        touchAll();
+        audit(actor, null, "org_roles_restored", Map.of("roles", names, "tenants", tenants));
         return names;
     }
 
