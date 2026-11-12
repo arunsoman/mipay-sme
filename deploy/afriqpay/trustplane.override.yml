@@ -17,6 +17,7 @@ services:
       # vhost first; then set IDP_ENVIRONMENT=production, IDP_ISSUER=https://auth.afriqpay.com
       # and remove IDP_SEED_USERS (the IdP refuses to start otherwise).
       IDP_ENVIRONMENT: sandbox
+      IDP_SEED_USERS: ""               # 2026-11-12: every user deleted; no demo accounts either
   rbac:
     restart: unless-stopped
     environment:
