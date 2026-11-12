@@ -115,6 +115,31 @@ const emptyDraft = (): Draft => ({
                   </fieldset>
                 }
 
+                @if (g.roles?.length) {
+                  <fieldset>
+                    <legend>Which roles may {{ d.name || 'this organization' }} use?</legend>
+                    <table class="grid rights">
+                      <thead><tr><th>Role</th><th>Its people may hold it</th>
+                        @if (c.allowedCeiling.length) {<th>It may pass it on</th>}</tr></thead>
+                      <tbody>
+                        @for (r of g.roles; track r.name) {
+                          <tr>
+                            <td>{{ r.name }}@if (r.description) {<div class="hint">{{ r.description }}</div>}</td>
+                            <td><input type="checkbox" [checked]="r.baseline || roleUse().has(r.name)" [disabled]="r.baseline"
+                                       (change)="toggleRoleUse(r.name)" /></td>
+                            @if (c.allowedCeiling.length) {
+                              <td><input type="checkbox" [checked]="roleHand().has(r.name)"
+                                         [disabled]="!r.baseline && !roleUse().has(r.name)" (change)="toggleRoleHand(r.name)" /></td>
+                            }
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    <div class="hint">You can only give roles your own organization may pass on. The administrator and KYC roles
+                      are always included. Organizations above it can narrow this later.</div>
+                  </fieldset>
+                }
+
                 @if (c.allowedCeiling.length) {
                   <fieldset>
                     <legend>What may {{ d.name || 'this organization' }} onboard?</legend>
@@ -190,6 +215,9 @@ export class OnboardChild implements OnInit {
     this.grantable()?.children.find((c) => c.type === this.childType()) ?? null);
   readonly direct = signal<Set<string>>(new Set());
   readonly ceiling = signal<Set<string>>(new Set());
+  /** Role ceiling for the new org (extended-rbac): roles it may use / pass on. */
+  readonly roleUse = signal<Set<string>>(new Set());
+  readonly roleHand = signal<Set<string>>(new Set());
   readonly created = signal<{ orgId: string; name: string } | null>(null);
   readonly kycEditor = viewChild<KycApplication>('kycEditor');
   readonly open = computed(() => this.formOpen() || this.created() !== null);
@@ -219,6 +247,9 @@ export class OnboardChild implements OnInit {
     try {
       const g = await firstValueFrom(this.http.get<GrantableView>('/api/orgs/me/grantable'));
       this.grantable.set(g);
+      const offered = new Set((g.roles ?? []).map((r) => r.name));
+      this.roleUse.update(cur => new Set([...cur].filter(r => offered.has(r))));
+      this.roleHand.update(cur => new Set([...cur].filter(r => offered.has(r))));
       const keep = g.children.find((c) => c.type === this.childType());
       if (keep) this.pickType(keep);
     } catch (e) {
@@ -243,6 +274,36 @@ export class OnboardChild implements OnInit {
     const allowed = new Set(c.allowedCeiling);
     this.direct.set(new Set(c.defaultDirect.filter((t) => allowed.has(t))));
     this.ceiling.set(new Set(c.allowedCeiling));
+    // default: everything the onboarder may pass on; pass-on only for types that onboard further
+    const roles = (this.grantable()?.roles ?? []).map((r) => r.name);
+    this.roleUse.set(new Set(roles));
+    this.roleHand.set(new Set(c.allowedCeiling.length ? roles : []));
+  }
+
+  toggleRoleUse(r: string) {
+    const s = new Set(this.roleUse());
+    if (s.has(r)) {
+      s.delete(r);
+      const h = new Set(this.roleHand());
+      h.delete(r);
+      this.roleHand.set(h);
+    } else s.add(r);
+    this.roleUse.set(s);
+  }
+
+  toggleRoleHand(r: string) {
+    const h = new Set(this.roleHand());
+    if (h.has(r)) h.delete(r); else h.add(r);
+    this.roleHand.set(h);
+  }
+
+  /** null = no role ceiling offered (older backend): the new org inherits. */
+  private roleCeilingBody() {
+    const g = this.grantable();
+    if (!g?.roles?.length) return { roleCeiling: null, roleDelegable: null };
+    const base = new Set(g.baselineRoles ?? []);
+    const use = new Set([...this.roleUse(), ...base]);
+    return { roleCeiling: [...use], roleDelegable: [...this.roleHand()].filter((r) => use.has(r)) };
   }
 
   toggleDirect(t: string) {
@@ -285,6 +346,7 @@ export class OnboardChild implements OnInit {
         bankName: blank(d.bankName), accountNumber: blank(d.accountNumber), accountHolder: blank(d.accountHolder),
         supplierType: blank(d.supplierType), ownerIdNumber: blank(d.ownerIdNumber), licenceRef: blank(d.licenceRef),
         rightsDirect: [...this.direct()], rightsCeiling: [...this.ceiling()],
+        ...this.roleCeilingBody(),
       }));
       this.created.set({ orgId: res.orgId, name: d.name.trim() });
       this.flash.set({ kind: 'ok', text: `${d.name.trim()} created (PENDING). Now complete its KYC.` });

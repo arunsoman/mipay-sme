@@ -26,17 +26,43 @@ public class Policy {
     public record Resource(String id, String service, String description, int declared, int used,
                            Set<String> tenantTypes, int grantVerbs, String grantAttribute) {}
 
+    /**
+     * A role. {@code ownerTenant} is set for an org-defined role (extended-rbac X8): it is
+     * assignable only in that org and its mask is bounded by {@code baseRoles} at decision time.
+     */
     public record Role(String name, String description, String kind, String approval, Integer maxHours,
-                       int allRowsVerbs, boolean seeded, Map<String, Integer> grid, List<String> juniors) {
+                       int allRowsVerbs, boolean seeded, Map<String, Integer> grid, List<String> juniors,
+                       String ownerTenant, List<String> baseRoles) {
         public int ownMask(String row) {
             return grid.getOrDefault(row, 0) | allRowsVerbs;
+        }
+
+        public boolean orgDefined() {
+            return ownerTenant != null;
         }
     }
 
     public record SodRule(String id, String kind, List<String> a, List<String> b, String cellA, String cellB, String reason) {}
 
     public record Snapshot(Map<String, Resource> resources, Map<String, Role> roles,
-                           Map<String, Set<String>> expanded, List<SodRule> sod, Map<String, String> exemptions) {
+                           Map<String, Set<String>> expanded, List<SodRule> sod, Map<String, String> exemptions,
+                           Set<String> baseline) {
+
+        /** Global ORG roles (the catalogue a ceiling chooses from), not org-defined ones. */
+        public Set<String> globalOrgRoles() {
+            Set<String> out = new LinkedHashSet<>();
+            for (Role r : roles.values()) if ("ORG".equals(r.kind()) && !r.orgDefined()) out.add(r.name());
+            return out;
+        }
+
+        /** For static SoD an org-defined role counts as its base roles (X9). */
+        public Set<String> sodIdentity(String role) {
+            Role r = roles.get(role);
+            if (r == null || !r.orgDefined()) return Set.of(role);
+            Set<String> out = new LinkedHashSet<>(r.baseRoles());
+            out.add(role);
+            return out;
+        }
 
         /** Effective mask of a role on a row, including every inherited (junior) role. */
         public int mask(String role, String row) {
@@ -50,7 +76,7 @@ public class Policy {
     }
 
     private final JdbcTemplate db;
-    private volatile Snapshot snap = new Snapshot(Map.of(), Map.of(), Map.of(), List.of(), Map.of());
+    private volatile Snapshot snap = new Snapshot(Map.of(), Map.of(), Map.of(), List.of(), Map.of(), Set.of());
 
     public Snapshot get() {
         return snap;
@@ -75,12 +101,13 @@ public class Policy {
             juniors.computeIfAbsent(rs.getString("senior"), k -> new ArrayList<>()).add(rs.getString("junior"));
         });
         Map<String, Role> roles = new LinkedHashMap<>();
-        db.query("SELECT name, description, kind, approval, max_hours, all_rows_verbs, seeded FROM roles ORDER BY name", rs -> {
+        db.query("SELECT name, description, kind, approval, max_hours, all_rows_verbs, seeded, owner_tenant, base_roles FROM roles ORDER BY name", rs -> {
             String n = rs.getString("name");
             Integer mh = (Integer) rs.getObject("max_hours");
             roles.put(n, new Role(n, rs.getString("description"), rs.getString("kind"), rs.getString("approval"), mh,
                     rs.getInt("all_rows_verbs"), rs.getBoolean("seeded"),
-                    grids.getOrDefault(n, Map.of()), juniors.getOrDefault(n, List.of())));
+                    grids.getOrDefault(n, Map.of()), juniors.getOrDefault(n, List.of()),
+                    rs.getString("owner_tenant"), arr(rs.getArray("base_roles"))));
         });
         Map<String, Set<String>> expanded = new HashMap<>();
         for (String r : roles.keySet()) expanded.put(r, expand(r, juniors));
@@ -93,7 +120,8 @@ public class Policy {
         db.query("SELECT resource, reason FROM same_row_exemptions", rs -> {
             ex.put(rs.getString("resource"), rs.getString("reason"));
         });
-        snap = new Snapshot(res, roles, expanded, sod, ex);
+        Set<String> baseline = new LinkedHashSet<>(db.queryForList("SELECT role FROM ceiling_baseline ORDER BY role", String.class));
+        snap = new Snapshot(res, roles, expanded, sod, ex, baseline);
     }
 
     private static List<String> arr(Array a) throws java.sql.SQLException {

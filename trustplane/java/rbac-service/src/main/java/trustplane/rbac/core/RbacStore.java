@@ -40,6 +40,7 @@ public class RbacStore {
     private final WatchHub watch;
     private final Policy policy;
     private final RbacConfig cfg;
+    private final Ceilings ceilings;
 
     public static String newId(String prefix) {
         byte[] r = new byte[9];
@@ -86,7 +87,16 @@ public class RbacStore {
     // Org-tree sync (P2.6a): closure + every org's type, parent, lifecycle and holds
     // ------------------------------------------------------------------
 
-    public record OrgRow(String id, String name, String type, String parent, String lifecycle, boolean held, List<String> holds) {}
+    /**
+     * One org as the core sends it. {@code ceilingSent}: the payload carried the role ceiling
+     * (extended-rbac X6); then {@code roleCeiling} null means "no explicit ceiling" (inherit).
+     */
+    public record OrgRow(String id, String name, String type, String parent, String lifecycle, boolean held, List<String> holds,
+                         boolean ceilingSent, List<String> roleCeiling, List<String> roleDelegable) {
+        public OrgRow(String id, String name, String type, String parent, String lifecycle, boolean held, List<String> holds) {
+            this(id, name, type, parent, lifecycle, held, holds, false, null, null);
+        }
+    }
 
     /**
      * Replaces the core's part of the tree ({@code source='mipay'}); fixtures are untouched.
@@ -95,7 +105,7 @@ public class RbacStore {
     @Transactional
     public Map<String, Object> syncOrgs(List<Map<String, Object>> closure, List<OrgRow> orgs) {
         Map<String, Map<String, Object>> before = new HashMap<>();
-        for (Map<String, Object> r : db.queryForList("SELECT id, held, lifecycle FROM tenants WHERE source='mipay'")) {
+        for (Map<String, Object> r : db.queryForList("SELECT id, held, lifecycle, role_ceiling, role_delegable FROM tenants WHERE source='mipay'")) {
             before.put((String) r.get("id"), r);
         }
         Set<String> changed = new LinkedHashSet<>();
@@ -114,6 +124,19 @@ public class RbacStore {
                     o.id(), o.name() == null ? o.id() : o.name(), o.type(), o.parent(), lifecycle, o.held(), holds);
             Map<String, Object> b = before.get(o.id());
             if (b == null || !Boolean.valueOf(o.held()).equals(b.get("held")) || !lifecycle.equals(b.get("lifecycle"))) changed.add(o.id());
+            if (o.ceilingSent()) {
+                List<String> roles = o.roleCeiling() == null ? null : o.roleCeiling().stream().distinct().sorted().toList();
+                List<String> deleg = roles == null ? null : (o.roleDelegable() == null ? List.<String>of()
+                        : o.roleDelegable().stream().filter(roles::contains).distinct().sorted().toList());
+                db.update("UPDATE tenants SET role_ceiling=?::text[], role_delegable=?::text[] WHERE id=?",
+                        roles == null ? null : SchemaAndSeed.pgArray(roles), deleg == null ? null : SchemaAndSeed.pgArray(deleg), o.id());
+                Set<String> beforeRoles = b == null ? null : Ceilings.set(b.get("role_ceiling"));
+                Set<String> beforeDeleg = b == null ? null : Ceilings.set(b.get("role_delegable"));
+                if (!java.util.Objects.equals(beforeRoles, roles == null ? null : new LinkedHashSet<>(roles))
+                        || !java.util.Objects.equals(beforeDeleg, deleg == null ? null : new LinkedHashSet<>(deleg))) {
+                    changed.add(o.id());
+                }
+            }
         }
         for (String gone : before.keySet()) {
             if (!seen.contains(gone) && !orgs.isEmpty()) {
@@ -129,8 +152,9 @@ public class RbacStore {
                         String.valueOf(r.get("ancestor")), String.valueOf(r.get("descendant")), ((Number) r.getOrDefault("depth", 0)).intValue());
             }
         }
+        changed.addAll(ceilings.clampAll()); // child within parent (extended-rbac X4)
         for (String id : changed) touchTenantTree(id);
-        if (closure != null) touchAll(); // tree shape changed: subtree coverage may differ everywhere
+        if (closure != null || !changed.isEmpty()) touchAll(); // tree shape or a ceiling changed: subjects anywhere may be affected
         audit("mipay", null, "org_tree_sync", Map.of("orgs", orgs.size(), "closure_rows", closureRows, "changed", changed));
         return Map.of("ok", true, "orgs", orgs.size(), "closureRows", closureRows, "changed", changed.size());
     }
@@ -216,6 +240,8 @@ public class RbacStore {
         m.put("max_hours", r.maxHours());
         m.put("seeded", r.seeded());
         m.put("inherits", r.juniors());
+        m.put("owner_tenant", r.ownerTenant());
+        m.put("base_roles", r.baseRoles());
         Map<String, List<String>> grid = new LinkedHashMap<>();
         for (var e : new java.util.TreeMap<>(r.grid()).entrySet()) grid.put(e.getKey(), Verbs.names(e.getValue()));
         m.put("grid", grid);
@@ -369,12 +395,127 @@ public class RbacStore {
         if (r.seeded()) throw ApiException.conflict("seeded roles change through the reviewed seed, not the API");
         Integer used = db.queryForObject("SELECT count(*) FROM assignments WHERE role=? AND status IN ('ACTIVE','PENDING_APPROVAL')", Integer.class, name);
         if (used != null && used > 0) throw ApiException.conflict("role has " + used + " active or pending assignments");
+        List<String> builtOn = db.queryForList("SELECT name FROM roles WHERE ? = ANY(base_roles)", String.class, name);
+        if (!builtOn.isEmpty()) throw ApiException.conflict("org-defined roles are built on " + name + ": " + builtOn);
         db.update("DELETE FROM role_inheritance WHERE junior=?", name);
         db.update("DELETE FROM assignments WHERE role=?", name);
         db.update("DELETE FROM roles WHERE name=?", name);
         policy.reload();
         touchAll();
         audit(actor, null, "role_delete", Map.of("role", name));
+    }
+
+    // ------------------------------------------------------------------
+    // Org-defined roles (docs/plans/extended-rbac.md X8-X11)
+    // ------------------------------------------------------------------
+
+    private static final List<String> APPROVAL_ORDER = List.of("none", "org_admin", "platform", "compliance", "break_glass");
+
+    /** Validates an org-defined role against the owner's ceiling and its base roles; returns its approval rule. */
+    String validateOrgRole(String name, String tenant, List<String> bases, Map<String, Integer> grid) {
+        Policy.Snapshot s = policy.get();
+        List<Map<String, Object>> t = db.queryForList("SELECT lifecycle FROM tenants WHERE id=?", tenant);
+        if (t.isEmpty()) throw new ApiException(404, "unknown_tenant", "org not known to RBAC: " + tenant);
+        if (Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(String.valueOf(t.get(0).get("lifecycle")))) {
+            throw ApiException.conflict("org is " + t.get(0).get("lifecycle") + ": no new roles");
+        }
+        if (bases == null || bases.isEmpty()) throw ApiException.badRequest("base_roles required: the roles this one is carved from");
+        Ceilings.Effective c = ceilings.of(tenant);
+        for (String b : bases) {
+            Policy.Role br = s.roles().get(b);
+            if (br == null || !"ORG".equals(br.kind()) || br.orgDefined()) {
+                throw new ApiException(400, "bad_base_role", b + " is not a global org role");
+            }
+            if (!c.allows(b)) throw new ApiException(409, "ROLE_OUTSIDE_CEILING", b + " is outside the role ceiling of " + tenant);
+        }
+        for (Policy.SodRule r : s.sod()) {
+            if (!Set.of("STATIC", "DYNAMIC").contains(r.kind())) continue;
+            if (r.a().stream().anyMatch(bases::contains) && r.b().stream().anyMatch(bases::contains)) {
+                throw new ApiException(409, "SOD_CONFLICT", "base roles span both sides of " + r.id() + " (" + r.reason() + ")");
+            }
+        }
+        if (grid == null || grid.values().stream().allMatch(v -> v == 0)) throw ApiException.badRequest("the role ticks no cell");
+        List<String> beyond = new ArrayList<>();
+        for (var e : grid.entrySet()) {
+            int bound = 0;
+            for (String b : bases) bound |= s.mask(b, e.getKey());
+            for (String v : Verbs.names(e.getValue() & ~bound)) beyond.add(e.getKey() + ":" + v);
+        }
+        if (!beyond.isEmpty()) throw new ApiException(409, "EXCEEDS_BASE_ROLES", "not in any base role: " + beyond);
+        validateGrid(name, "ORG", grid);
+        String approval = "none";
+        for (String b : bases) {
+            String a = s.roles().get(b).approval();
+            if (APPROVAL_ORDER.indexOf(a) > APPROVAL_ORDER.indexOf(approval)) approval = a;
+        }
+        return approval;
+    }
+
+    public static String orgRoleName(String slug, String tenant) {
+        if (slug == null || !slug.matches("^[a-z][a-z0-9_]{2,40}$")) throw ApiException.badRequest("role name must be lower_snake_case, 3-41 characters");
+        return slug + "@" + tenant;
+    }
+
+    @Transactional
+    public Map<String, Object> createOrgRole(String actor, String tenant, String slug, String description,
+                                             List<String> bases, Map<String, Integer> grid) {
+        String name = orgRoleName(slug, tenant);
+        if (policy.get().roles().containsKey(name)) throw ApiException.conflict("role exists: " + name);
+        String approval = validateOrgRole(name, tenant, bases, grid);
+        db.update("INSERT INTO roles (name, description, kind, approval, seeded, owner_tenant, base_roles) VALUES (?,?,'ORG',?,FALSE,?,?::text[])",
+                name, description == null ? "" : description, approval, tenant, SchemaAndSeed.pgArray(List.copyOf(new LinkedHashSet<>(bases))));
+        writeGrid(name, grid);
+        policy.reload();
+        audit(actor, tenant, "org_role_create", Map.of("role", name, "base_roles", bases, "grid", grid));
+        return getRole(name);
+    }
+
+    @Transactional
+    public Map<String, Object> updateOrgRole(String actor, String name, String description, List<String> bases, Map<String, Integer> grid) {
+        Policy.Role r = policy.get().roles().get(name);
+        if (r == null || !r.orgDefined()) throw ApiException.notFound();
+        List<String> newBases = bases == null ? r.baseRoles() : List.copyOf(new LinkedHashSet<>(bases));
+        Map<String, Integer> newGrid = grid == null ? r.grid() : grid;
+        String approval = validateOrgRole(name, r.ownerTenant(), newBases, newGrid);
+        db.update("UPDATE roles SET description=COALESCE(NULLIF(?,''), description), approval=?, base_roles=?::text[], updated_at=now() WHERE name=?",
+                description == null ? "" : description, approval, SchemaAndSeed.pgArray(newBases), name);
+        if (grid != null) writeGrid(name, grid);
+        policy.reload();
+        touchAll();
+        audit(actor, r.ownerTenant(), "org_role_update", Map.of("role", name, "base_roles", newBases, "grid", newGrid));
+        return getRole(name);
+    }
+
+    /**
+     * The roles an org works with: global ORG roles flagged by its ceiling, and its own
+     * org-defined roles (with whether their base roles are still all inside the ceiling).
+     */
+    public Map<String, Object> rolesFor(String tenant) {
+        Policy.Snapshot s = policy.get();
+        if (db.queryForList("SELECT 1 FROM tenants WHERE id=?", tenant).isEmpty()) {
+            throw new ApiException(404, "unknown_tenant", "org not known to RBAC: " + tenant);
+        }
+        Ceilings.Effective c = ceilings.of(tenant);
+        List<Map<String, Object>> global = new ArrayList<>(), own = new ArrayList<>();
+        for (Policy.Role r : s.roles().values()) {
+            if (!"ORG".equals(r.kind())) continue;
+            if (!r.orgDefined()) {
+                Map<String, Object> v = roleView(r);
+                v.put("in_ceiling", c.allows(r.name()));
+                v.put("delegable", c.mayDelegate(r.name()));
+                v.put("baseline", s.baseline().contains(r.name()));
+                global.add(v);
+            } else if (tenant.equals(r.ownerTenant())) {
+                Map<String, Object> v = roleView(r);
+                v.put("in_ceiling", r.baseRoles().stream().allMatch(c::allows));
+                own.add(v);
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ceiling", c.view(s));
+        out.put("roles", global);
+        out.put("org_roles", own);
+        return out;
     }
 
     // ------------------------------------------------------------------

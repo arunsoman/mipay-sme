@@ -1,4 +1,5 @@
 import { Modal } from '../../../../../shared/ui/modal';
+import { RoleCeiling } from '../../../../../shared/rbac/role-ceiling';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -24,7 +25,7 @@ const HINTS: Record<string, string> = {
 @Component({
   selector: 'mpo-network',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Modal, FormsModule, DatePipe],
+  imports: [Modal, FormsModule, DatePipe, RoleCeiling],
   template: `
     <div class="head">
       <h2>My network</h2>
@@ -102,6 +103,9 @@ const HINTS: Record<string, string> = {
               </mp-modal>
             }
           </div>
+
+          <!-- role ceiling (extended-rbac): editable for organizations below the caller's own -->
+          <mp-role-ceiling [orgId]="o.id" [editable]="!isOwn()" />
 
           <!-- rights -->
           @if (o.type !== 'MERCHANT' && o.type !== 'LENDER') {

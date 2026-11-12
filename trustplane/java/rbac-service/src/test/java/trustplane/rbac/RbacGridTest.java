@@ -33,6 +33,8 @@ class RbacGridTest {
     AccessService access;
     SchemaAndSeed seed;
     RbacConfig cfg;
+    Ceilings ceilings;
+    Map<String, String[]> tree;
 
     static final String SYS = AccessService.SYSTEM;
 
@@ -50,9 +52,10 @@ class RbacGridTest {
         cfg = config(env);
         policy = new Policy(db);
         WatchHub hub = new WatchHub();
-        store = new RbacStore(db, hub, policy, cfg);
-        decisions = new Decisions(db, policy);
-        access = new AccessService(db, policy, decisions, store, cfg);
+        ceilings = new Ceilings(db, policy);
+        store = new RbacStore(db, hub, policy, cfg, ceilings);
+        decisions = new Decisions(db, policy, ceilings);
+        access = new AccessService(db, policy, decisions, store, cfg, ceilings);
         seed = new SchemaAndSeed(db, cfg, tx, policy);
     }
 
@@ -74,6 +77,7 @@ class RbacGridTest {
         orgs.put("kav", new String[]{"DISTRIBUTOR", "plat"});
         orgs.put("sib", new String[]{"MERCHANT", "kav"});
         orgs.put("lend", new String[]{"LENDER", "plat"});
+        tree = orgs;
         sync(orgs, Map.of());
         assign("selma", "org_admin", "oka", "own");
         assign("tomas", "org_staff", "oka", "own");
@@ -93,6 +97,22 @@ class RbacGridTest {
             }
             rows.add(new RbacStore.OrgRow(e.getKey(), e.getKey(), e.getValue()[0], e.getValue()[1], "ACTIVE",
                     held.getOrDefault(e.getKey(), false), held.getOrDefault(e.getKey(), false) ? List.of("MANUAL") : List.of()));
+        }
+        store.syncOrgs(closure, rows);
+    }
+
+    /** Re-syncs the tree with role ceilings: tenant -> [roles, delegable]; absent = no explicit ceiling. */
+    void syncCeilings(Map<String, List<List<String>>> c) {
+        List<Map<String, Object>> closure = new ArrayList<>();
+        List<RbacStore.OrgRow> rows = new ArrayList<>();
+        for (var e : tree.entrySet()) {
+            int depth = 0;
+            for (String cur = e.getKey(); cur != null; cur = tree.get(cur)[1], depth++) {
+                closure.add(Map.of("ancestor", cur, "descendant", e.getKey(), "depth", depth));
+            }
+            List<List<String>> ce = c.get(e.getKey());
+            rows.add(new RbacStore.OrgRow(e.getKey(), e.getKey(), e.getValue()[0], e.getValue()[1], "ACTIVE", false, List.of(),
+                    true, ce == null ? null : ce.get(0), ce == null ? null : ce.get(1)));
         }
         store.syncOrgs(closure, rows);
     }
@@ -315,8 +335,8 @@ class RbacGridTest {
     @Test
     void productionRefusesSimulation() throws Exception {
         RbacConfig prod = config("production");
-        RbacStore prodStore = new RbacStore(db, new WatchHub(), policy, prod);
-        AccessService prodAccess = new AccessService(db, policy, decisions, prodStore, prod);
+        RbacStore prodStore = new RbacStore(db, new WatchHub(), policy, prod, ceilings);
+        AccessService prodAccess = new AccessService(db, policy, decisions, prodStore, prod, ceilings);
         assertEquals(409, status(() -> prodStore.createRole("ua1", "sim_role", "", "ORG",
                 prodStore.parseGrid(Map.of("merchant.payment", List.of("simulate")), null), List.of())));
         assertEquals(409, status(() -> prodAccess.request(SYS, new AccessService.AssignRequest("t", "sandbox_tester", "oka", "own", null, ""), "backfill")));
@@ -377,5 +397,117 @@ class RbacGridTest {
         db.update("UPDATE roles SET seed_hash='changed' WHERE name='org_viewer'");
         seed.apply();
         assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "a changed seed is authoritative again");
+    }
+
+    // ------------------------------------------------------------------
+    // Extended RBAC (docs/plans/extended-rbac.md): role ceilings and org-defined roles
+    // ------------------------------------------------------------------
+
+    @Test
+    void roleCeilingsInheritClampAndBindDecisions() throws Exception {
+        assertTrue(allowed("tomas", "oka", "merchant.inventory:create"), "no ceiling anywhere: unrestricted, as today");
+        assertNull(ceilings.of("oka").roles());
+
+        // Namib may use staff + viewer and hand down only viewer; Oka has no explicit ceiling: it inherits
+        syncCeilings(Map.of("namib", List.of(List.of("org_staff", "org_viewer"), List.of("org_viewer"))));
+        Ceilings.Effective namib = ceilings.of("namib");
+        assertTrue(namib.explicit());
+        assertEquals(Set.of("org_staff", "org_viewer", "kyc_applicant", "org_admin"), namib.roles(), "baseline always inside");
+        Ceilings.Effective oka = ceilings.of("oka");
+        assertFalse(oka.explicit());
+        assertEquals("namib", oka.from());
+        assertEquals(Set.of("org_viewer", "kyc_applicant", "org_admin"), oka.roles());
+
+        // decision time: Tomas's org_staff on Oka stops working on the next request (X7)
+        Decisions.Decision d = check("tomas", "oka", "merchant.inventory:create");
+        assertFalse(d.allowed());
+        assertEquals("role_outside_ceiling:org_staff@oka", d.reason());
+        assertFalse(decisions.listPermissions("tomas", "oka", List.of()).operations().contains("merchant.inventory:create"));
+        // assignment time: refused, system writes too
+        assertEquals(409, status(() -> assign("nina", "org_staff", "oka", "own")));
+        assertEquals("ACTIVE", assign("nina", "org_viewer", "oka", "own").get("status"));
+        assertTrue(allowed("nina", "oka", "merchant.inventory:read"));
+        // the baseline is never cut: Oka's admin keeps everything org_admin inherits
+        assertTrue(allowed("selma", "oka", "merchant.inventory:create"));
+        // platform assignments are exempt (U6)
+        assertTrue(allowed("ana", "oka", "kyc.task:read"));
+
+        // a child wider than its parent is clamped on arrival (X4)
+        syncCeilings(Map.of("namib", List.of(List.of("org_staff", "org_viewer"), List.of("org_viewer")),
+                "oka2", List.of(List.of("org_staff", "org_viewer"), List.of("org_staff", "org_viewer"))));
+        assertEquals(Set.of("org_viewer"), Set.copyOf(Arrays.asList((String[]) db.queryForObject(
+                "SELECT role_ceiling FROM tenants WHERE id='oka2'", java.sql.Array.class).getArray())));
+        assertEquals(Set.of("org_viewer", "kyc_applicant", "org_admin"), ceilings.of("oka2").roles());
+
+        // dropping the ceiling restores today's access
+        syncCeilings(Map.of());
+        assertTrue(allowed("tomas", "oka", "merchant.inventory:create"));
+        // a sync without ceilings (an older core) leaves them alone
+        syncCeilings(Map.of("namib", List.of(List.of("org_viewer"), List.of())));
+        sync(tree, Map.of());
+        assertTrue(ceilings.of("namib").explicit());
+    }
+
+    @Test
+    void orgDefinedRolesStayInsideBaseRolesAndCeiling() {
+        syncCeilings(Map.of("oka", List.of(List.of("org_staff", "org_viewer"), List.of())));
+        Map<String, Integer> clerk = store.parseGrid(Map.of("merchant.inventory", List.of("read", "create")), null);
+        Map<String, Object> r = store.createOrgRole("selma", "oka", "stock_clerk", "Stock clerk", List.of("org_staff"), clerk);
+        assertEquals("stock_clerk@oka", r.get("name"));
+        assertEquals("oka", r.get("owner_tenant"));
+        assertEquals("none", policy.get().roles().get("stock_clerk@oka").approval());
+
+        // carved from its base roles only
+        assertEquals(409, status(() -> store.createOrgRole("selma", "oka", "payer", "", List.of("org_staff"),
+                store.parseGrid(Map.of("merchant.withdrawal", List.of("execute")), null))), "org_admin's cell is not in org_staff");
+        assertEquals(400, status(() -> store.createOrgRole("selma", "oka", "bad", "", List.of("platform_auditor"), clerk)));
+        assertEquals(400, status(() -> store.createOrgRole("selma", "oka", "Bad Name", "", List.of("org_staff"), clerk)));
+
+        // assignable only in its own org; works there, narrower than its base
+        assertEquals(409, status(() -> assign("pia", "stock_clerk@oka", "oka2", "own")));
+        assertEquals("ACTIVE", assign("pia", "stock_clerk@oka", "oka", "own").get("status"));
+        assertTrue(allowed("pia", "oka", "merchant.inventory:create"));
+        assertFalse(allowed("pia", "oka", "merchant.tab:create"), "org_staff has it, the org role does not");
+        assertFalse(allowed("pia", "oka2", "merchant.inventory:read"));
+
+        // bounded at decision time (X10): a grid edited behind the API still cannot exceed the base
+        db.update("INSERT INTO rbac_role_grid (role, resource, verbs) VALUES ('stock_clerk@oka','merchant.withdrawal',?)", Verbs.bit("execute"));
+        policy.reload();
+        assertFalse(allowed("pia", "oka", "merchant.withdrawal:execute"));
+
+        // narrowing the ceiling switches it off on the next request
+        syncCeilings(Map.of("oka", List.of(List.of("org_viewer"), List.of())));
+        assertEquals("role_outside_ceiling:stock_clerk@oka", check("pia", "oka", "merchant.inventory:read").reason());
+        assertEquals(409, status(() -> store.createOrgRole("selma", "oka", "clerk2", "", List.of("org_staff"), clerk)));
+        Map<String, Object> view = store.rolesFor("oka");
+        assertEquals(List.of("stock_clerk@oka"), ((List<Map<String, Object>>) view.get("org_roles")).stream().map(m -> m.get("name")).toList());
+        assertEquals(false, ((List<Map<String, Object>>) view.get("org_roles")).get(0).get("in_ceiling"));
+        syncCeilings(Map.of());
+        assertTrue(allowed("pia", "oka", "merchant.inventory:create"));
+
+        // SoD: base roles never span both sides of a rule; an org role counts as its bases (X9)
+        db.update("INSERT INTO sod_rules (id, kind, roles_a, roles_b, reason) VALUES ('ssd-test','STATIC','{org_staff}','{kyc_applicant}','test')");
+        policy.reload();
+        assertEquals(409, status(() -> store.createOrgRole("selma", "oka", "mixed", "", List.of("org_staff", "kyc_applicant"), clerk)));
+        assertEquals(409, status(() -> assign("pia", "kyc_applicant", "oka", "own")), "pia holds org_staff through stock_clerk@oka");
+
+        // in use: not deletable; listed in the role pack for the access review
+        assertEquals(409, status(() -> store.deleteRole("selma", "stock_clerk@oka")));
+        String md = new RolePack(db, policy).render("dev");
+        assertTrue(md.contains("`stock_clerk@oka` | oka | `org_staff`"));
+        assertFalse(md.contains("## `stock_clerk@oka`"), "not a role for separate sign-off");
+    }
+
+    @Test
+    void onBehalfRequestsKeepFourEyesAndCeilings() {
+        // the core authorized the actor itself: no RBAC cell needed, but four-eyes still applies to org_admin
+        Map<String, Object> r = access.request("core-user-7", new AccessService.AssignRequest("tomas", "org_admin", "oka", "own", null, ""),
+                "core_portal", true);
+        assertEquals("PENDING_APPROVAL", r.get("status"));
+        assertEquals(403, status(() -> access.request("core-user-7", new AccessService.AssignRequest("vera", "org_viewer", "oka", "own", null, ""),
+                "core_portal", false)), "without core authorization the actor needs the cell");
+        syncCeilings(Map.of("oka", List.of(List.of("org_viewer"), List.of())));
+        assertEquals(409, status(() -> access.request("core-user-7", new AccessService.AssignRequest("vera", "org_staff", "oka", "own", null, ""),
+                "core_portal", true)));
     }
 }

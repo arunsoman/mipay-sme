@@ -561,7 +561,22 @@ public final class Dtos {
 
     public record GrantableChild(String type, List<String> allowedCeiling, List<String> defaultDirect) { }
 
-    public record GrantableView(List<String> effDirect, List<GrantableChild> children) { }
+    public record GrantableView(List<String> effDirect, List<GrantableChild> children,
+                                List<GrantableRole> roles, List<String> baselineRoles) {
+        public GrantableView(List<String> effDirect, List<GrantableChild> children) {
+            this(effDirect, children, List.of(), List.of());
+        }
+
+        public GrantableView withRoles(List<GrantableRole> r, List<String> baseline) {
+            return new GrantableView(effDirect, children, r, baseline);
+        }
+    }
+
+    /** A role the caller may give a child org (extended-rbac X4): its own hand-down set. */
+    public record GrantableRole(String name, String description, boolean baseline) { }
+
+    /** PUT /api/orgs/{id}/role-ceiling: inherit=true removes the explicit ceiling (X2). */
+    public record RoleCeilingRequest(List<String> roles, List<String> delegableRoles, Boolean inherit) { }
 
     public record OrgNodeRow(String id, String type, String name, String lifecycle, String effectiveStatus,
                              long activeHolds, List<OrgHoldRow> holds, String onboardedBy,
@@ -586,7 +601,8 @@ public final class Dtos {
                                    @NotBlank String phone, String username, String email,
                                    String bankName, String accountNumber, String accountHolder,
                                    String licenceRef, String supplierType, String ownerIdNumber,
-                                   List<String> rightsDirect, List<String> rightsCeiling) { }
+                                   List<String> rightsDirect, List<String> rightsCeiling,
+                                   List<String> roleCeiling, List<String> roleDelegable) { }
 
     // ---- per-type onboarding request bodies (one controller per org type) ----
     public record OnboardManufacturerRequest(@NotBlank String name, @NotBlank String registrationNumber,

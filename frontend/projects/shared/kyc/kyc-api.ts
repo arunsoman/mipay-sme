@@ -46,7 +46,9 @@ export interface KycTreeNode {
 export type KycFlatNode = KycTreeNode & { depth: number };
 
 export interface GrantableChild { type: string; allowedCeiling: string[]; defaultDirect: string[]; }
-export interface GrantableView { effDirect: string[]; children: GrantableChild[]; }
+/** A role the onboarder may give the new org (its own hand-down set; extended-rbac X4). */
+export interface GrantableRole { name: string; description: string; baseline: boolean; }
+export interface GrantableView { effDirect: string[]; children: GrantableChild[]; roles?: GrantableRole[]; baselineRoles?: string[]; }
 export interface OrgDecisionResult { requestId: string; orgId: string; status: string; message: string; }
 
 export interface ApiProblem { title: string; detail: string; code?: string; status: number; }
@@ -115,4 +117,6 @@ export const KYC_HINTS: Record<string, string> = {
   RANK_RULE: 'that type cannot sit under your organization',
   PARENT_NOT_OPERATIONAL: 'your organization is suspended',
   DUPLICATE_PHONE: 'that phone number is already registered',
+  ROLES_EXCEED_CEILING: 'you can only pass on roles your organization may hand down',
+  ROLES_INVALID: 'a role can only be handed down if the organization may use it',
 };

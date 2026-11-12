@@ -66,6 +66,7 @@ public class OrgOnboardingService {
     private final AuditService auditService;
     private final OnboardingService onboardingService;   // legacy guard coexistence (USE_ONBOARDING_REQUEST)
     private final OrgProvisioningService orgProvisioning;
+    private final OrgRoleCeilingService roleCeilings;
     private final KycApplicationService kycApplications;
     private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
@@ -75,7 +76,16 @@ public class OrgOnboardingService {
                           String ownerName, String phone, String username, String email,
                           String bankName, String accountNumber, String accountHolder,
                           String licenceRef, String supplierType, String ownerIdNumber,
-                          Set<OrgType> rightsDirect, Set<OrgType> rightsCeiling) {
+                          Set<OrgType> rightsDirect, Set<OrgType> rightsCeiling,
+                          List<String> roleCeiling, List<String> roleDelegable) {
+        /** Without the role ceiling (the child inherits its parent's hand-down set, extended-rbac X2). */
+        public OrgSpec(String name, String registrationNumber, String businessType, String ownerName, String phone,
+                       String username, String email, String bankName, String accountNumber, String accountHolder,
+                       String licenceRef, String supplierType, String ownerIdNumber,
+                       Set<OrgType> rightsDirect, Set<OrgType> rightsCeiling) {
+            this(name, registrationNumber, businessType, ownerName, phone, username, email, bankName, accountNumber,
+                    accountHolder, licenceRef, supplierType, ownerIdNumber, rightsDirect, rightsCeiling, null, null);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -103,6 +113,8 @@ public class OrgOnboardingService {
         }
         OrgRightsService.Proposal proposal =
                 rights.validateProposal(parent.getId(), childType, spec.rightsDirect(), spec.rightsCeiling());
+        // role ceiling (extended-rbac X4): within the onboarder's own hand-down set; absent = inherit
+        if (spec.roleCeiling() != null) roleCeilings.validate(parent.getId(), spec.roleCeiling(), spec.roleDelegable());
 
         // 2) profile validation + uniqueness
         String name = spec.name();
@@ -195,6 +207,9 @@ public class OrgOnboardingService {
 
         // 4) rights rows written NOW, while the org is PENDING ([M5]); they bind when ACTIVE
         orgProvisioning.writeRights(org.getId(), proposal.direct(), proposal.ceiling(), caller.userId());
+        if (spec.roleCeiling() != null) {
+            roleCeilings.set(org.getId(), spec.roleCeiling(), spec.roleDelegable(), caller.userId(), caller.role());
+        }
 
         // 5) supplier bank account (independent approval still applies downstream)
         if (childType == OrgType.SUPPLIER) {

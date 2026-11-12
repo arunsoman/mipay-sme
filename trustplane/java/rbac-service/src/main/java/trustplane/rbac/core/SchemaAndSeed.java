@@ -182,7 +182,16 @@ public class SchemaAndSeed implements ApplicationRunner {
                 actor TEXT NOT NULL,
                 tenant_id TEXT,
                 action TEXT NOT NULL,
-                details JSONB NOT NULL DEFAULT '{}'::jsonb)""");
+                details JSONB NOT NULL DEFAULT '{}'::jsonb)""",
+            // extended RBAC (docs/plans/extended-rbac.md): role ceilings per org (NULL = no explicit
+            // ceiling: inherit), org-defined roles (owner_tenant) bounded by their base roles
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS role_ceiling TEXT[]",
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS role_delegable TEXT[]",
+            "ALTER TABLE roles ADD COLUMN IF NOT EXISTS owner_tenant TEXT",
+            "ALTER TABLE roles ADD COLUMN IF NOT EXISTS base_roles TEXT[] NOT NULL DEFAULT '{}'",
+            "CREATE INDEX IF NOT EXISTS roles_owner_idx ON roles(owner_tenant)", """
+            CREATE TABLE IF NOT EXISTS ceiling_baseline(
+                role TEXT PRIMARY KEY REFERENCES roles(name) ON DELETE CASCADE)""");
 
     /** Tables of the supplier-delegation demo (cut-over plan §4.1). */
     static final List<String> LEGACY_TABLES = List.of("group_members", "group_roles", "supplier_groups",
@@ -326,6 +335,15 @@ public class SchemaAndSeed implements ApplicationRunner {
         db.update("DELETE FROM same_row_exemptions");
         for (var e : map(raw.get("same_row_exemptions")).entrySet()) {
             db.update("INSERT INTO same_row_exemptions (resource, reason) VALUES (?,?)", e.getKey(), String.valueOf(e.getValue()));
+        }
+        // roles inside every org's ceiling (extended-rbac X3): the seed is authoritative
+        db.update("DELETE FROM ceiling_baseline");
+        for (String rn : strings(raw.get("ceiling_baseline"))) {
+            Map<String, Object> r = map(roles.get(rn));
+            if (!roles.containsKey(rn) || !"ORG".equals(str(r.get("kind"), "ORG"))) {
+                throw new IllegalArgumentException("ceiling_baseline: " + rn + " is not a seeded ORG role");
+            }
+            db.update("INSERT INTO ceiling_baseline (role) VALUES (?)", rn);
         }
         log.info("[rbac] seed applied: {} rows, {} roles ({} rewritten from a changed seed)", rows, roles.size(), changed);
         db.update("INSERT INTO audit_log (actor, action, details) VALUES ('system','seed_applied',?::jsonb)",

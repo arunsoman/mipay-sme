@@ -1,7 +1,9 @@
 package com.mipay.sme.security.rbac;
 
 import com.mipay.sme.domain.ops.Suspension;
+import com.mipay.sme.domain.org.OrgRoleCeiling;
 import com.mipay.sme.repository.OrgClosureRepository;
+import com.mipay.sme.repository.OrgRoleCeilingRepository;
 import com.mipay.sme.repository.OrganizationRepository;
 import com.mipay.sme.repository.SuspensionRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +37,8 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>the closure table, so subtree assignments cover descendant orgs;</li>
  *   <li>every org with its type (rows apply per org type), parent, lifecycle and its own active
- *       holds, so RBAC refuses a held org and everything below it before the gateway routes.</li>
+ *       holds, so RBAC refuses a held org and everything below it before the gateway routes;</li>
+ *   <li>each org's explicit role ceiling, or null for "inherit" (docs/plans/extended-rbac.md X6).</li>
  * </ul>
  * When it runs: at boot; right after a suspension or lift commits ({@link OrgTreeChanged});
  * and every 15 s when a cheap fingerprint of orgs, closure and holds has changed (catches
@@ -51,6 +54,7 @@ public class OrgTreeSyncService {
     private final OrgClosureRepository closureRepo;
     private final OrganizationRepository orgRepo;
     private final SuspensionRepository suspensionRepo;
+    private final OrgRoleCeilingRepository ceilingRepo;
     private final JdbcTemplate jdbc;
 
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -63,10 +67,11 @@ public class OrgTreeSyncService {
     private volatile String rbacUrl;
 
     public OrgTreeSyncService(OrgClosureRepository closureRepo, OrganizationRepository orgRepo,
-                              SuspensionRepository suspensionRepo, JdbcTemplate jdbc) {
+                              SuspensionRepository suspensionRepo, OrgRoleCeilingRepository ceilingRepo, JdbcTemplate jdbc) {
         this.closureRepo = closureRepo;
         this.orgRepo = orgRepo;
         this.suspensionRepo = suspensionRepo;
+        this.ceilingRepo = ceilingRepo;
         this.jdbc = jdbc;
     }
 
@@ -109,7 +114,9 @@ public class OrgTreeSyncService {
                 SELECT (SELECT count(*) FROM organizations) || ':' || (SELECT coalesce(sum(version),0) FROM organizations)
                     || ':' || (SELECT count(*) FROM org_closures)
                     || ':' || (SELECT count(*) FROM suspensions WHERE lifted_at IS NULL)
-                    || ':' || (SELECT coalesce(max(greatest(suspended_at, coalesce(lifted_at, suspended_at)))::text, '') FROM suspensions)""",
+                    || ':' || (SELECT coalesce(max(greatest(suspended_at, coalesce(lifted_at, suspended_at)))::text, '') FROM suspensions)
+                    || ':' || (SELECT count(*) FROM org_role_ceilings)
+                    || ':' || (SELECT coalesce(max(set_at)::text, '') FROM org_role_ceilings)""",
                 String.class);
     }
 
@@ -143,6 +150,8 @@ public class OrgTreeSyncService {
                 holds.computeIfAbsent(s.getOrgId(), k -> new ArrayList<>())
                         .add(s.getSuspendedBy() == null ? "HOLD" : (s.getSuspendedBy().startsWith("system:") ? s.getSuspendedBy() : "MANUAL"));
             }
+            Map<String, OrgRoleCeiling> ceilings = new HashMap<>();
+            for (OrgRoleCeiling c : ceilingRepo.findAll()) ceilings.put(c.getOrgId(), c);
             List<Map<String, Object>> orgs = orgRepo.findAll().stream()
                     .filter(o -> o.getId() != null)
                     .map(o -> {
@@ -155,6 +164,9 @@ public class OrgTreeSyncService {
                         List<String> h = holds.getOrDefault(o.getId(), List.of());
                         m.put("held", !h.isEmpty());
                         m.put("holds", h);
+                        OrgRoleCeiling c = ceilings.get(o.getId());   // null = no explicit ceiling: inherit
+                        m.put("role_ceiling", c == null ? null : new ArrayList<>(c.roleSet()));
+                        m.put("role_delegable", c == null ? null : new ArrayList<>(c.delegableSet()));
                         return m;
                     })
                     .collect(Collectors.toList());

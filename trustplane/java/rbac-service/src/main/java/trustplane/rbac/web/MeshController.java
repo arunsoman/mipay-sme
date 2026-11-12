@@ -74,8 +74,10 @@ public class MeshController {
             for (Map<String, Object> o : b.orgs()) {
                 List<String> holds = new ArrayList<>();
                 if (o.get("holds") instanceof List<?> l) l.forEach(x -> holds.add(String.valueOf(x)));
+                boolean ceilingSent = o.containsKey("role_ceiling");
                 orgs.add(new RbacStore.OrgRow(str(o.get("id")), str(o.get("name")), str(o.get("type")), str(o.get("parent")),
-                        str(o.get("lifecycle")), Boolean.TRUE.equals(o.get("held")), holds));
+                        str(o.get("lifecycle")), Boolean.TRUE.equals(o.get("held")), holds,
+                        ceilingSent, strings(o.get("role_ceiling")), strings(o.get("role_delegable"))));
             }
         } else if (b.tenantMapping() != null) { // the pre-P2 payload: ids and names only
             for (Map<String, Object> m : b.tenantMapping()) {
@@ -148,6 +150,13 @@ public class MeshController {
         } catch (Exception e) {
             return ResponseEntity.status(503).body("db down");
         }
+    }
+
+    private static List<String> strings(Object o) {
+        if (!(o instanceof List<?> l)) return null;
+        List<String> out = new ArrayList<>();
+        l.forEach(x -> out.add(String.valueOf(x)));
+        return out;
     }
 
     private static String str(Object o) {

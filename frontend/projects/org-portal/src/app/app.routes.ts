@@ -7,6 +7,7 @@ import { Onboarding } from './features/onboarding/onboarding';
 import { Network } from './features/network/network';
 import { Users } from './features/users/users';
 import { Kyc } from './features/kyc/kyc';
+import { Access } from './features/access/access';
 
 /**
  * Org portal (manufacturer / distributor / supplier): an org ADMIN onboards
@@ -26,6 +27,7 @@ export const routes: Routes = [
       { path: 'network', component: Network },
       { path: 'users', component: Users },
       { path: 'kyc', component: Kyc },
+      { path: 'access', component: Access },
     ],
   },
   { path: '**', redirectTo: 'login' },

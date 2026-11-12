@@ -54,6 +54,7 @@ public class RolePack {
 
         b.append("## Summary\n\n| Role | Kind | Inherits | Cells (with inherited) | Approval to grant | Holders |\n|---|---|---|---|---|---|\n");
         for (Policy.Role r : s.roles().values()) {
+            if (r.orgDefined()) continue;
             b.append("| `").append(r.name()).append("` | ").append(r.kind()).append(" | ")
                     .append(r.juniors().isEmpty() ? "—" : "`" + String.join("`, `", r.juniors()) + "`").append(" | ")
                     .append(cells(s, r.name()).size()).append(" | ").append(r.approval()).append(" | ")
@@ -75,6 +76,7 @@ public class RolePack {
         }
 
         for (Policy.Role r : s.roles().values()) {
+            if (r.orgDefined()) continue;
             b.append("---\n\n## `").append(r.name()).append("`\n\n").append(r.description()).append("\n\n");
             b.append("- **Kind:** ").append(r.kind()).append("ORG".equals(r.kind()) ? " (assigned on an org, scope own or subtree)" : "PLATFORM".equals(r.kind()) ? " (scope all)" : " (sandbox and UAT only)").append("\n");
             b.append("- **Inherits:** ").append(r.juniors().isEmpty() ? "nothing" : String.join(", ", r.juniors())).append("\n");
@@ -94,6 +96,27 @@ public class RolePack {
                         .append(" |\n");
             }
             b.append("\nApproved for use: ______________________ (Compliance)    Date: __________\n\n");
+        }
+
+        // extended-rbac X11: org-defined roles are subsets of the signed-off roles above; listed for the access review
+        List<Policy.Role> orgRoles = s.roles().values().stream().filter(Policy.Role::orgDefined).toList();
+        b.append("---\n\n## Role ceilings and org-defined roles\n\n");
+        b.append("Every org uses only the roles inside its **role ceiling**, chosen by the org that onboarded it and never wider than that org's own hand-down set. ")
+                .append("Always inside every ceiling: ").append(s.baseline().isEmpty() ? "nothing" : "`" + String.join("`, `", s.baseline()) + "`").append(".\n\n");
+        b.append("Orgs may build their own roles from the roles in their ceiling. Each one's cells are a subset of its base roles' cells, checked on save and again on every decision, ")
+                .append("so these roles never grant anything outside the signed-off roles above. Base roles never span both sides of a separation-of-duty rule. ")
+                .append("They are listed here for the access review, not for separate sign-off.\n\n");
+        if (orgRoles.isEmpty()) {
+            b.append("No org-defined roles yet.\n");
+        } else {
+            b.append("| Role | Org | Built on | Cells | Approval to grant | Holders |\n|---|---|---|---|---|---|\n");
+            for (Policy.Role r : orgRoles) {
+                List<String> cells = new ArrayList<>();
+                for (var g : new TreeMap<>(r.grid()).entrySet()) for (String v : Verbs.names(g.getValue())) cells.add(g.getKey() + ":" + v);
+                b.append("| `").append(r.name()).append("` | ").append(r.ownerTenant()).append(" | `").append(String.join("`, `", r.baseRoles()))
+                        .append("` | ").append(cells.isEmpty() ? "—" : "`" + String.join("`<br>`", cells) + "`").append(" | ").append(r.approval())
+                        .append(" | ").append(holders.getOrDefault(r.name(), 0)).append(" |\n");
+            }
         }
         return b.toString();
     }

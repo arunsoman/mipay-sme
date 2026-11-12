@@ -46,6 +46,7 @@ public class OrgController {
     private final com.mipay.sme.service.OrgRightsService orgRights;
     private final com.mipay.sme.service.OrgCallerService callerService;
     private final OrgClosureRepository closureRepo;
+    private final com.mipay.sme.service.OrgRoleCeilingService roleCeilings;
 
     // ---------------- me-scoped views [D4] ----------------
 
@@ -105,7 +106,8 @@ public class OrgController {
                         req.ownerName(), req.phone(), req.username(), req.email(),
                         req.bankName(), req.accountNumber(), req.accountHolder(), req.licenceRef(),
                         req.supplierType(), req.ownerIdNumber(),
-                        toTypes(req.rightsDirect()), toTypes(req.rightsCeiling())));
+                        toTypes(req.rightsDirect()), toTypes(req.rightsCeiling()),
+                        req.roleCeiling(), req.roleDelegable()));
     }
 
     // ---------------- staff [C3/H9] ----------------
@@ -184,7 +186,12 @@ public class OrgController {
     @GetMapping("/me/grantable")
     public Dtos.GrantableView grantable(@RequestParam(required = false) String childType) {
         String orgId = tree.ownOrg(Current.get()).getId();
-        return orgRights.grantable(Current.get(), orgId);
+        java.util.Map<String, String> desc = new java.util.HashMap<>();
+        roleCeilings.catalogue().forEach(r -> desc.put(r.name(), r.description()));
+        java.util.Set<String> base = roleCeilings.baseline();
+        List<Dtos.GrantableRole> roles = new java.util.TreeSet<>(roleCeilings.handDown(orgId)).stream()
+                .map(n -> new Dtos.GrantableRole(n, desc.getOrDefault(n, ""), base.contains(n))).toList();
+        return orgRights.grantable(Current.get(), orgId).withRoles(roles, List.copyOf(base));
     }
 
     @Perm(resource = "org.rights", verb = Verb.READ, tenantSource = TenantSource.PATH, tenant = "#id",

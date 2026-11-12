@@ -36,6 +36,9 @@ import java.util.concurrent.BlockingQueue;
  *  8. entitlement cells (org.onboarding:create) also need an active grant on the tenant
  *     whose allowed values contain the attribute (child_type=MERCHANT)
  *  9. every decision gets an id and is logged (asynchronously, bounded)
+ * 10. role ceilings (extended-rbac X7, X10): an org assignment whose role is outside its
+ *     org's ceiling is ignored; an org-defined role is bounded by its base roles that are
+ *     still inside the owner's ceiling. Platform assignments are exempt (U6)
  * </pre>
  */
 @Service
@@ -54,9 +57,22 @@ public class Decisions {
 
     public record Holder(String subject, String assignmentId, String tenant, String scope, String role) {}
 
-    record Asg(String id, String role, String tenant, String scope, String tenantType, Set<String> gatedTo) {
+    /**
+     * {@code gatedTo}: while awaiting DSD activation, only these (junior) roles count.
+     * {@code bounds}: for an org-defined role, the base roles inside the ceiling; its mask
+     * never exceeds theirs (X10). null = not bounded.
+     */
+    record Asg(String id, String role, String tenant, String scope, String tenantType, Set<String> gatedTo, Set<String> bounds) {
         Asg(String id, String role, String tenant, String scope, String tenantType) {
-            this(id, role, tenant, scope, tenantType, null);
+            this(id, role, tenant, scope, tenantType, null, null);
+        }
+
+        Asg gated(Set<String> to) {
+            return new Asg(id, role, tenant, scope, tenantType, to, bounds);
+        }
+
+        Asg bounded(Set<String> b) {
+            return new Asg(id, role, tenant, scope, tenantType, gatedTo, b);
         }
 
         boolean platform() {
@@ -65,11 +81,19 @@ public class Decisions {
 
         /** Mask on a row: the role (and its juniors), or only the juniors while it awaits activation. */
         int mask(Policy.Snapshot s, String row) {
-            if (gatedTo == null) return s.mask(role, row);
             int m = 0;
-            for (String r : gatedTo) {
-                Policy.Role rr = s.roles().get(r);
-                if (rr != null) m |= rr.ownMask(row);
+            if (gatedTo == null) {
+                m = s.mask(role, row);
+            } else {
+                for (String r : gatedTo) {
+                    Policy.Role rr = s.roles().get(r);
+                    if (rr != null) m |= rr.ownMask(row);
+                }
+            }
+            if (bounds != null) {
+                int b = 0;
+                for (String x : bounds) b |= s.mask(x, row);
+                m &= b;
             }
             return m;
         }
@@ -82,6 +106,7 @@ public class Decisions {
 
     private final JdbcTemplate db;
     private final Policy policy;
+    private final Ceilings ceilings;
     private final BlockingQueue<Object[]> logQueue = new ArrayBlockingQueue<>(20_000);
 
     public static String newDecisionId() {
@@ -168,7 +193,7 @@ public class Decisions {
                 }
                 out.add(a);
             }
-            return out;
+            return withinCeilings(out, skipped);
         }
         for (Asg a : all) {
             boolean covers = switch (a.scope()) {
@@ -184,13 +209,52 @@ public class Decisions {
             }
             out.add(a);
         }
+        return withinCeilings(out, skipped);
+    }
+
+    /**
+     * Role ceilings (X7, X10): drops org assignments whose role is outside the ceiling of the
+     * org it is assigned on, and bounds org-defined roles by their base roles inside it.
+     */
+    List<Asg> withinCeilings(List<Asg> cands, List<String> skipped) {
+        Policy.Snapshot s = policy.get();
+        Set<String> tenants = new HashSet<>();
+        for (Asg a : cands) if (!a.platform() && a.tenant() != null) tenants.add(a.tenant());
+        if (tenants.isEmpty()) return cands;
+        Map<String, Ceilings.Effective> eff = ceilings.of(tenants);
+        List<Asg> out = new ArrayList<>();
+        for (Asg a : cands) {
+            Policy.Role r = s.roles().get(a.role());
+            if (a.platform() || a.tenant() == null || r == null || !"ORG".equals(r.kind())) {
+                out.add(a);
+                continue;
+            }
+            Ceilings.Effective c = eff.get(a.tenant());
+            if (r.orgDefined()) {
+                if (!r.ownerTenant().equals(a.tenant())) {
+                    skipped.add("role_not_owned:" + r.name() + "@" + a.tenant());
+                    continue;
+                }
+                Set<String> bases = new LinkedHashSet<>();
+                for (String b : r.baseRoles()) if (c.allows(b)) bases.add(b);
+                if (bases.isEmpty()) {
+                    skipped.add("role_outside_ceiling:" + r.name()); // the name already carries "@<org>"
+                    continue;
+                }
+                out.add(a.bounded(bases));
+            } else if (c.allows(r.name())) {
+                out.add(a);
+            } else {
+                skipped.add("role_outside_ceiling:" + r.name() + "@" + a.tenant());
+            }
+        }
         return out;
     }
 
     /** Applies dynamic SoD. Returns usable assignments or null with the conflict in reason[0]. */
     List<Asg> activate(Policy.Snapshot s, List<Asg> cands, Collection<String> activeRoles, String[] reason) {
         Set<String> held = new HashSet<>();
-        for (Asg a : cands) held.add(a.role());
+        for (Asg a : cands) held.addAll(s.sodIdentity(a.role())); // an org-defined role counts as its base roles (X9)
         Set<String> active = activeRoles == null ? Set.of() : new HashSet<>(activeRoles);
         Set<String> gated = new HashSet<>();
         for (Policy.SodRule r : s.sod()) {
@@ -209,14 +273,14 @@ public class Decisions {
         // (a reviewer holding both stages keeps the auditor's reads while choosing a stage)
         List<Asg> out = new ArrayList<>();
         for (Asg a : cands) {
-            if (!gated.contains(a.role())) {
+            if (s.sodIdentity(a.role()).stream().noneMatch(gated::contains)) {
                 out.add(a);
                 continue;
             }
             Set<String> juniors = new LinkedHashSet<>(s.expanded().getOrDefault(a.role(), Set.of()));
             juniors.remove(a.role());
             juniors.removeAll(gated);
-            out.add(new Asg(a.id(), a.role(), a.tenant(), a.scope(), a.tenantType(), juniors));
+            out.add(a.gated(juniors));
             if (reason[0] == null) reason[0] = "activation_required";
         }
         return out;
@@ -271,7 +335,7 @@ public class Decisions {
                     + "@" + a.scope() + (a.tenant() == null ? "" : "(" + a.tenant() + ")"),
                     version, newDecisionId(), List.of(a.role()));
         }
-        String reason = !skipped.isEmpty() && cands.isEmpty() ? skipped.get(0)
+        String reason = !skipped.isEmpty() && (cands.isEmpty() || usable.isEmpty()) ? skipped.get(0)
                 : why[0] != null ? why[0]
                 : cands.isEmpty() ? "no_assignment" : "no_permission";
         return new Decision(false, reason, version, newDecisionId(), List.of());
@@ -347,7 +411,7 @@ public class Decisions {
     /** Session activation (DSD): the roles must be held and must not form both sides of a DYNAMIC set. */
     public String validateActivation(String subject, Collection<String> roles) {
         Set<String> held = new HashSet<>();
-        for (Asg a : assignmentsOf(subject)) held.add(a.role());
+        for (Asg a : assignmentsOf(subject)) held.addAll(policy.get().sodIdentity(a.role()));
         for (String r : roles) if (!held.contains(r)) return "not_held:" + r;
         for (Policy.SodRule r : policy.get().sod()) {
             if (!"DYNAMIC".equals(r.kind())) continue;

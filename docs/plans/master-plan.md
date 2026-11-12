@@ -17,6 +17,7 @@ This file decides **what is built in what order, and why**. It doesn't repeat th
 | [`idp-rbac-cutover-plan.md`](idp-rbac-cutover-plan.md) | login as a plugin, users owned by the core, RBAC decides (P0–P7) | 🟡 **P0, P1, P2 done** (P0 `1c12e52`, `eb3bd7f`; P1 `76e1e0a`; P2 `16374fa`; gateway + e2e `a6c9b84`); P3–P7 not started; decisions D1–D10 agreed |
 | [`2fa-design.md`](2fa-design.md) | 2FA in the IdP, shipped `off`, factors light up with comms (phases 1–5) | 📝 planned; all items decided; break-glass names are placeholders |
 | [`comms-design.md`](comms-design.md) | the comms plane: email, SMS, push, WhatsApp, in-app (P0–P4) | 🟡 **B0 done** (`c19d0c5`, wiring `a6c9b84`; sandbox provider only); B1–B4 planned; §14 decisions are assumed |
+| [`extended-rbac.md`](extended-rbac.md) | role ceilings per org chosen at onboarding; org-defined roles carved from them (ER1–ER5) | ✅ **built 2026-11-12**: RBAC, core, onboarding and portal screens; e2e 22/22 on an isolated copy over mTLS. **Not deployed** |
 | [`inventory-plugin.md`](inventory-plugin.md) | the **plugin framework** (§1) and the Inventory plugin | 📝 planned; its prerequisite (org hierarchy) is done |
 | [`plugins/*`](plugins/README.md) | 23 org plugins, one page each | 💡 ideas: one-page briefs, no detailed plans yet |
 
@@ -98,6 +99,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 | 2.2 | A4: gateway `auth: session`, CSRF, context v2 with `uid`, RBAC on `uid`; `admin.` on BFF in staging | cut-over P4 | ⬜ (already done in `a6c9b84`: RBAC on `uid`, `uid` in the context, BFF login works end to end and dies on back-channel logout. An out-of-order attempt at the rest is parked in `git stash`, see §8) |
 | 2.3 | C1: 2FA foundations in the IdP (TOTP, passkeys, recovery codes, PIN, policy, readiness page), shipped `mfa.mode=off` | 2fa phase 1 | ⬜ |
 | 2.4 | B1 starts: real SMS and email providers (the first slice that matters: set-up links and OTP) | comms P1 | ⬜ |
+| 2.5 | Extended RBAC ER1–ER4: role ceilings per org (core authority, synced with the org tree), enforcement at assignment and in `Check`, org-defined roles | extended-rbac | ✅ 2026-11-12: RBAC 17/17, backend TUat20 green, e2e 22/22 on an isolated copy; not deployed |
 
 **Gate 2:** backend in `dual` mode with all 20 UAT suites green both ways; both backfills clean on a copy of production; the org cascade tests green.
 
@@ -111,6 +113,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 | 3.4 | C3: recovery (core `ACCOUNT_RECOVERY`, cooling-off, contact changes, break-glass command) | 2fa phase 3 | ⬜ |
 | 3.5 | C4: SMS factor and merchant phone-OTP login, code-complete and tested in the sandbox | 2fa phase 4 | ⬜ |
 | 3.6 | B1 completes: failover, receipts, suppression, retry queue | comms P1 | ⬜ |
+| 3.7 | Extended RBAC ER5: roles step in onboarding, ceiling editor on "My network", "Roles & access" in the org and admin portals (part of P5.5) | extended-rbac | ✅ 2026-11-12: portal builds green; screens driven through the same API in the e2e run; not deployed |
 
 **Gate 3:** 7 days of shadow with zero unexplained mismatches; **compliance signs off the role pack**; every portal on the BFF in staging.
 
@@ -192,6 +195,8 @@ These assume one developer on Track A and a second on Tracks B and C. The comms 
 | Deploy the hardened `nginx-mipay-sme.conf` to the afriqpay host and reload nginx | production edge (P0.1) | ops | cut-over P0, `eb3bd7f` |
 | DNS + certificate for `auth.afriqpay.com`, then `IDP_ENVIRONMENT=production` with that issuer | production IdP (P0.3); before A4 goes live | ops | cut-over P0, `eb3bd7f` |
 | **Deploy Stage 1** to the local stack and afriqpay: take a dump of the `rbac` database (cut-over §4.3), then rebuild and recreate `idp`, `rbac`, `gateway` and the new `comms` (`docker compose up -d --build`). The new RBAC drops the demo schema at first boot. Until then the running containers keep their old images **but bind-mount `trustplane/config` from the checkout**: a restart of the old gateway loads the new `routes.yaml` (its RBAC admin routes then fail against the old RBAC), and the old IdP the new `clients.yaml` (harmless). The old RBAC survives a restart because the grid seed has a new name (`grid.yaml`) | before Stage 2 integration work against live services | you / ops | `a6c9b84` |
+| Regenerate the role pack after extended RBAC (`org_admin` gained `rbac.role` create/modify/delete; new section for role ceilings and org-defined roles) before compliance signs it off | Gate 3 | dev → compliance | extended-rbac §4 |
+| Extended RBAC migration is `V16__org_role_ceilings.sql`; the P3 work in the same tree is at V15 (untracked). Renumber whichever lands second if both take V16 | before either is committed | dev | extended-rbac |
 | Compliance review of the generated role pack [`docs/rbac/role-pack-v1.md`](../rbac/role-pack-v1.md) (starts 0.2; sign-off needed at Gate 3) | Gate 3 | compliance | cut-over P2.5a |
 | Set `IDP_CORE_EVENTS_URL` when the core's `POST /internal/auth/events` exists | P3.6 | dev | cut-over P1 status |
 | The admin portal's permission screens and the backend's `RbacClientService` still call the removed RBAC endpoints (they already failed before: no mTLS, no gateway context) | P5.5 Roles & access | dev | cut-over §4.1 |

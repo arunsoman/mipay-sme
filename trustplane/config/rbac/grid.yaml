@@ -177,7 +177,7 @@ roles:
       rbac.assignment: [read, create, authorize, administer]
       rbac.grant: [read, create, administer]
       rbac.review: [read, administer]
-      rbac.role: [read]
+      rbac.role: [read, create, modify, delete]   # org-defined roles of its own org, within its ceiling (extended-rbac X8)
 
   platform_auditor:
     kind: PLATFORM
@@ -301,6 +301,12 @@ roles:
       admin.simulation: [read, simulate]
       merchant.payment: [simulate]
       merchant.advance: [simulate]
+
+# ---------------------------------------------------------------------------
+# Role ceilings (docs/plans/extended-rbac.md X3): ORG roles inside EVERY org's ceiling,
+# whatever the onboarder chose, so an org can always fill in its KYC and be administered.
+# ---------------------------------------------------------------------------
+ceiling_baseline: [kyc_applicant, org_admin]
 
 # ---------------------------------------------------------------------------
 # Separation of duty (fapi2-design §9.4, G.5). STATIC: no user may HOLD a role from

@@ -46,6 +46,7 @@ public class AccessService {
     private final Decisions decisions;
     private final RbacStore store;
     private final RbacConfig cfg;
+    private final Ceilings ceilings;
 
     // ------------------------------------------------------------------
     // helpers
@@ -99,17 +100,8 @@ public class AccessService {
     /** Throws 409 SOD_CONFLICT if adding {@code role} to what the subject holds breaks a STATIC rule. */
     void checkStaticSod(String subject, String role, String tenant, String scope) {
         Policy.Snapshot s = policy.get();
-        Set<String> held = rolesOf(subject, true);
-        held.remove(role);
-        for (Policy.SodRule r : s.sod()) {
-            if (!"STATIC".equals(r.kind())) continue;
-            boolean conflict = (r.a().contains(role) && r.b().stream().anyMatch(held::contains))
-                    || (r.b().contains(role) && r.a().stream().anyMatch(held::contains));
-            if (conflict) {
-                String other = r.a().contains(role) ? first(r.b(), held) : first(r.a(), held);
-                throw new ApiException(409, "SOD_CONFLICT", role + " conflicts with " + other + " (" + r.id() + ": " + r.reason() + ")");
-            }
-        }
+        String conflict = staticConflict(s, role, rolesOf(subject, true));
+        if (conflict != null) throw new ApiException(409, "SOD_CONFLICT", conflict);
         // same-row maker/checker across the roles a subject holds on the same org (G.5 shorthand)
         Set<String> sameTenant = new HashSet<>(db.queryForList("""
                 SELECT DISTINCT role FROM assignments WHERE subject=? AND status IN ('ACTIVE','PENDING_APPROVAL')
@@ -125,9 +117,49 @@ public class AccessService {
         }
     }
 
+    /**
+     * The STATIC rule that adding {@code role} to {@code heldRoles} breaks, as a message, or null.
+     * Org-defined roles count as their base roles (extended-rbac X9).
+     */
+    static String staticConflict(Policy.Snapshot s, String role, Set<String> heldRoles) {
+        Set<String> held = new HashSet<>();
+        for (String h : heldRoles) if (!h.equals(role)) held.addAll(s.sodIdentity(h));
+        Set<String> mine = s.sodIdentity(role);
+        for (Policy.SodRule r : s.sod()) {
+            if (!"STATIC".equals(r.kind())) continue;
+            boolean inA = r.a().stream().anyMatch(mine::contains), inB = r.b().stream().anyMatch(mine::contains);
+            if ((inA && r.b().stream().anyMatch(held::contains)) || (inB && r.a().stream().anyMatch(held::contains))) {
+                String other = inA ? first(r.b(), held) : first(r.a(), held);
+                return role + " conflicts with " + other + " (" + r.id() + ": " + r.reason() + ")";
+            }
+        }
+        return null;
+    }
+
     private static String first(List<String> candidates, Set<String> held) {
         for (String c : candidates) if (held.contains(c)) return c;
         return candidates.isEmpty() ? "?" : candidates.get(0);
+    }
+
+    /**
+     * Role ceilings at assignment time (extended-rbac X7, X8): a global ORG role must be inside
+     * the org's ceiling; an org-defined role is assignable only in its owner org, with every
+     * base role inside the owner's ceiling. System writes are not exempt.
+     */
+    void checkCeiling(Policy.Role r, String tenant) {
+        Ceilings.Effective c = ceilings.of(tenant);
+        if (r.orgDefined()) {
+            if (!r.ownerTenant().equals(tenant)) {
+                throw new ApiException(409, "ROLE_NOT_OWNED", r.name() + " belongs to org " + r.ownerTenant() + " and is assignable only there");
+            }
+            List<String> outside = r.baseRoles().stream().filter(b -> !c.allows(b)).toList();
+            if (!outside.isEmpty()) {
+                throw new ApiException(409, "ROLE_OUTSIDE_CEILING", r.name() + " is built on " + outside + ", outside the ceiling of " + tenant);
+            }
+        } else if (!c.allows(r.name())) {
+            throw new ApiException(409, "ROLE_OUTSIDE_CEILING", r.name() + " is outside the role ceiling of " + tenant
+                    + (c.from() != null && !c.explicit() ? " (inherited from " + c.from() + ")" : ""));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -138,6 +170,16 @@ public class AccessService {
 
     @Transactional
     public Map<String, Object> request(String actor, AssignRequest req, String source) {
+        return request(actor, req, source, false);
+    }
+
+    /**
+     * {@code coreAuthorized}: the core asked on behalf of {@code actor} and has already
+     * authorized the actor itself (until cut-over P6 makes RBAC decide for the core). The
+     * request is still the actor's: four-eyes, SoD and ceilings apply, and it is audited as theirs.
+     */
+    @Transactional
+    public Map<String, Object> request(String actor, AssignRequest req, String source, boolean coreAuthorized) {
         boolean system = source != null && SYSTEM_SOURCES.contains(source);
         if (req.subject() == null || req.subject().isBlank()) throw ApiException.badRequest("subject required (the core user id)");
         Policy.Role r = role(req.role());
@@ -167,6 +209,7 @@ public class AccessService {
             if (Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(lc)) {
                 throw ApiException.conflict("org is " + lc + ": no new assignments");
             }
+            if ("ORG".equals(r.kind())) checkCeiling(r, tenant);
         }
         Instant expires = req.expiresAt();
         if (r.maxHours() != null) {
@@ -177,7 +220,7 @@ public class AccessService {
         if (expires != null && !expires.isAfter(Instant.now())) throw ApiException.badRequest("expires_at is in the past");
 
         // who may request
-        if (!system) {
+        if (!system && !coreAuthorized) {
             switch (r.approval()) {
                 case "break_glass" -> {
                     if (!actor.equals(req.subject())) throw new ApiException(403, "forbidden", "break-glass is requested by the person themselves");
@@ -218,7 +261,7 @@ public class AccessService {
                 needsApproval ? null : (system ? SYSTEM : "no_approval_required"), needsApproval ? null : Timestamp.from(Instant.now()));
         if (!needsApproval) store.touchSubjects(List.of(req.subject()));
         store.audit(actor, tenant, needsApproval ? "assignment_requested" : "assignment_create", Map.of(
-                "assignment", id, "subject", req.subject(), "role", r.name(), "scope", scope, "source", source == null ? "api" : source));
+                "assignment", id, "subject", req.subject(), "role", r.name(), "scope", scope, "source", source == null ? "api" : source, "core_authorized", coreAuthorized));
         return view(id);
     }
 
@@ -285,14 +328,9 @@ public class AccessService {
             return view(id);
         }
         // state may have changed since the request
-        Set<String> held = rolesOf(a.subject(), false);
-        held.remove(a.role());
-        for (Policy.SodRule r : policy.get().sod()) {
-            if (!"STATIC".equals(r.kind())) continue;
-            if ((r.a().contains(a.role()) && r.b().stream().anyMatch(held::contains)) || (r.b().contains(a.role()) && r.a().stream().anyMatch(held::contains))) {
-                throw new ApiException(409, "SOD_CONFLICT", a.role() + " now conflicts (" + r.id() + ": " + r.reason() + ")");
-            }
-        }
+        String conflict = staticConflict(policy.get(), a.role(), rolesOf(a.subject(), false));
+        if (conflict != null) throw new ApiException(409, "SOD_CONFLICT", "now: " + conflict);
+        if (a.tenant() != null && "ORG".equals(role(a.role()).kind())) checkCeiling(role(a.role()), a.tenant());
         db.update("UPDATE assignments SET status='ACTIVE', approved_by=?, approved_at=now(), decided_reason=?, decision_id=? WHERE id=?",
                 actor, reason == null ? "" : reason, decisionId, id);
         store.touchSubjects(List.of(a.subject()));
@@ -325,10 +363,16 @@ public class AccessService {
 
     @Transactional
     public Map<String, Object> revoke(String actor, String id, String reason, boolean system) {
+        return revoke(actor, id, reason, system, false);
+    }
+
+    /** {@code coreAuthorized}: see {@link #request(String, AssignRequest, String, boolean)}; minimum holders still apply. */
+    @Transactional
+    public Map<String, Object> revoke(String actor, String id, String reason, boolean system, boolean coreAuthorized) {
         AsgRow a = load(id, true);
         if (!Set.of("ACTIVE", "PENDING_APPROVAL").contains(a.status())) throw ApiException.conflict("assignment is " + a.status());
         Policy.Role r = role(a.role());
-        if (!system) {
+        if (!system && !coreAuthorized) {
             boolean ownRequest = "PENDING_APPROVAL".equals(a.status()) && actor.equals(a.requestedBy());
             boolean allowed = ownRequest || ("ORG".equals(r.kind()) ? can(actor, a.tenant(), "rbac.assignment:administer")
                     : holdsPlatformRole(actor, "platform_user_admin") || holdsPlatformRole(actor, "platform_break_glass"));

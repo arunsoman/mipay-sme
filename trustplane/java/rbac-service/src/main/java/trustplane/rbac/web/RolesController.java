@@ -24,29 +24,47 @@ public class RolesController {
     private final RolePack pack;
     private final RbacConfig cfg;
 
-    /** grid: {row: [verbs]} or permissions: ["row:verb"] (the admin portal's flat form). */
+    /**
+     * grid: {row: [verbs]} or permissions: ["row:verb"] (the admin portal's flat form).
+     * With {@code tenant}: an org-defined role of that org, carved from {@code base_roles}
+     * (docs/plans/extended-rbac.md X8); {@code name} is then the slug.
+     */
     public record Body(String name, String description, String kind, Map<String, List<String>> grid,
-                       List<String> permissions, List<String> inherits) {}
+                       List<String> permissions, List<String> inherits, String tenant, List<String> base_roles) {}
 
-    @Permission(value = "rbac.role:read", description = "List roles with their grids")
+    @Permission(value = "rbac.role:read", description = "List roles with their grids (?tenant=: the roles of one org and its ceiling)")
     @GetMapping("/roles")
-    public List<Map<String, Object>> list(Authentication auth) {
+    public Object list(Authentication auth, @RequestParam(required = false) String tenant) {
+        if (tenant != null && !tenant.isBlank()) {
+            WebSupport.require(decisions, auth, tenant, "rbac.role:read");
+            return store.rolesFor(tenant);
+        }
         WebSupport.require(decisions, auth, "", "rbac.role:read");
-        return store.listRoles();
+        boolean platform = decisions.checkPlatform(WebSupport.actor(auth), "rbac.role:read");
+        // an org's own roles are visible only to that org (and platform-wide readers)
+        return store.listRoles().stream().filter(r -> platform || r.get("owner_tenant") == null).toList();
     }
 
     @Permission(value = "rbac.role:read", description = "One role with its grid")
     @GetMapping("/roles/{name}")
     public Map<String, Object> get(Authentication auth, @PathVariable String name) {
-        WebSupport.require(decisions, auth, "", "rbac.role:read");
-        return store.getRole(name);
+        Map<String, Object> r = store.getRole(name);
+        String owner = (String) r.get("owner_tenant");
+        if (owner != null) WebSupport.requireTenantOrPlatform(decisions, auth, owner, "rbac.role:read");
+        else WebSupport.require(decisions, auth, "", "rbac.role:read");
+        return r;
     }
 
-    @Permission(value = "rbac.role:create", description = "Create a custom role")
+    @Permission(value = "rbac.role:create", description = "Create a custom role (with tenant: an org-defined role of that org)")
     @PostMapping("/roles")
     public Map<String, Object> create(Authentication auth, @RequestBody Body b) {
-        WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:create");
         if (b == null) throw ApiException.badRequest("body required");
+        if (b.tenant() != null && !b.tenant().isBlank()) {
+            WebSupport.require(decisions, auth, b.tenant(), "rbac.role:create");
+            return store.createOrgRole(WebSupport.actor(auth), b.tenant(), b.name(), b.description(), b.base_roles(),
+                    store.parseGrid(b.grid(), b.permissions()));
+        }
+        WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:create");
         return store.createRole(WebSupport.actor(auth), b.name(), b.description(), b.kind(),
                 store.parseGrid(b.grid(), b.permissions()), b.inherits());
     }
@@ -54,9 +72,15 @@ public class RolesController {
     @Permission(value = "rbac.role:modify", description = "Change a role's grid, description or hierarchy")
     @PutMapping("/roles/{name}")
     public Map<String, Object> update(Authentication auth, @PathVariable String name, @RequestBody Body b) {
-        WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:modify");
         if (b == null) throw ApiException.badRequest("body required");
         boolean gridGiven = b.grid() != null || b.permissions() != null;
+        String owner = (String) store.getRole(name).get("owner_tenant");
+        if (owner != null) {
+            WebSupport.require(decisions, auth, owner, "rbac.role:modify");
+            return store.updateOrgRole(WebSupport.actor(auth), name, b.description(), b.base_roles(),
+                    gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null);
+        }
+        WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:modify");
         return store.updateRole(WebSupport.actor(auth), name, b.description(),
                 gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null, b.inherits());
     }
@@ -64,7 +88,9 @@ public class RolesController {
     @Permission(value = "rbac.role:delete", description = "Delete a custom role with no assignments")
     @DeleteMapping("/roles/{name}")
     public Map<String, Object> delete(Authentication auth, @PathVariable String name) {
-        WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:delete");
+        String owner = (String) store.getRole(name).get("owner_tenant");
+        if (owner != null) WebSupport.require(decisions, auth, owner, "rbac.role:delete");
+        else WebSupport.requireTenantOrPlatform(decisions, auth, null, "rbac.role:delete");
         store.deleteRole(WebSupport.actor(auth), name);
         return Map.of("ok", true);
     }

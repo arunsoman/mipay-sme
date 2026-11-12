@@ -27,6 +27,7 @@ import { PORTAL } from '../../portal.config';
           <a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>
           <a routerLink="/users" routerLinkActive="active" (click)="closeNav()">Users</a>
           <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">KYC</a>
+          <a routerLink="/access" routerLinkActive="active" (click)="closeNav()">Roles &amp; access</a>
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
