@@ -50,6 +50,8 @@ public class AdminService {
     private final RestoreTestRepository restoreRepo;
     private final com.mipay.sme.repository.UserRepository userRepo;
     private final com.mipay.sme.repository.DeviceSessionRepository sessionRepo;
+    private final com.mipay.sme.repository.IdentityLinkRepository linkRepo;
+    private final com.mipay.sme.security.auth.AuthProviderRegistry authRegistry;
     private final OpsService opsService;
     private final com.mipay.sme.service.BankSimulator bankSimulator;
     private final AppProperties props;
@@ -340,6 +342,48 @@ public class AdminService {
                 .toList();
     }
 
+    /** A user's credential links (identity_links) and device sessions (cut-over P3.9). */
+    @Transactional(readOnly = true)
+    public Dtos.AccessDetail accessDetail(String userId) {
+        com.mipay.sme.domain.core.User u = userRepo.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        Instant now = Instant.now();
+        List<Dtos.AccessLinkRow> links = linkRepo.findByUserId(userId).stream()
+                .map(l -> new Dtos.AccessLinkRow(l.getId(), l.getProvider(), l.getSubject(),
+                        l.getStatus().name(), l.isIdpEnabled(), l.getActivatedAt(), l.getLastLoginAt()))
+                .toList();
+        List<Dtos.AccessSessionRow> sessions = sessionRepo.findByUserId(userId).stream()
+                .sorted(java.util.Comparator.comparing(
+                        com.mipay.sme.domain.core.DeviceSession::getCreatedAt,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())).reversed())
+                .map(s -> new Dtos.AccessSessionRow(s.getId(), s.getDeviceFingerprint(),
+                        s.getCreatedAt(), s.getExpiresAt(),
+                        s.getExpiresAt() != null && s.getExpiresAt().isAfter(now)))
+                .toList();
+        return new Dtos.AccessDetail(u.getId(), u.getPhone(), u.getRole().name(), u.getStatus().name(), links, sessions);
+    }
+
+    /**
+     * Disables ONE credential link: the provider account is disabled and the link row flips
+     * to DISABLED, without suspending the user (who may hold other live links, P3.9). The
+     * provider command is direct here, not via the outbox: the admin decision is immediate.
+     */
+    @Transactional
+    public Dtos.AccessDisableResult disableLink(String linkId, String actorId, String actorRole) {
+        com.mipay.sme.domain.core.IdentityLink link = linkRepo.findById(linkId)
+                .orElseThrow(() -> new NotFoundException("Identity link not found"));
+        if (authRegistry.enabled() && link.getSubject() != null && !link.getSubject().isBlank()) {
+            var provider = authRegistry.selected();
+            if (link.isIdpEnabled()) provider.disable(link.getSubject(), "admin disabled credential");
+            // a PENDING (enrolled, never set-up) link has no live credential to disable at the IdP
+        }
+        link.setStatus(com.mipay.sme.domain.core.IdentityLink.Status.DISABLED);
+        linkRepo.save(link);
+        auditService.record(actorId, actorRole, "credential_disabled", "identity_link", linkId,
+                "status=" + link.getStatus(), "status=DISABLED", "link=" + link.getSubject(), false, null);
+        return new Dtos.AccessDisableResult(linkId, link.getStatus().name());
+    }
+
     /**
      * Credential-compromise response (BC p.27): revoke every live session of a
      * user; the next request with any of those tokens becomes 401. Raises a
@@ -350,6 +394,13 @@ public class AdminService {
         com.mipay.sme.domain.core.User target = userRepo.findById(targetUserId)
                 .orElseThrow(() -> new NotFoundException("User not found"));
         long revoked = sessionRepo.deleteByUserId(targetUserId);
+        // cut-over P3.9: revocation also reaches the credential provider session set
+        if (authRegistry.enabled()) {
+            var provider = authRegistry.selected();
+            linkRepo.findByUserId(targetUserId).stream()
+                    .filter(l -> l.isIdpEnabled() && l.getSubject() != null && !l.getSubject().isBlank())
+                    .forEach(l -> provider.revokeSessions(l.getSubject()));
+        }
         Dtos.IncidentRow incident = opsService.raiseSystem("CRITICAL", "All sessions revoked for "
                         + target.getPhone(), "Credential-compromise response: " + revoked
                         + " active session(s) of role " + target.getRole() + " revoked by Mindlabs admin.",

@@ -146,6 +146,19 @@ public final class Dtos {
 
     public record AccessRevokeResult(int revoked, String incidentId) { }
 
+    // ---- cut-over P3.9: the access screen shows a user's credential links and sessions ----
+
+    public record AccessLinkRow(String id, String provider, String subject, String status,
+                                boolean idpEnabled, java.time.Instant activatedAt, java.time.Instant lastLoginAt) { }
+
+    public record AccessSessionRow(String id, String deviceFingerprint, java.time.Instant createdAt,
+                                   java.time.Instant expiresAt, boolean live) { }
+
+    public record AccessDetail(String userId, String phone, String role, String status,
+                               List<AccessLinkRow> links, List<AccessSessionRow> sessions) { }
+
+    public record AccessDisableResult(String linkId, String linkStatus) { }
+
     public record SimControlsView(String defaultScenario, String bankReferenceSeq, boolean simulatorEnabled) { }
 
     public record SimControlsRequest(@NotBlank String scenario) { }
