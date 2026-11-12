@@ -37,6 +37,9 @@ public class AppProperties {
     private String authUrl = "https://idp:8443";
     private String authIssuer = "https://idp.fapi.local:8443";
 
+    /** Core-to-comms mesh endpoint (blank = comms plane not wired; setup links stay undeliverable). */
+    private String commsUrl = "";
+
     /** Same raw HMAC key file the gateway reads when signing X-SME-Context. */
     private String gatewayContextSecretFile = "/pki/ctx-secret";
 

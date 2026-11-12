@@ -61,6 +61,7 @@ public class OrgOnboardingService {
     private final OrgUserService orgUsers;
     private final ActivationService activation;
     private final com.mipay.sme.security.auth.UserLifecycleService userLifecycle;
+    private final com.mipay.sme.config.AppProperties properties;
     private final UsernamePolicy usernamePolicy;
     private final ComplianceService complianceService;
     private final ProvisioningService provisioningService;
@@ -433,7 +434,9 @@ public class OrgOnboardingService {
             requestRepo.save(req);
             User admin = userRepo.findById(req.getAdminUserId())
                     .orElseThrow(() -> new NotFoundException("Admin user for org not found"));
-            activation.issue(admin, reviewer.userId());
+            if (properties.getIdentityMode().equals("legacy")) {
+                activation.issue(admin, reviewer.userId());
+            }  // gateway mode: the enrolment issued at creation already queued the set-up link
             auditService.record(reviewer.userId(), reviewer.role(), "org_approved", "organization",
                     org.getId(), "PENDING", "ACTIVE", null, false, null);
             kycApplications.onOnboardingDecision(org.getId(), true, reviewer, note);
@@ -486,7 +489,9 @@ public class OrgOnboardingService {
             }
             req.setStatus(Enums.OnboardingStatus.APPROVED);
             requestRepo.save(req);
-            activation.issue(admin, reviewer.userId());
+            if (properties.getIdentityMode().equals("legacy")) {
+                activation.issue(admin, reviewer.userId());
+            }  // gateway mode: the replacement candidate was enrolled when the request was filed
             auditService.record(reviewer.userId(), reviewer.role(), "org_admin_recovery_approved", "organization",
                     org.getId(), null, null, "replacement admin activation issued", false, null);
             return new Dtos.OrgDecisionResult(req.getId(), org.getId(), "PENDING",
@@ -544,7 +549,9 @@ public class OrgOnboardingService {
             throw new ConflictException("DUPLICATE_USERNAME", "Username already taken");
         }
 
-        User staff = new User();
+        User staff;
+        if (properties.getIdentityMode().equals("legacy")) {
+            staff = new User();
         staff.setName(req.name());
         staff.setPhone(req.phone());
         staff.setEmail(req.email());
@@ -561,9 +568,16 @@ public class OrgOnboardingService {
         } else {
             staff.setStatus(Enums.UserStatus.PENDING);   // activation round-trip
         }
-        userRepo.save(staff);
-        if (staff.getStatus() == Enums.UserStatus.PENDING) {
-            activation.issue(staff, caller.userId());
+            userRepo.save(staff);
+            if (staff.getStatus() == Enums.UserStatus.PENDING) activation.issue(staff, caller.userId());
+        } else {
+            // gateway mode: no API-submitted passwords — staff is created PENDING and enrolled;
+            // the setup link goes out through the comms plane (resend via the auth access endpoints)
+            staff = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                    org.getId(), req.name(), req.username(), req.phone(), req.email(),
+                    roleFor(org.getOrgType()),
+                    req.orgRole() == null ? Enums.OrgMemberRole.STAFF : req.orgRole(),
+                    caller.userId()));
         }
         auditService.record(caller.userId(), caller.role(), "org_staff_added", "user", staff.getId(),
                 null, "ACTIVE", "orgRole=" + staff.getOrgRole(), false, null);
@@ -635,18 +649,11 @@ public class OrgOnboardingService {
             throw new ConflictException("DUPLICATE_PHONE", "Phone already registered");
         }
 
-        User candidate = new User();
-        candidate.setName(body.adminName());
-        candidate.setPhone(body.phone());
-        candidate.setEmail(body.email());
-        candidate.setUsername(body.username() == null || body.username().isBlank()
-                ? usernamePolicy.generate(body.adminName(), body.email()) : body.username());
-        candidate.setRole(roleFor(org.getOrgType()));
-        candidate.setOrgId(org.getId());
-        candidate.setOrgRole(Enums.OrgMemberRole.ADMIN);
-        candidate.setStatus(Enums.UserStatus.PENDING);
-        candidate.setCreatedBy(caller.userId());
-        userRepo.save(candidate);
+        // replacement admin through the lifecycle service: existing eligible org, PENDING row,
+        // ENROL committed atomically — the reviewer's approval then only enables delivery
+        User candidate = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
+                org.getId(), body.adminName(), body.username(), body.phone(), body.email(),
+                roleFor(org.getOrgType()), Enums.OrgMemberRole.ADMIN, caller.userId()));
 
         OnboardingRequest req = new OnboardingRequest();
         req.setKind(Enums.OnboardingKind.ADMIN_RECOVERY);

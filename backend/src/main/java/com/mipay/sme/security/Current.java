@@ -87,9 +87,10 @@ public final class Current {
     public static void runAs(String userId, String role, String name, String phone,
                              String merchantId, String supplierId, String lenderId,
                              String orgId, String orgType, String orgRole, Runnable action) {
-        Principal original;
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        original = get();
+        Principal original = null;
+        Authentication auth = SecurityContextHolder.getContext() == null ? null
+                : SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof Principal p) original = p;
         SecurityContextHolder.getContext().setAuthentication(
                 new PreAuthenticatedAuthenticationToken(
                         new Principal(userId, role, name, phone, merchantId, supplierId, lenderId,

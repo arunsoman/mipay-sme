@@ -42,6 +42,13 @@ event_policies:
     lane: CRITICAL
     channels: [email, sms]
     ttl: 24h
+  auth.security.reset_link:
+    category: SECURITY
+    lane: CRITICAL
+    channels: [email, sms]
+    ttl: 72h
+    require_expiry: true
+    secret: [link]
   account.setup:
     category: SECURITY
     lane: CRITICAL
@@ -68,6 +75,13 @@ templates:
   - event: auth.security.notice
     channel: sms
     body: "MiPay security notice: {{message}}"
+  - event: auth.security.reset_link
+    channel: email
+    subject: "Your MiPay sign-in link"
+    body: "Hello {{name}},\n\nUse this one-time link to set up sign-in for your MiPay account (works once, expires in 72 hours):\n{{link}}\n\nIf you did not expect this, tell your administrator."
+  - event: auth.security.reset_link
+    channel: sms
+    body: "Hello {{name}}, your new MiPay sign-in link (works once, expires in 72 hours): {{link}}"
   - event: account.setup
     channel: email
     subject: "Set up your MiPay account"

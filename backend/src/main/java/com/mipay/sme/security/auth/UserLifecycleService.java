@@ -40,6 +40,7 @@ public class UserLifecycleService {
     private final AuthProviderRegistry registry;
     private final AuthOutboxService outbox;
     private final UsernamePolicy usernamePolicy;
+    private final CommsClient comms;
 
     public record Registration(String orgId, String name, String username, String phone, String email,
                                Enums.UserRole role, Enums.OrgMemberRole orgRole, String createdBy) { }
@@ -84,6 +85,7 @@ public class UserLifecycleService {
         } else {
             log.debug("auth provider disabled; user {} created without enrolment command", user.getId());
         }
+        syncContactsAfterCommit(user.getId(), user.getPhone(), user.getEmail());
         return user;
     }
 
@@ -133,5 +135,28 @@ public class UserLifecycleService {
                             "login_name", user.getUsername(), "phone", user.getPhone() == null ? "" : user.getPhone()),
                     "login:" + uid + ":" + user.getUsername() + ":" + user.getPhone());
         }
+        syncContactsAfterCommit(uid, user.getPhone(), user.getEmail());
+    }
+
+    /**
+     * The core is the comms plane's only contact writer (comms-design D10). Registration
+     * happens after commit and is outage-tolerant: core state stays authoritative, the
+     * send-time sync in CommsLinkDelivery and the AuthSyncService reconcile close any gap.
+     */
+    private void syncContactsAfterCommit(String uid, String phone, String email) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            comms.putContacts(uid, phone, email);
+                        } catch (Exception e) {
+                            log.warn("comms contact sync deferred for user {}: {}", uid, e.getMessage());
+                        }
+                    }
+                });
     }
 }
