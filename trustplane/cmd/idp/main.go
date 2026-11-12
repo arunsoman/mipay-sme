@@ -40,6 +40,7 @@ func main() {
 		log.Fatalf("idp seed users: %v", err)
 	}
 	go srv.SweepLoop(ctx)
+	go srv.DeliverLoop(ctx)
 	log.Printf("[idp] issuer=%s listening=%s", cfg.Issuer, cfg.Listen)
 
 	sig := make(chan os.Signal, 1)

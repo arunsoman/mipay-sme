@@ -55,6 +55,8 @@ clients:
     token_ttl_seconds: 300
     refresh_ttl_seconds: 28800
     require_consent: false
+    # P1.6: disable / reset / revoke-sessions end the gateway's browser sessions at once
+    backchannel_logout_uri: "https://gateway:8443/auth/backchannel-logout"
   - id: gw-resource-server
     display_name: "API Gateway (resource server for introspection)"
     auth_method: private_key_jwt

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,16 +28,75 @@ import (
 // ---------------------------------------------------------------------------
 
 var DDL = []string{
-	`CREATE TABLE IF NOT EXISTS users(
-		user_id TEXT PRIMARY KEY,
-		password_hash TEXT NOT NULL,
-		scopes TEXT NOT NULL,
-		active BOOLEAN NOT NULL DEFAULT TRUE)`,
+	// P1: the demo `users` table is replaced by credential accounts (no scopes, no authority).
+	`DROP TABLE IF EXISTS users`,
+	`CREATE TABLE IF NOT EXISTS accounts(
+		subject TEXT PRIMARY KEY,
+		uid TEXT NOT NULL UNIQUE,
+		login_name TEXT NOT NULL,
+		phone TEXT,
+		display_name TEXT NOT NULL DEFAULT '',
+		password_hash TEXT,
+		state TEXT NOT NULL CHECK (state IN ('ENROLLING','ACTIVE','DISABLED')),
+		disabled_reason TEXT,
+		failed_attempts INTEGER NOT NULL DEFAULT 0,
+		lock_count INTEGER NOT NULL DEFAULT 0,
+		locked_until TIMESTAMPTZ,
+		password_changed_at TIMESTAMPTZ,
+		tokens_valid_after TIMESTAMPTZ NOT NULL DEFAULT 'epoch',
+		mfa_profile TEXT,
+		org_requires_mfa BOOLEAN NOT NULL DEFAULT FALSE,
+		seeded BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS accounts_login_name_uq ON accounts (lower(login_name))`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS accounts_phone_uq ON accounts (phone) WHERE phone IS NOT NULL`,
+	`CREATE TABLE IF NOT EXISTS account_links(
+		token_hash TEXT PRIMARY KEY,
+		subject TEXT NOT NULL REFERENCES accounts(subject) ON DELETE CASCADE,
+		purpose TEXT NOT NULL CHECK (purpose IN ('SETUP','RESET','RECOVERY')),
+		expires_at TIMESTAMPTZ NOT NULL,
+		used_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE INDEX IF NOT EXISTS account_links_subject_idx ON account_links (subject, purpose)`,
+	`CREATE TABLE IF NOT EXISTS otp_challenges(
+		id TEXT PRIMARY KEY,
+		subject TEXT NOT NULL REFERENCES accounts(subject) ON DELETE CASCADE,
+		request_uri TEXT NOT NULL,
+		code_hash TEXT NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		expires_at TIMESTAMPTZ NOT NULL,
+		used_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE INDEX IF NOT EXISTS otp_challenges_subject_idx ON otp_challenges (subject, created_at)`,
+	`CREATE TABLE IF NOT EXISTS outbound(
+		id TEXT PRIMARY KEY,
+		target TEXT NOT NULL CHECK (target IN ('core','logout')),
+		url TEXT NOT NULL DEFAULT '',
+		payload TEXT NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		next_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		delivered_at TIMESTAMPTZ,
+		last_error TEXT,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	`CREATE INDEX IF NOT EXISTS outbound_due_idx ON outbound (next_at) WHERE delivered_at IS NULL`,
+	`CREATE TABLE IF NOT EXISTS sim_outbox(
+		id TEXT PRIMARY KEY,
+		event_code TEXT NOT NULL,
+		recipient TEXT NOT NULL,
+		lane TEXT NOT NULL,
+		body TEXT NOT NULL,
+		data JSONB NOT NULL DEFAULT '{}'::jsonb,
+		expires_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
 	`CREATE TABLE IF NOT EXISTS sessions(
 		session_id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
 		csrf TEXT NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL)`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS amr TEXT NOT NULL DEFAULT 'pwd'`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS auth_time TIMESTAMPTZ NOT NULL DEFAULT now()`,
+	`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id)`,
 	`CREATE TABLE IF NOT EXISTS pars(
 		request_uri TEXT PRIMARY KEY,
 		client_id TEXT NOT NULL,
@@ -55,6 +113,8 @@ var DDL = []string{
 		session_id TEXT NOT NULL,
 		used BOOLEAN NOT NULL DEFAULT FALSE,
 		expires_at TIMESTAMPTZ NOT NULL)`,
+	`ALTER TABLE auth_codes ADD COLUMN IF NOT EXISTS amr TEXT NOT NULL DEFAULT 'pwd'`,
+	`ALTER TABLE auth_codes ADD COLUMN IF NOT EXISTS auth_time BIGINT NOT NULL DEFAULT 0`,
 	`CREATE TABLE IF NOT EXISTS jti_seen(
 		jti TEXT PRIMARY KEY,
 		expires_at TIMESTAMPTZ NOT NULL)`,
@@ -70,6 +130,10 @@ var DDL = []string{
 		cnf         JSONB NOT NULL,
 		expires_at  TIMESTAMPTZ NOT NULL,
 		revoked     BOOLEAN NOT NULL DEFAULT FALSE)`,
+	`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS sid TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS amr TEXT NOT NULL DEFAULT 'pwd'`,
+	`ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS auth_time BIGINT NOT NULL DEFAULT 0`,
+	`CREATE INDEX IF NOT EXISTS refresh_tokens_sub_idx ON refresh_tokens (sub)`,
 }
 
 // ---------------------------------------------------------------------------
@@ -121,11 +185,21 @@ type Server struct {
 	clients *clients.Registry
 	keys    *keyring
 	loginIP *ratelimit.Limiter
+	comms   CommsClient
+
+	coreHTTP   *http.Client // mesh mTLS (core events, comms plane)
+	logoutHTTP *http.Client // back-channel logout to clients (server-verified TLS only)
 }
 
 func NewServer(cfg Config, pool *pgxpool.Pool, reg *clients.Registry, keys *keyring) *Server {
-	return &Server{cfg: cfg, pool: pool, clients: reg, keys: keys, loginIP: ratelimit.New()}
+	s := &Server{cfg: cfg, pool: pool, clients: reg, keys: keys, loginIP: ratelimit.New()}
+	_ = s.outboundClients()
+	s.comms = newCommsClient(cfg, pool, s.coreHTTP)
+	return s
 }
+
+// SetComms replaces the comms client (tests).
+func (s *Server) SetComms(c CommsClient) { s.comms = c }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -140,6 +214,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/introspect", s.introspect)
 	mux.HandleFunc("/revoke", s.revoke)
 	mux.HandleFunc("/logout", s.logout)
+	// P1: credential plugin
+	mux.HandleFunc("/login/otp/start", s.otpStart)
+	mux.HandleFunc("/login/otp/verify", s.otpVerify)
+	mux.HandleFunc("/account/setup", s.accountSetup)
+	mux.HandleFunc("/account/forgot", s.accountForgot)
+	mux.HandleFunc("/account/help", s.accountHelp)
+	mux.HandleFunc("/accounts", s.accountsAPI)
+	mux.HandleFunc("/accounts/", s.accountsAPI)
 	return mux
 }
 
@@ -224,7 +306,11 @@ func peerCertThumb(r *http.Request) string {
 	if v := r.Header.Get(ctxauth.CertHeader); v != "" {
 		return v
 	}
-	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+	// Behind the gateway the direct TLS peer is the GATEWAY's mesh certificate, never the
+	// client's: only the client certificate the gateway forwards (header above) counts.
+	// A direct mesh caller's own certificate counts only when it is not the gateway.
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 &&
+		normalizeCN(r.TLS.PeerCertificates[0].Subject.CommonName) != "gateway" {
 		return jwtx.ThumbprintCertDER(r.TLS.PeerCertificates[0].Raw)
 	}
 	return ""
@@ -360,18 +446,18 @@ func (s *Server) reserveJTI(jti string, ttl time.Duration) bool {
 func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 	iss := s.cfg.Issuer
 	meta := map[string]any{
-		"issuer":                                iss,
-		"authorization_endpoint":                iss + "/authorize",
-		"token_endpoint":                        iss + "/token",
-		"pushed_authorization_request_endpoint": iss + "/par",
-		"introspection_endpoint":                iss + "/introspect",
-		"revocation_endpoint":                   iss + "/revoke",
-		"jwks_uri":                              iss + "/jwks.json",
-		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"scopes_supported":                      []string{"openid", "rbac:admin", "offline_access"},
-		"code_challenge_methods_supported":      []string{"S256"},
-		"token_endpoint_auth_methods_supported": []string{"private_key_jwt", "tls_client_auth"},
+		"issuer":                                           iss,
+		"authorization_endpoint":                           iss + "/authorize",
+		"token_endpoint":                                   iss + "/token",
+		"pushed_authorization_request_endpoint":            iss + "/par",
+		"introspection_endpoint":                           iss + "/introspect",
+		"revocation_endpoint":                              iss + "/revoke",
+		"jwks_uri":                                         iss + "/jwks.json",
+		"response_types_supported":                         []string{"code"},
+		"grant_types_supported":                            []string{"authorization_code", "refresh_token"},
+		"scopes_supported":                                 []string{"openid", "rbac:admin", "offline_access"},
+		"code_challenge_methods_supported":                 []string{"S256"},
+		"token_endpoint_auth_methods_supported":            []string{"private_key_jwt", "tls_client_auth"},
 		"token_endpoint_auth_signing_alg_values_supported": []string{"PS256", "ES256", "EdDSA"},
 		"id_token_signing_alg_values_supported":            []string{"PS256", "ES256", "EdDSA"},
 		"tls_client_certificate_bound_access_tokens":       true,
@@ -380,6 +466,10 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 		"request_uri_parameter_supported":                  true,
 		"request_parameter_supported":                      false,
 		"subject_types_supported":                          []string{"public"},
+		"claims_supported":                                 []string{"sub", "uid", "acr", "amr", "auth_time", "sid", "name"},
+		"acr_values_supported":                             []string{"aal1"},
+		"backchannel_logout_supported":                     true,
+		"backchannel_logout_session_supported":             false,
 	}
 	jsonBytes(w, http.StatusOK, meta)
 }
@@ -459,15 +549,15 @@ func (s *Server) par(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	params := map[string]any{
-		"response_type":                "code",
-		"redirect_uri":                 redirect,
-		"scope":                        strings.Join(scopes, " "),
-		"code_challenge":               r.FormValue("code_challenge"),
-		"code_challenge_method":        "S256",
-		"state":                        r.FormValue("state"),
-		"nonce":                        r.FormValue("nonce"),
-		"client_auth_method":           authn.method,
-		"client_cert_thumbprint":       authn.certThumb,
+		"response_type":          "code",
+		"redirect_uri":           redirect,
+		"scope":                  strings.Join(scopes, " "),
+		"code_challenge":         r.FormValue("code_challenge"),
+		"code_challenge_method":  "S256",
+		"state":                  r.FormValue("state"),
+		"nonce":                  r.FormValue("nonce"),
+		"client_auth_method":     authn.method,
+		"client_cert_thumbprint": authn.certThumb,
 	}
 	pj, _ := json.Marshal(params)
 	requestURI := "urn:ietf:params:oauth:request_uri:" + jwtx.RandB64(24)
@@ -480,42 +570,6 @@ func (s *Server) par(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonBytes(w, http.StatusCreated, map[string]any{"request_uri": requestURI, "expires_in": int(s.cfg.ParTTL.Seconds())})
-}
-
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
-
-const sessionCookie = "idp_sess"
-
-func (s *Server) currentSession(r *http.Request) (sessionID, userID, csrf string, ok bool) {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
-		return "", "", "", false
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	var uid, cs string
-	err = s.pool.QueryRow(ctx, `SELECT user_id, csrf FROM sessions WHERE session_id=$1 AND expires_at > now()`, c.Value).
-		Scan(&uid, &cs)
-	if err != nil {
-		return "", "", "", false
-	}
-	return c.Value, uid, cs, true
-}
-
-func (s *Server) createSession(w http.ResponseWriter, r *http.Request, userID string) (string, string) {
-	sid := jwtx.RandB64(32)
-	csrf := jwtx.RandB64(32)
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	_, _ = s.pool.Exec(ctx, `INSERT INTO sessions (session_id, user_id, csrf, expires_at) VALUES ($1,$2,$3,$4)`,
-		sid, userID, csrf, time.Now().Add(s.cfg.SessionTTL))
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: sid, Path: "/", HttpOnly: true, Secure: true,
-		SameSite: http.SameSiteLaxMode, MaxAge: int(s.cfg.SessionTTL.Seconds()),
-	})
-	return sid, csrf
 }
 
 // ---------------------------------------------------------------------------
@@ -583,174 +637,11 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		errorPage(w, 400, "Invalid or expired request_uri", "Please restart the authorization flow via /par.")
 		return
 	}
-	if _, _, _, sess := s.currentSession(r); sess {
-		s.renderConsent(w, r, p)
+	if ss, ok := s.currentSession(r); ok {
+		s.afterLogin(w, r, p, ss)
 		return
 	}
-	s.renderLogin(w, p)
-}
-
-func (s *Server) renderLogin(w http.ResponseWriter, p *parRow) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!doctype html><html><head><title>Sign in</title></head>
-<body style="font-family:sans-serif;max-width:26rem;margin:6rem auto">
-<h2>Sign in to continue</h2>
-<p>Reference FAPI 2.0 Identity Provider (demo login page).</p>
-<form method="POST" action="/login">
-<input type="hidden" name="request_uri" value="%s">
-<label>User<br><input name="username" required></label><br>
-<label>Password<br><input name="password" type="password" required></label><br><br>
-<button>Login</button>
-</form></body></html>`, html.EscapeString(p.requestURI))
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		errorPage(w, 405, "Method not allowed", "POST only")
-		return
-	}
-	ip := remoteIP(r)
-	if !s.loginIP.Allow("login:"+ip, 30, 30) {
-		errorPage(w, 429, "Too many attempts", "Slow down and try again in a minute.")
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		errorPage(w, 400, "Bad request", "invalid form")
-		return
-	}
-	uri := r.PostFormValue("request_uri")
-	user := r.PostFormValue("username")
-	pass := r.PostFormValue("password")
-	p, ok := s.loadPAR(r, uri)
-	if !ok {
-		errorPage(w, 400, "Expired request", "authorization request expired, restart the flow")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	var hash, scopes string
-	var active bool
-	err := s.pool.QueryRow(ctx, `SELECT password_hash, scopes, active FROM users WHERE user_id=$1`, user).
-		Scan(&hash, &scopes, &active)
-	if err != nil || !active || bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) != nil {
-		errorPage(w, 401, "Login failed", "Unknown user or wrong password.")
-		return
-	}
-	_, csrf := s.createSession(w, r, user)
-	w.Header().Add("P3P", "CP=\"demo\"")
-	s.renderConsentWithCSRF(w, r, p, csrf)
-}
-
-func (s *Server) renderConsent(w http.ResponseWriter, r *http.Request, p *parRow) {
-	_, _, csrf, ok := s.currentSession(r)
-	if !ok {
-		s.renderLogin(w, p)
-		return
-	}
-	s.renderConsentWithCSRF(w, r, p, csrf)
-}
-
-func (s *Server) renderConsentWithCSRF(w http.ResponseWriter, _ *http.Request, p *parRow, csrf string) {
-	cl := s.clients.ByID[p.clientID]
-	name := p.clientID
-	if cl != nil && cl.DisplayName != "" {
-		name = cl.DisplayName
-	}
-	scopeItems := ""
-	for _, sc := range strings.Fields(parStr(p.params, "scope")) {
-		scopeItems += "<li><code>" + html.EscapeString(sc) + "</code> — " + scopeDesc(sc) + "</li>"
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!doctype html><html><head><title>Consent</title></head>
-<body style="font-family:sans-serif;max-width:32rem;margin:6rem auto">
-<h2>Authorize application</h2>
-<p><b>%s</b> requests access on your behalf:</p>
-<ul>%s</ul>
-<form method="POST" action="/consent">
-<input type="hidden" name="request_uri" value="%s">
-<input type="hidden" name="csrf" value="%s">
-<button name="decision" value="allow">Allow</button>
-<button name="decision" value="deny">Deny</button>
-</form></body></html>`,
-		html.EscapeString(name), scopeItems, html.EscapeString(p.requestURI), html.EscapeString(csrf))
-}
-
-func scopeDesc(s string) string {
-	switch s {
-	case "rbac:operator":
-		return "Operational read access (delegated to supplier members)"
-	case "openid":
-		return "See your user identity"
-	case "offline_access":
-		return "Keep access while you are offline (refresh token)"
-	case "rbac:admin":
-		return "Manage tenant access assignments"
-	default:
-		return "Access requested"
-	}
-}
-
-func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		errorPage(w, 405, "Method not allowed", "POST only")
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		errorPage(w, 400, "Bad request", "invalid form")
-		return
-	}
-	sessID, userID, csrf, ok := s.currentSession(r)
-	if !ok {
-		errorPage(w, 401, "Session required", "Login first.")
-		return
-	}
-	uri := r.PostFormValue("request_uri")
-	decision := r.PostFormValue("decision")
-	sentCSRF := r.PostFormValue("csrf")
-	if subtle.ConstantTimeCompare([]byte(sentCSRF), []byte(csrf)) != 1 {
-		errorPage(w, 403, "CSRF", "form token mismatch")
-		return
-	}
-	p, pok := s.loadPAR(r, uri)
-	if !pok {
-		errorPage(w, 400, "Expired request", "authorization request expired")
-		return
-	}
-	if decision != "allow" {
-		s.deletePAR(r, uri)
-		http.Redirect(w, r, redirectQuery(parStr(p.params, "redirect_uri"), map[string]string{
-			"error": "access_denied", "iss": urlEscape(s.cfg.Issuer),
-		}), http.StatusFound)
-		return
-	}
-	// consume PAR (single use) and create the one-time code
-	s.deletePAR(r, uri)
-	code := jwtx.RandB64(32)
-	sum := codeSum(code)
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	_, err := s.pool.Exec(ctx, `INSERT INTO auth_codes
-		(code_hash, client_id, redirect_uri, sub, scope, nonce, code_challenge, session_id, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		sum, p.clientID, parStr(p.params, "redirect_uri"), userID, parStr(p.params, "scope"),
-		parStr(p.params, "nonce"), parStr(p.params, "code_challenge"), sessID, time.Now().Add(s.cfg.CodeTTL))
-	if err != nil {
-		errorPage(w, 500, "Storage failure", "try again")
-		return
-	}
-	params := map[string]string{"code": urlEscape(code), "iss": urlEscape(s.cfg.Issuer)}
-	if st := parStr(p.params, "state"); st != "" {
-		params["state"] = urlEscape(st)
-	}
-	http.Redirect(w, r, redirectQuery(parStr(p.params, "redirect_uri"), params), http.StatusFound)
-}
-
-func (s *Server) sessionUser(r *http.Request, sessID string) string {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	var uid string
-	_ = s.pool.QueryRow(ctx, `SELECT user_id FROM sessions WHERE session_id=$1`, sessID).Scan(&uid)
-	return uid
+	s.renderLogin(w, r, p, http.StatusOK, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -805,6 +696,32 @@ func (s *Server) senderBinding(r *http.Request, authn clientAuthn) (cnf map[stri
 	return nil, "", errors.New("FAPI 2.0 requires sender-constrained tokens: present a DPoP proof or client certificate (binding is independent of client authentication)")
 }
 
+// tokenSubject is the account behind a code or refresh token, re-checked at every issue:
+// a disabled, deleted or reset account gets no new tokens (P1.2, P1.6).
+func (s *Server) tokenSubject(ctx context.Context, sub string, issuedAfter time.Time) (*Account, error) {
+	a, err := s.accountBySubject(ctx, sub)
+	if err != nil {
+		return nil, errors.New("account not found")
+	}
+	if a.State != StateActive {
+		return nil, errors.New("account is not active")
+	}
+	// auth_time and iat have second precision; compare at that precision
+	if !issuedAfter.IsZero() && issuedAfter.Before(a.TokensValidAfter.Truncate(time.Second)) {
+		return nil, errors.New("sessions of this account were revoked")
+	}
+	return a, nil
+}
+
+// userClaims are the identity claims of access and ID tokens (P1.7): sub is the account
+// subject, uid the core user id; acr/amr/auth_time describe the login; sid the IdP session.
+func userClaims(a *Account, amr string, authTime int64, sid string) map[string]any {
+	return map[string]any{
+		"sub": a.Subject, "uid": a.UID, "acr": "aal1", "amr": strings.Split(amr, " "),
+		"auth_time": authTime, "sid": sid,
+	}
+}
+
 func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clients.Client, authn clientAuthn) {
 	code := r.FormValue("code")
 	verifier := r.FormValue("code_verifier")
@@ -824,13 +741,18 @@ func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clien
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	var redirectStored, scope, nonce, challenge string
+	var clientID, redirectStored, scope, nonce, challenge, sid, amr string
+	var authTime int64
 	var exp time.Time
-	err = s.pool.QueryRow(ctx, `SELECT redirect_uri, scope, nonce, code_challenge, expires_at
+	err = s.pool.QueryRow(ctx, `SELECT client_id, redirect_uri, scope, nonce, code_challenge, session_id, amr, auth_time, expires_at
 		FROM auth_codes WHERE code_hash=$1 AND used=FALSE`, codeSum(code)).
-		Scan(&redirectStored, &scope, &nonce, &challenge, &exp)
+		Scan(&clientID, &redirectStored, &scope, &nonce, &challenge, &sid, &amr, &authTime, &exp)
 	if err != nil {
 		oauthErr(w, 400, "invalid_grant", "unknown or already used code")
+		return
+	}
+	if clientID != cl.ID {
+		oauthErr(w, 400, "invalid_grant", "code was issued to another client")
 		return
 	}
 	if time.Now().After(exp) {
@@ -852,20 +774,20 @@ func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clien
 		oauthErr(w, 400, "invalid_grant", "code already redeemed (single use)")
 		return
 	}
-	ttl := 300
-	if cl.TokenTTLSeconds > 0 {
-		ttl = cl.TokenTTLSeconds
+	acct, err := s.tokenSubject(ctx, sub, time.Unix(authTime, 0))
+	if err != nil {
+		oauthErr(w, 400, "invalid_grant", err.Error())
+		return
 	}
-	accessClaims := map[string]any{
-		"iss": s.cfg.Issuer, "aud": s.cfg.Issuer,
-		"sub": sub, "client_id": cl.ID, "scope": scope,
-		"iat": time.Now().Unix(), "nbf": time.Now().Unix(),
-		"exp": time.Now().Add(time.Duration(ttl) * time.Second).Unix(),
-		"jti": jwtx.RandB64(16), "amr": []string{"pwd"},
-	}
-	for k, v := range cnf {
-		accessClaims["cnf"] = map[string]any{}
-		accessClaims["cnf"].(map[string]any)[k] = v
+	ttl := ttlFor(cl)
+	now := time.Now()
+	accessClaims := userClaims(acct, amr, authTime, sid)
+	for k, v := range map[string]any{
+		"iss": s.cfg.Issuer, "aud": s.cfg.Issuer, "client_id": cl.ID, "scope": scope,
+		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Duration(ttl) * time.Second).Unix(),
+		"jti": jwtx.RandB64(16), "cnf": cnf,
+	} {
+		accessClaims[k] = v
 	}
 	entry := s.keys.byAlg[cl.TokenAlg]
 	at, err := jwtx.SignJWS(cl.TokenAlg, "at+jwt", entry.kid, accessClaims, entry.signer)
@@ -878,10 +800,10 @@ func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clien
 	if hasScope(scope, "offline_access") && cl.RefreshTTLSeconds > 0 {
 		rt := jwtx.RandB64(32)
 		rtj, _ := json.Marshal(cnf)
-		_, err = s.pool.Exec(ctx, `INSERT INTO refresh_tokens (token_hash, token, client_id, sub, scope, cnf, expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
-			refreshHash(rt), rt, cl.ID, sub, scope, string(rtj),
-			time.Now().Add(time.Duration(cl.RefreshTTLSeconds)*time.Second))
+		_, err = s.pool.Exec(ctx, `INSERT INTO refresh_tokens (token_hash, token, client_id, sub, scope, cnf, expires_at, sid, amr, auth_time)
+			VALUES ($1,'',$2,$3,$4,$5::jsonb,$6,$7,$8,$9)`,
+			refreshHash(rt), cl.ID, sub, scope, string(rtj),
+			now.Add(time.Duration(cl.RefreshTTLSeconds)*time.Second), sid, amr, authTime)
 		if err != nil {
 			oauthErr(w, 500, "server_error", "token storage failure")
 			return
@@ -889,9 +811,12 @@ func (s *Server) grantAuthCode(w http.ResponseWriter, r *http.Request, cl *clien
 		resp["refresh_token"] = rt
 	}
 	if hasScope(scope, "openid") {
-		idClaims := map[string]any{
-			"iss": s.cfg.Issuer, "aud": cl.ID, "azp": cl.ID, "sub": sub,
-			"iat": time.Now().Unix(), "exp": time.Now().Add(300 * time.Second).Unix(),
+		idClaims := userClaims(acct, amr, authTime, sid)
+		for k, v := range map[string]any{
+			"iss": s.cfg.Issuer, "aud": cl.ID, "azp": cl.ID,
+			"iat": now.Unix(), "exp": now.Add(300 * time.Second).Unix(), "name": acct.DisplayName,
+		} {
+			idClaims[k] = v
 		}
 		if nonce != "" {
 			idClaims["nonce"] = nonce
@@ -912,19 +837,25 @@ func (s *Server) grantRefresh(w http.ResponseWriter, r *http.Request, cl *client
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	var sub, scope string
+	var sub, scope, sid, amr string
+	var authTime int64
 	var cnfJSON []byte
 	var exp time.Time
 	var revoked bool
-	err := s.pool.QueryRow(ctx, `SELECT sub, scope, cnf, expires_at, revoked FROM refresh_tokens
+	err := s.pool.QueryRow(ctx, `SELECT sub, scope, cnf, expires_at, revoked, sid, amr, auth_time FROM refresh_tokens
 		WHERE token_hash=$1 AND client_id=$2`, refreshHash(rt), cl.ID).
-		Scan(&sub, &scope, &cnfJSON, &exp, &revoked)
+		Scan(&sub, &scope, &cnfJSON, &exp, &revoked, &sid, &amr, &authTime)
 	if err != nil {
 		oauthErr(w, 400, "invalid_grant", "unknown refresh token")
 		return
 	}
 	if revoked || time.Now().After(exp) {
 		oauthErr(w, 400, "invalid_grant", "refresh token expired or revoked")
+		return
+	}
+	acct, err := s.tokenSubject(ctx, sub, time.Unix(authTime, 0))
+	if err != nil {
+		oauthErr(w, 400, "invalid_grant", err.Error())
 		return
 	}
 	stored := map[string]any{}
@@ -936,9 +867,13 @@ func (s *Server) grantRefresh(w http.ResponseWriter, r *http.Request, cl *client
 			oauthErr(w, 400, "invalid_dpop_proof", "DPoP proof required for refresh")
 			return
 		}
-		newJKT, _, derr := dpop.Verify(proof, dpop.Options{HTM: "POST", HTU: s.cfg.Issuer + "/token", MaxAge: 5 * time.Minute, Now: time.Now()})
+		newJKT, jti, derr := dpop.Verify(proof, dpop.Options{HTM: "POST", HTU: s.cfg.Issuer + "/token", MaxAge: 5 * time.Minute, Now: time.Now()})
 		if derr != nil || newJKT != jkt {
 			oauthErr(w, 401, "invalid_dpop_proof", "proof key differs from the bound key")
+			return
+		}
+		if !s.reserveJTI("dpop:"+jti, 10*time.Minute) {
+			oauthErr(w, 400, "invalid_dpop_proof", "dpop: jti replay")
 			return
 		}
 	} else if xt, ok := stored["x5t#S256"].(string); ok {
@@ -948,12 +883,16 @@ func (s *Server) grantRefresh(w http.ResponseWriter, r *http.Request, cl *client
 		}
 	}
 	entry := s.keys.byAlg[cl.TokenAlg]
-	at, err := jwtx.SignJWS(cl.TokenAlg, "at+jwt", entry.kid, map[string]any{
-		"iss": s.cfg.Issuer, "aud": s.cfg.Issuer, "sub": sub, "client_id": cl.ID, "scope": scope,
-		"iat": time.Now().Unix(), "nbf": time.Now().Unix(),
-		"exp": time.Now().Add(time.Duration(ttlFor(cl)) * time.Second).Unix(),
-		"jti": jwtx.RandB64(16), "amr": []string{"pwd"}, "cnf": stored,
-	}, entry.signer)
+	now := time.Now()
+	claims := userClaims(acct, amr, authTime, sid)
+	for k, v := range map[string]any{
+		"iss": s.cfg.Issuer, "aud": s.cfg.Issuer, "client_id": cl.ID, "scope": scope,
+		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Duration(ttlFor(cl)) * time.Second).Unix(),
+		"jti": jwtx.RandB64(16), "cnf": stored,
+	} {
+		claims[k] = v
+	}
+	at, err := jwtx.SignJWS(cl.TokenAlg, "at+jwt", entry.kid, claims, entry.signer)
 	if err != nil {
 		oauthErr(w, 500, "server_error", "signing failure")
 		return
@@ -989,7 +928,11 @@ func hasScope(scope, want string) bool {
 	return false
 }
 
-func refreshHash(t string) string { return jwtx.B64UEnc([]byte("rt:" + t)) }
+// refreshHash: refresh tokens are stored only as a SHA-256 hash.
+func refreshHash(t string) string {
+	sum := sha256.Sum256([]byte("rt:" + t))
+	return jwtx.B64UEnc(sum[:])
+}
 
 // ---------------------------------------------------------------------------
 // Introspection (RFC 7662) — gateway-facing, client-authenticated
@@ -1023,14 +966,22 @@ func (s *Server) introspect(w http.ResponseWriter, r *http.Request) {
 			jsonBytes(w, 200, inactive)
 			return
 		}
+		iat, _ := jwtx.ClaimInt64(claims, "iat")
+		sub := jwtx.ClaimString(claims, "sub")
+		if acct, err := s.tokenSubject(r.Context(), sub, time.Unix(iat, 0)); err != nil || acct.UID != jwtx.ClaimString(claims, "uid") {
+			jsonBytes(w, 200, inactive) // disabled, deleted or revoked since issue
+			return
+		}
 		resp := map[string]any{
 			"active": true, "jti": jti,
-			"scope": jwtx.ClaimString(claims, "scope"),
-			"sub":   jwtx.ClaimString(claims, "sub"),
+			"scope":     jwtx.ClaimString(claims, "scope"),
+			"sub":       sub,
+			"uid":       jwtx.ClaimString(claims, "uid"),
 			"client_id": jwtx.ClaimString(claims, "client_id"),
-			"iss":   jwtx.ClaimString(claims, "iss"),
-			"iat":   claims["iat"], "exp": claims["exp"],
-			"cnf":   claims["cnf"],
+			"iss":       jwtx.ClaimString(claims, "iss"),
+			"iat":       claims["iat"], "exp": claims["exp"],
+			"cnf": claims["cnf"],
+			"acr": claims["acr"], "amr": claims["amr"], "auth_time": claims["auth_time"], "sid": claims["sid"],
 		}
 		jsonBytes(w, 200, resp)
 		return
@@ -1132,17 +1083,35 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 // Seeding + sweeper
 // ---------------------------------------------------------------------------
 
+// SeedUsers creates demo credential accounts (dev/sandbox only; FromEnv refuses them
+// elsewhere). Seeded accounts are ACTIVE with a stable subject; re-seeding resets the password.
+// Field 5 (optional) is a phone, field 6 an MFA profile, e.g. "mira:pw:openid:mira:+26481000001:MERCHANT_OTP".
 func (s *Server) SeedUsers(ctx context.Context) error {
-	for _, u := range parseSeedUsers(s.cfg.SeedUsers) {
-		name, pw, scopes := u[0], u[1], u[2]
-		hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost-2)
+	for _, raw := range strings.Split(s.cfg.SeedUsers, "|") {
+		f := strings.Split(strings.TrimSpace(raw), ":")
+		us := parseSeedUsers(raw)
+		if len(us) == 0 {
+			continue
+		}
+		u := us[0]
+		phone, profile := "", ""
+		if len(f) >= 5 {
+			phone = normalizePhone(f[4])
+		}
+		if len(f) >= 6 && mfaProfiles[f[5]] {
+			profile = f[5]
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost-2)
 		if err != nil {
 			return err
 		}
-		if _, err := s.pool.Exec(ctx, `INSERT INTO users (user_id, password_hash, scopes) VALUES ($1,$2,$3)
-			ON CONFLICT (user_id) DO UPDATE SET password_hash=EXCLUDED.password_hash, scopes=EXCLUDED.scopes`,
-			name, string(hash), scopes); err != nil {
-			return err
+		if _, err := s.pool.Exec(ctx, `INSERT INTO accounts (subject, uid, login_name, phone, display_name, password_hash, state,
+				password_changed_at, mfa_profile, seeded)
+			VALUES ($1,$2,$3,NULLIF($4,''),$3,$5,'ACTIVE',now(),NULLIF($6,''),TRUE)
+			ON CONFLICT (uid) DO UPDATE SET password_hash=EXCLUDED.password_hash, phone=EXCLUDED.phone,
+				mfa_profile=EXCLUDED.mfa_profile, state='ACTIVE', failed_attempts=0, lock_count=0, locked_until=NULL`,
+			seedSubject(u.Name), u.UID, u.Name, phone, string(hash), profile); err != nil {
+			return fmt.Errorf("seed %s: %w", u.Name, err)
 		}
 	}
 	return nil
@@ -1162,6 +1131,11 @@ func (s *Server) SweepLoop(ctx context.Context) {
 				`DELETE FROM sessions WHERE expires_at < now() - interval '1 hour'`,
 				`DELETE FROM jti_seen WHERE expires_at < now() - interval '1 hour'`,
 				`DELETE FROM revoked_jti WHERE expires_at < now() - interval '1 hour'`,
+				`DELETE FROM refresh_tokens WHERE expires_at < now() - interval '1 day'`,
+				`DELETE FROM otp_challenges WHERE expires_at < now() - interval '1 day'`,
+				`DELETE FROM account_links WHERE expires_at < now() - interval '30 days'`,
+				`DELETE FROM outbound WHERE delivered_at < now() - interval '30 days'`,
+				`DELETE FROM sim_outbox WHERE created_at < now() - interval '30 days'`,
 			} {
 				_, _ = s.pool.Exec(ctx, stmt)
 			}
@@ -1176,5 +1150,3 @@ func remoteIP(r *http.Request) string {
 	}
 	return host
 }
-
-

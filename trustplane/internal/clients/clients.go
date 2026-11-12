@@ -5,11 +5,11 @@ package clients
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"strings"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -39,11 +39,14 @@ type Client struct {
 	TokenTTLSeconds   int   `yaml:"token_ttl_seconds"`
 	RefreshTTLSeconds int   `yaml:"refresh_ttl_seconds"`
 	RequireConsent    *bool `yaml:"require_consent"`
+	// BackchannelLogoutURI receives OIDC back-channel logout tokens when an account is
+	// disabled, reset or has its sessions revoked (idp-rbac-cutover-plan.md P1.6).
+	BackchannelLogoutURI string `yaml:"backchannel_logout_uri"`
 }
 
 type Registry struct {
-	List  []*Client
-	ByID  map[string]*Client
+	List []*Client
+	ByID map[string]*Client
 }
 
 // resolvePath joins relative entries with the registry dir; entries that
