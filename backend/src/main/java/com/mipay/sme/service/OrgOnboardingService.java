@@ -33,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -125,9 +127,6 @@ public class OrgOnboardingService {
         }
         if (spec.phone() == null || spec.phone().isBlank()) {
             throw new BadRequestException("PROFILE_INVALID", "admin phone required");
-        }
-        if (userRepo.existsByPhone(spec.phone())) {
-            throw new ConflictException("DUPLICATE_PHONE", "Phone already registered");
         }
         usernamePolicy.validate(spec.username());   // [H6]
         validateTypeProfile(childType, spec, name);
@@ -247,6 +246,57 @@ public class OrgOnboardingService {
 
         return new Dtos.OrgDecisionResult(req.getId(), org.getId(), "PENDING",
                 "Onboarding request created; the KYC workflow gates this org's go-live");
+    }
+
+    /**
+     * One-call onboarding from the KYC wizard: the whole KYC document arrives at once, and the
+     * org, its administrator, the KYC draft and the submission are written in ONE transaction:
+     * any refusal (a KYC problem, a rank rule, a right) rolls everything back, so nothing is
+     * left half-created. The administrator is UBO Person 1 (name, phone, email); the login
+     * name is the legal business name + the MCC ({@link UsernamePolicy#forBusiness}).
+     */
+    @Transactional
+    public Map<String, Object> onboardWithKyc(Current.Principal caller, OrgType childType, Map<String, Object> kyc,
+                                              String licenceRef, Set<OrgType> rightsDirect, Set<OrgType> rightsCeiling,
+                                              List<String> roleCeiling, List<String> roleDelegable) {
+        if (kyc == null) throw new BadRequestException("KYC_INCOMPLETE", "the KYC document is required");
+        Map<String, Object> business = section(kyc, "businessProfile");
+        Map<String, Object> operations = section(kyc, "operationalDetails");
+        Object ubos = kyc.get("ubos");
+        Map<String, Object> admin = ubos instanceof List<?> l && !l.isEmpty() && l.get(0) instanceof Map<?, ?> m
+                ? castMap(m) : Map.of();
+        String legalName = str(business.get("legalBusinessName"));
+        String phone = str(admin.get("phoneNumber"));
+        if (legalName == null) throw new BadRequestException("KYC_INCOMPLETE", "businessProfile.legalBusinessName: is required");
+        if (phone == null) throw new BadRequestException("KYC_INCOMPLETE", "ubos[0].phoneNumber: is required (Person 1 is the administrator)");
+        String adminName = str(admin.get("fullLegalName"));
+        String email = str(admin.get("emailAddress"));
+        String username = usernamePolicy.forBusiness(legalName, str(operations.get("mcc")), adminName, email);
+
+        Dtos.OrgDecisionResult created = submitOrg(caller, childType, new OrgSpec(legalName,
+                str(business.get("registrationNumber")), null, adminName, phone, username, email,
+                null, null, null, licenceRef, null, null, rightsDirect, rightsCeiling, roleCeiling, roleDelegable));
+        kycApplications.saveDraft(caller, created.orgId(), new LinkedHashMap<>(kyc), null);
+        Dtos.KycApplicationView submitted = kycApplications.submit(caller, created.orgId(), false);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("orgId", created.orgId());
+        out.put("requestId", created.requestId());
+        out.put("status", submitted.status());
+        out.put("adminUsername", username);
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMap(Map<?, ?> m) {
+        return (Map<String, Object>) m;
+    }
+
+    private static Map<String, Object> section(Map<String, Object> doc, String key) {
+        return doc.get(key) instanceof Map<?, ?> m ? castMap(m) : Map.of();
+    }
+
+    private static String str(Object v) {
+        return v == null || v.toString().isBlank() ? null : v.toString().trim();
     }
 
     // -------------------------------------------------------------------
@@ -538,18 +588,11 @@ public class OrgOnboardingService {
 
     @Transactional
     public Dtos.OrgStaffView addStaff(Current.Principal caller, Dtos.StaffRequest req) {
+        // who may add users is RBAC's decision (org.user:create on the caller's own org, the
+        // User management screen); the root organization manages its own people the same way
         Organization org = tree.ownOrg(caller);
-        if (org == null || org.getOrgType() == Enums.OrgType.PLATFORM) {
-            throw new ForbiddenException("PLATFORM_STAFF_REFUSED",
-                    "Platform users are seeded or provisioned outside this feature ([C3/H9])");
-        }
-        if (caller.orgRole() == null || !Enums.OrgMemberRole.ADMIN.name().equals(caller.orgRole())) {
-            throw new ForbiddenException("ADMIN_REQUIRED", "Only an org ADMIN may add staff");
-        }
-        orgAccess.requireOperational(org.getId());
-        if (userRepo.existsByPhone(req.phone())) {
-            throw new ConflictException("DUPLICATE_PHONE", "Phone already registered");
-        }
+        if (org == null) throw new ForbiddenException("NO_ORG", "caller has no organization");
+        if (org.getOrgType() != Enums.OrgType.PLATFORM) orgAccess.requireOperational(org.getId());
         usernamePolicy.validate(req.username());   // [H6]
         if (req.username() != null && !req.username().isBlank()
                 && userRepo.findByUsername(req.username()).isPresent()) {
@@ -564,7 +607,7 @@ public class OrgOnboardingService {
         staff.setEmail(req.email());
         staff.setUsername(req.username() == null || req.username().isBlank()
                 ? usernamePolicy.generate(req.name(), req.email()) : req.username());
-        staff.setRole(roleFor(org.getOrgType()));    // always the org's own role [C3/H9]
+        staff.setRole(staffRole(org, caller));    // the org's own role [C3/H9]
         staff.setOrgId(org.getId());
         staff.setOrgRole(req.orgRole() == null ? Enums.OrgMemberRole.STAFF : req.orgRole());
         staff.setCreatedBy(caller.userId());
@@ -582,7 +625,7 @@ public class OrgOnboardingService {
             // the setup link goes out through the comms plane (resend via the auth access endpoints)
             staff = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
                     org.getId(), req.name(), req.username(), req.phone(), req.email(),
-                    roleFor(org.getOrgType()),
+                    staffRole(org, caller),
                     req.orgRole() == null ? Enums.OrgMemberRole.STAFF : req.orgRole(),
                     caller.userId()));
         }
@@ -650,9 +693,6 @@ public class OrgOnboardingService {
         if (orgUsers.countActiveAdmins(orgId) > 0) {
             throw new ConflictException("ADMIN_EXISTS", "Org still has an active admin");
         }
-        if (userRepo.existsByPhone(body.phone())) {
-            throw new ConflictException("DUPLICATE_PHONE", "Phone already registered");
-        }
 
         // replacement admin through the lifecycle service: existing eligible org, PENDING row,
         // ENROL committed atomically — the reviewer's approval then only enables delivery
@@ -697,6 +737,16 @@ public class OrgOnboardingService {
                 o.getKycStatus() == null ? null : o.getKycStatus().name(),
                 o.getKycRiskRating() == null ? null : o.getKycRiskRating().name(),
                 o.getKycNextReviewDate());
+    }
+
+    /** The legacy role a new user of this org carries: the org type's, or the root admin's for the root org. */
+    private Enums.UserRole staffRole(Organization org, Current.Principal caller) {
+        if (org.getOrgType() != OrgType.PLATFORM) return roleFor(org.getOrgType());
+        try {
+            return Enums.UserRole.valueOf(caller.role());
+        } catch (Exception e) {
+            return Enums.UserRole.MINDLABS_ADMIN;
+        }
     }
 
     private Enums.UserRole roleFor(OrgType t) {

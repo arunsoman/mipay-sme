@@ -701,6 +701,8 @@ public abstract class UatSupport {
         ubo.put("dateOfBirth", "1985-04-12");
         ubo.put("nationality", "NA");
         ubo.put("residentialAddress", "4 Robert Mugabe Ave, Windhoek");
+        ubo.put("phoneNumber", "0812345" + String.format("%03d", n % 1000));
+        ubo.put("emailAddress", "owner" + n + "@example.na");
         ubo.put("identificationType", "NATIONAL_ID");
         ubo.put("identificationNumber", "85041200123");
         ubo.put("ownershipPercentage", 100);

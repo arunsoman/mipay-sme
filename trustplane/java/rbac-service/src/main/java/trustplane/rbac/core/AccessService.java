@@ -78,6 +78,22 @@ public class AccessService {
         return n != null && n > 0;
     }
 
+    /**
+     * A platform access administrator: holds rbac.assignment:administer through an active
+     * platform (scope all) assignment, whatever the role is called (organization_root since
+     * 2026-11-12; platform_user_admin before).
+     */
+    boolean platformAccessAdmin(String subject) {
+        Verbs.Cell cell = Verbs.parse("rbac.assignment:administer");
+        Policy.Snapshot s = policy.get();
+        for (String r : db.queryForList("""
+                SELECT DISTINCT role FROM assignments WHERE subject=? AND status='ACTIVE' AND scope='all'
+                  AND (expires_at IS NULL OR expires_at > now())""", String.class, subject)) {
+            if ((s.mask(r, cell.row()) & cell.bit()) != 0) return true;
+        }
+        return false;
+    }
+
     boolean can(String actor, String tenant, String cell) {
         return decisions.check(new Decisions.Request(actor, tenant == null ? "" : tenant, cell)).allowed();
     }
@@ -102,7 +118,11 @@ public class AccessService {
         Policy.Snapshot s = policy.get();
         String conflict = staticConflict(s, role, rolesOf(subject, true));
         if (conflict != null) throw new ApiException(409, "SOD_CONFLICT", conflict);
-        // same-row maker/checker across the roles a subject holds on the same org (G.5 shorthand)
+        // same-row maker/checker across the roles a subject holds on the same org (G.5 shorthand);
+        // a root role holds every verb on every row by design (organization_root) and is exempt
+        Policy.Role assigned = s.roles().get(role);
+        int both = Verbs.SUBMIT | Verbs.AUTHORIZE;
+        if (assigned != null && (assigned.allRowsVerbs() & both) == both) return;
         Set<String> sameTenant = new HashSet<>(db.queryForList("""
                 SELECT DISTINCT role FROM assignments WHERE subject=? AND status IN ('ACTIVE','PENDING_APPROVAL')
                   AND (scope='all' OR tenant_id IS NOT DISTINCT FROM ?)""", String.class, subject, "all".equals(scope) ? null : tenant));
@@ -228,12 +248,12 @@ public class AccessService {
                 }
                 case "none", "org_admin" -> {
                     if ("ORG".equals(r.kind()) ? !can(actor, tenant, "rbac.assignment:create")
-                            : !holdsPlatformRole(actor, "platform_user_admin")) {
+                            : !platformAccessAdmin(actor)) {
                         throw new ApiException(403, "insufficient_permission", "actor may not assign " + r.name() + " in " + tenant);
                     }
                 }
                 default -> {
-                    if (!holdsPlatformRole(actor, "platform_user_admin")) {
+                    if (!platformAccessAdmin(actor)) {
                         throw new ApiException(403, "insufficient_permission", "only a platform_user_admin requests platform roles");
                     }
                 }
@@ -290,11 +310,23 @@ public class AccessService {
                         }
                     }
                 }
-                if (out.isEmpty()) out.addAll(platformHolders("platform_user_admin", exclude));
+                if (out.isEmpty()) out.addAll(accessAdmins(exclude));
             }
-            case "platform", "break_glass" -> out.addAll(platformHolders("platform_user_admin", exclude));
+            case "platform", "break_glass" -> out.addAll(accessAdmins(exclude));
             case "compliance" -> out.addAll(platformHolders("platform_mlro".equals(r.name()) ? "platform_senior_approver" : "platform_mlro", exclude));
             default -> { }
+        }
+        return out;
+    }
+
+    /** Everyone who is a {@link #platformAccessAdmin}: holders of any role with rbac.assignment:administer. */
+    private List<String> accessAdmins(Set<String> exclude) {
+        Verbs.Cell cell = Verbs.parse("rbac.assignment:administer");
+        Policy.Snapshot s = policy.get();
+        List<String> out = new ArrayList<>();
+        for (Policy.Role r : s.roles().values()) {
+            if (r.orgDefined() || (s.mask(r.name(), cell.row()) & cell.bit()) == 0) continue;
+            for (String h : platformHolders(r.name(), exclude)) if (!out.contains(h)) out.add(h);
         }
         return out;
     }
@@ -376,7 +408,7 @@ public class AccessService {
         if (!system && !coreAuthorized) {
             boolean ownRequest = "PENDING_APPROVAL".equals(a.status()) && actor.equals(a.requestedBy());
             boolean allowed = ownRequest || ("ORG".equals(r.kind()) ? can(actor, a.tenant(), "rbac.assignment:administer")
-                    : holdsPlatformRole(actor, "platform_user_admin") || holdsPlatformRole(actor, "platform_break_glass"));
+                    : platformAccessAdmin(actor) || holdsPlatformRole(actor, "platform_break_glass"));
             if (!allowed) throw new ApiException(403, "insufficient_permission", "actor may not revoke this assignment");
         }
         if (!system && "ACTIVE".equals(a.status()) && "org_admin".equals(a.role()) && "own".equals(a.scope())) {
@@ -503,7 +535,7 @@ public class AccessService {
             if (!system && !can(actor, parentTenant, "org.rights:administer")) {
                 throw new ApiException(403, "insufficient_permission", "actor may not delegate the rights of " + parentTenant);
             }
-        } else if (!system && !holdsPlatformRole(actor, "platform_user_admin")) {
+        } else if (!system && !platformAccessAdmin(actor)) {
             throw new ApiException(403, "insufficient_permission", "root grants are made by a platform_user_admin or the core");
         }
         String id = RbacStore.newId("grant");
@@ -525,7 +557,7 @@ public class AccessService {
         Map<String, Object> g = rows.get(0);
         if (!system) {
             String parent = (String) g.get("parent_grant_id");
-            boolean ok = holdsPlatformRole(actor, "platform_user_admin");
+            boolean ok = platformAccessAdmin(actor);
             if (!ok && parent != null) {
                 String parentTenant = db.queryForObject("SELECT tenant_id FROM grants WHERE id=?", String.class, parent);
                 ok = can(actor, parentTenant, "org.rights:administer");
@@ -588,7 +620,7 @@ public class AccessService {
         if (tenant != null && !tenant.isBlank()) {
             if (tenantRow(tenant) == null) throw new ApiException(404, "unknown_tenant", tenant);
             if (!can(actor, tenant, "rbac.review:create")) throw new ApiException(403, "insufficient_permission", "actor may not open a review here");
-        } else if (!can(actor, "", "rbac.review:create") || !holdsPlatformRole(actor, "platform_user_admin")) {
+        } else if (!can(actor, "", "rbac.review:create") || !platformAccessAdmin(actor)) {
             throw new ApiException(403, "insufficient_permission", "platform reviews are opened by a platform_user_admin");
         }
         String id = RbacStore.newId("review");
@@ -637,7 +669,7 @@ public class AccessService {
         AsgRow a = load(assignmentId, false);
         if (actor.equals(a.subject())) throw new ApiException(403, "four_eyes", "nobody reviews their own access");
         String tenant = (String) rv.get("tenant");
-        boolean ok = tenant == null ? holdsPlatformRole(actor, "platform_user_admin") || holdsPlatformRole(actor, "platform_compliance_officer")
+        boolean ok = tenant == null ? platformAccessAdmin(actor) || holdsPlatformRole(actor, "platform_compliance_officer")
                 : can(actor, tenant, "rbac.review:administer");
         if (!ok) throw new ApiException(403, "insufficient_permission", "actor may not decide this review");
         int n = db.update("UPDATE review_items SET decision=?, decided_by=?, decided_at=now() WHERE review_id=? AND assignment_id=? AND decision='PENDING'",

@@ -54,7 +54,7 @@ type Chip = { value: string; label: string; more: boolean };
     @if (generalProblems().length) {
       <div class="probs">@for (p of generalProblems(); track p) {<div>• {{ p }}</div>}</div>
     }
-    @if (!disabled()) {
+    @if (!disabled() && !hideProgress()) {
       <mp-kyc-progress [labels]="stepLabels()" [current]="stepIdx()" [done]="stepsDone()" [bad]="stepsBad()"
                        [clickable]="true" (pick)="goto($event)" />
     }
@@ -211,8 +211,12 @@ type Chip = { value: string; label: string; more: boolean };
     select.inp { height: 44px; }
     .inp::placeholder { color: #5f5f5f; }
     .fl.bad .inp { border-color: var(--a-red); }
-    .help { display: none; font-size: 12px; line-height: 1.45; color: var(--a-dim); }
-    .fl:focus-within .help { display: block; }
+    /* help shows while the field has focus; it collapses a moment AFTER focus leaves, so the
+       layout never shifts under a click that is still in progress (Continue, Back, …) */
+    .help { display: block; max-height: 0; overflow: hidden; opacity: 0; margin-top: -7px;
+            font-size: 12px; line-height: 1.45; color: var(--a-dim);
+            transition: max-height .15s ease .3s, opacity .1s ease .3s, margin-top .15s ease .3s; }
+    .fl:focus-within .help { max-height: 80px; opacity: 1; margin-top: 0; transition-delay: 0s; }
     .fp { font-size: 12px; color: var(--a-red); }
     .affix { position: relative; display: block; }
     .affix[data-suffix]::after { content: attr(data-suffix); position: absolute; right: 14px; top: 50%;
@@ -264,6 +268,10 @@ export class KycSchemaEditor implements OnInit {
   readonly wizard = input(false);
   /** Step to open on (0-based), e.g. 1 when section 1 was filled before the org existed. */
   readonly startStep = input(0);
+  /** The host draws the progress bar itself (e.g. above its own controls). */
+  readonly hideProgress = input(false);
+  /** Section blurbs to use instead of the defaults, by section key. */
+  readonly blurbs = input<Record<string, string>>({});
   readonly o = { standalone: true };
 
   private readonly http = inject(HttpClient);
@@ -316,6 +324,7 @@ export class KycSchemaEditor implements OnInit {
 
   /** One calm line under each section title. */
   blurb(sec: SchemaSection): string | null {
+    if (this.blurbs()[sec.key]) return this.blurbs()[sec.key];
     return ({
       businessProfile: 'The legal identity of the business, as registered.',
       operationalDetails: 'What the business does and the volumes it expects.',
@@ -323,6 +332,38 @@ export class KycSchemaEditor implements OnInit {
       ubos: 'Everyone who owns or controls the business, and its key managers.',
       bankAccounts: 'Where settlements and payouts will be paid.',
     } as Record<string, string>)[sec.key] ?? null;
+  }
+
+  /**
+   * Required fields still empty on one step, as "path: is required" problems, so a host can
+   * highlight them before anything is sent (the server checks again).
+   */
+  missingOn(i: number): string[] {
+    const st = this.steps()[i];
+    if (!st) return [];
+    const out: string[] = [];
+    for (const sec of this.sections().filter((s) => st.keys.includes(s.key))) {
+      if (sec.kind === 'LIST') {
+        const rows = this.docList(sec);
+        if (rows.length < (sec.minItems ?? 0)) out.push(`${sec.key}: add at least ${sec.minItems}`);
+        rows.forEach((row, n) => sec.fields.forEach((fl) => {
+          if (this.isEmptyRequired(fl, row)) out.push(`${sec.key}[${n}].${fl.key}: is required`);
+        }));
+      } else {
+        const row = this.docItem(sec);
+        if (row) sec.fields.forEach((fl) => {
+          if (this.isEmptyRequired(fl, row)) out.push(`${sec.key}.${fl.key}: is required`);
+        });
+      }
+    }
+    return out;
+  }
+
+  private isEmptyRequired(fl: SchemaField, row: Doc) {
+    if (!this.visible(fl, row) || !this.requiredNow(fl, row) || this.isServerDerived(fl)) return false;
+    if (fl.dataType === 'BOOLEAN') return false;   // the No / Yes toggle always holds an answer
+    const v = row[fl.key];
+    return v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
   }
 
   isLastStep() { return this.stepIdx() >= this.steps().length - 1; }
@@ -486,6 +527,7 @@ export class KycSchemaEditor implements OnInit {
   /** Country fields start at the profile's country (NA); everything else empty. */
   private defaultFor(fl: SchemaField): unknown {
     if (this.disabled()) return null;
+    if (fl.dataType === 'BOOLEAN') return false;   // what the No / Yes toggle shows
     return fl.dataType === 'COUNTRY' ? (this.context()['country'] ?? 'NA') : null;
   }
 

@@ -22,73 +22,9 @@
 #   read=1 create=2 modify=4 delete=8 submit=16 authorize=32 execute=64 export=128 administer=256 simulate=512
 
 # ---------------------------------------------------------------------------
-# Rows. used: the cells the code uses today (from the @Perm catalogue, G.10); the
-# backend's registration at boot replaces these with what it really has.
-# tenant_types: org types the row applies to (a merchant row never applies in a supplier
-# org). Absent = any org type.
+# Rows: none here. The permission grid comes from the code: every service registers its
+# @Perm catalogue at boot (rows, verbs, descriptions; org types from the row prefix).
 # ---------------------------------------------------------------------------
-resources:
-  admin.access:              {service: mipay, used: [read, administer], description: "Platform access administration"}
-  admin.aml_alert:           {service: mipay, used: [read], description: "AML alerts"}
-  admin.api_client:          {service: mipay, used: [read, create, administer], description: "Partner API clients"}
-  admin.bootstrap:           {service: mipay, used: [administer], description: "One-time TPTS operating-root bootstrap (OA1: creates TPTS, its first admin, moves platform staff)"}
-  admin.config:              {service: mipay, used: [read, modify], description: "Limits, rules, settings, tariffs, templates"}
-  admin.connector:           {service: mipay, used: [read, modify, execute, administer], description: "Bank and provider connectors"}
-  admin.dsar:                {service: mipay, used: [read, create, export], description: "Data-subject access requests"}
-  admin.platform_ops:        {service: mipay, used: [read, execute, administer], description: "Backups, deployments, restore tests"}
-  admin.sar:                 {service: mipay, used: [read, create, submit], description: "Suspicious activity reports"}
-  admin.simulation:          {service: mipay, used: [read, simulate], description: "Sandbox simulation controls"}
-  kyc.application:           {service: mipay, used: [read, modify, delete, submit], description: "An org's KYC application"}
-  kyc.form:                  {service: mipay, used: [read], description: "KYC form schemas"}
-  kyc.task:                  {service: mipay, used: [read, authorize], description: "KYC review tasks (decisions)"}
-  lender.advance:            {service: mipay, used: [read, authorize], tenant_types: [LENDER], description: "Advance offers (fund / decline)"}
-  lender.assessment:         {service: mipay, used: [read, execute], tenant_types: [LENDER], description: "Merchant assessments"}
-  lender.collection:         {service: mipay, used: [read, execute], tenant_types: [LENDER], description: "Repayment collection sweeps"}
-  lender.portfolio:          {service: mipay, used: [read, execute], tenant_types: [LENDER], description: "Portfolio and snapshots"}
-  merchant.account:          {service: mipay, used: [read], tenant_types: [MERCHANT], description: "Merchant balance, ledger, devices"}
-  merchant.advance:          {service: mipay, used: [read, create, delete, submit, authorize, simulate], tenant_types: [MERCHANT], description: "Merchant cash advances"}
-  merchant.inventory:        {service: mipay, used: [read, create, modify, execute], tenant_types: [MERCHANT], description: "Stock and reorder rules"}
-  merchant.invoice:          {service: mipay, used: [read, execute], tenant_types: [MERCHANT], description: "Supplier invoices to pay"}
-  merchant.khata:            {service: mipay, used: [read, create, execute], tenant_types: [MERCHANT], description: "Customer credit book"}
-  merchant.order:            {service: mipay, used: [read, create], tenant_types: [MERCHANT], description: "Purchase orders"}
-  merchant.payment:          {service: mipay, used: [read, execute, simulate], tenant_types: [MERCHANT], description: "Payments taken and refunds"}
-  merchant.statement:        {service: mipay, used: [read, execute, export], tenant_types: [MERCHANT], description: "Statements"}
-  merchant.tab:              {service: mipay, used: [read, create, execute], tenant_types: [MERCHANT], description: "Customer tabs"}
-  merchant.withdrawal:       {service: mipay, used: [read, execute], tenant_types: [MERCHANT], description: "Withdrawals to the bank"}
-  ops.audit:                 {service: mipay, used: [read], description: "Platform audit trail"}
-  ops.bank_account_approval: {service: mipay, used: [read, authorize], description: "Bank account approvals"}
-  ops.complaint:             {service: mipay, used: [read, create, modify], description: "Complaints"}
-  ops.dispute:               {service: mipay, used: [read, create, modify], description: "Disputes"}
-  ops.incident:              {service: mipay, used: [read, create, modify], description: "Incidents"}
-  ops.kyc_check:             {service: mipay, used: [read, create], description: "KYC checks run by operations"}
-  ops.merchant_approval:     {service: mipay, used: [read, authorize], description: "Merchant approvals"}
-  ops.monitoring:            {service: mipay, used: [execute], description: "Monitoring probes"}
-  ops.onboarding_request:    {service: mipay, used: [read, authorize], description: "Org onboarding requests"}
-  ops.recon:                 {service: mipay, used: [read, modify, execute], description: "Reconciliation"}
-  ops.report:                {service: mipay, used: [read, execute], description: "Operational reports"}
-  ops.supplier_approval:     {service: mipay, used: [read, authorize], description: "Supplier approvals"}
-  ops.suspension:            {service: mipay, used: [read, administer], description: "Platform suspensions (holds)"}
-  org.onboarding:            {service: mipay, used: [read, create, authorize], description: "Onboarding child orgs, admin recovery"}
-  org.rights:                {service: mipay, used: [read, administer], description: "Onboarding rights of orgs below"}
-  org.suspension:            {service: mipay, used: [administer], description: "Suspending orgs below"}
-  org.tree:                  {service: mipay, used: [read], description: "The org tree"}
-  org.user:                  {service: mipay, used: [read, create, delete, administer], description: "Users of an org"}
-  supplier.account:          {service: mipay, used: [read], tenant_types: [SUPPLIER], description: "Supplier account"}
-  supplier.bank_account:     {service: mipay, used: [read, modify, delete], tenant_types: [SUPPLIER], description: "Supplier bank accounts"}
-  supplier.catalogue:        {service: mipay, used: [read, create, delete], tenant_types: [SUPPLIER], description: "Supplier catalogue"}
-  supplier.invoice:          {service: mipay, used: [read, create], tenant_types: [SUPPLIER], description: "Supplier invoices"}
-  supplier.order:            {service: mipay, used: [read], tenant_types: [SUPPLIER], description: "Orders received"}
-  supplier.statement:        {service: mipay, used: [read, execute, export], tenant_types: [SUPPLIER], description: "Supplier statements"}
-  # RBAC administration (rows used by the backend's admin screens and by RBAC's own API)
-  rbac.role:                 {service: rbac, used: [read, create, modify, delete], description: "Roles and their grids"}
-  rbac.assignment:           {service: rbac, used: [read, create, authorize, administer], description: "Role assignments: request (create), approve a request (authorize), revoke (administer)"}
-  rbac.grant:                {service: rbac, used: [read, create, administer], description: "Delegated entitlements (onboarding rights)"}
-  rbac.review:               {service: rbac, used: [read, create, administer], description: "Access reviews"}
-  rbac.audit:                {service: rbac, used: [read], description: "RBAC audit and decision log"}
-  rbac.user:                 {service: mipay, used: [read], description: "Users as RBAC sees them (read-only)"}
-
-# Cells that also need an entitlement grant on the tenant (fapi2-design §9.6): a user may
-# onboard an org of type T only with org.onboarding:create on their org AND a grant for T.
 entitlements:
   - cell: "org.onboarding:create"
     attribute: child_type
@@ -99,295 +35,20 @@ entitlements:
 # max_hours: assignments must expire within this many hours (break-glass: 8).
 # ---------------------------------------------------------------------------
 roles:
-  kyc_applicant:
-    kind: ORG
+  # One standard role (2026-11-12): the root organization's administrators hold every
+  # permission. Every other role is org-defined (extended RBAC): an org's user manager picks
+  # permissions they hold themselves, names the role and assigns it in the User management screen.
+  organization_root:
+    kind: PLATFORM
     approval: none
-    description: "KYC applicant admin of a PENDING org: the KYC application screens of that org only (D3)"
-    grid:
-      kyc.application: [read, modify, submit, delete]
-      kyc.form: [read]
-
-  org_viewer:
-    kind: ORG
-    approval: none
-    description: "Read-only member of an org"
-    grid:
-      kyc.application: [read]
-      kyc.form: [read]
-      org.tree: [read]
-      org.user: [read]
-      org.onboarding: [read]
-      org.rights: [read]
-      merchant.account: [read]
-      merchant.advance: [read]
-      merchant.inventory: [read]
-      merchant.invoice: [read]
-      merchant.khata: [read]
-      merchant.order: [read]
-      merchant.payment: [read]
-      merchant.statement: [read]
-      merchant.tab: [read]
-      merchant.withdrawal: [read]
-      supplier.account: [read]
-      supplier.bank_account: [read]
-      supplier.catalogue: [read]
-      supplier.invoice: [read]
-      supplier.order: [read]
-      supplier.statement: [read]
-      lender.advance: [read]
-      lender.assessment: [read]
-      lender.collection: [read]
-      lender.portfolio: [read]
-
-  org_staff:
-    kind: ORG
-    approval: none
-    inherits: [org_viewer]
-    description: "Day-to-day member (today's STAFF): everything under their org type's API except money movement and administration"
-    grid:
-      merchant.inventory: [create, modify, execute]
-      merchant.khata: [create, execute]
-      merchant.order: [create]
-      merchant.tab: [create, execute]
-      merchant.statement: [execute, export]
-      merchant.advance: [create, delete, submit]
-      supplier.catalogue: [create, delete]
-      supplier.invoice: [create]
-      supplier.bank_account: [modify, delete]
-      supplier.statement: [execute, export]
-      lender.assessment: [execute]
-      lender.portfolio: [execute]
-
-  org_admin:
-    kind: ORG
-    approval: org_admin
-    inherits: [org_staff, org_user_admin, org_onboarder, org_access_admin]
-    description: "Org administrator (today's ADMIN): money movement, KYC, users, onboarding and the orgs below; the union of the D-6 capability roles"
-    grid:
-      merchant.withdrawal: [execute]
-      merchant.payment: [execute]
-      merchant.invoice: [execute]
-      merchant.advance: [authorize]
-      lender.advance: [authorize]
-      lender.collection: [execute]
-      kyc.application: [modify, submit, delete]
-      org.user: [create, delete, administer]
-      org.onboarding: [create, authorize]
-      org.rights: [administer]
-      org.suspension: [administer]
-      rbac.assignment: [read, create, authorize, administer]
-      rbac.grant: [read, create, administer]
-      rbac.review: [read, administer]
-      rbac.role: [read, create, modify, delete]   # org-defined roles of its own org, within its ceiling (extended-rbac X8)
-
-  # D-6 capability roles: narrow, delegable slices of org administration. org_admin stays
-  # their exact union so existing ADMIN users keep today's powers; ceilings control which
-  # of the three an org may delegate.
-  org_user_admin:
-    kind: ORG
-    approval: org_admin
-    inherits: [org_staff]
-    description: "Capability role (D-6): manages the org's people — user lifecycle and role assignments within the org ceiling"
-    grid:
-      org.user: [create, delete, administer]
-      rbac.assignment: [read, create, administer]
-
-  org_onboarder:
-    kind: ORG
-    approval: org_admin
-    inherits: [org_staff]
-    description: "Capability role (D-6): onboards orgs below and sets the per-type onboarding rights (OA3)"
-    grid:
-      org.onboarding: [create, authorize]
-      org.rights: [administer]
-      rbac.grant: [read, create]
-
-  org_access_admin:
-    kind: ORG
-    approval: org_admin
-    inherits: [org_staff]
-    description: "Capability role (D-6): org-defined roles within the org's ceiling (extended-rbac X8-X10)"
-    grid:
-      rbac.role: [read, create, modify, delete]
-
-  platform_auditor:
-    kind: PLATFORM
-    approval: platform
-    description: "Read-only over the whole platform (audit, access reviews)"
-    grid_all_rows: [read]
-    grid:
-      rbac.audit: [read]
-
-  platform_operations:
-    kind: PLATFORM
-    approval: platform
-    inherits: [platform_auditor]
-    description: "Operations desk (today's TPTS_OPS work that is not a customer approval)"
-    grid:
-      ops.incident: [create, modify]
-      ops.complaint: [create, modify]
-      ops.dispute: [create, modify]
-      ops.recon: [modify, execute]
-      ops.report: [execute]
-      ops.kyc_check: [create]
-      ops.monitoring: [execute]
-      ops.suspension: [administer]
-
-  platform_ops_reviewer:
-    kind: PLATFORM
-    approval: platform
-    inherits: [platform_auditor]
-    description: "First-line reviewer: customer, bank account and onboarding approvals; KYC ops-review stage"
-    grid:
-      ops.merchant_approval: [authorize]
-      ops.supplier_approval: [authorize]
-      ops.bank_account_approval: [authorize]
-      ops.onboarding_request: [authorize]
-      kyc.task: [authorize]
-
-  platform_compliance_officer:
-    kind: PLATFORM
-    approval: compliance
-    inherits: [platform_auditor]
-    description: "Compliance review stage, SARs, AML alerts, DSARs"
-    grid:
-      kyc.task: [authorize]
-      admin.sar: [create, submit]
-      admin.dsar: [create, export]
-
-  platform_mlro:
-    kind: PLATFORM
-    approval: compliance
-    inherits: [platform_auditor]
-    description: "Money-laundering reporting officer: SAR filing, AML alerts, compliance decisions"
-    grid:
-      kyc.task: [authorize]
-      admin.sar: [create, submit]
-      rbac.assignment: [read, authorize]   # approves compliance-role requests (D10)
-
-  platform_senior_approver:
-    kind: PLATFORM
-    approval: compliance
-    inherits: [platform_auditor]
-    description: "Senior-management approval for high-risk / PIP cases (FIA s.23)"
-    grid:
-      kyc.task: [authorize]
-      rbac.assignment: [read, authorize]   # approves platform_mlro requests (D10)
-
-  platform_user_admin:
-    kind: PLATFORM
-    approval: platform
-    description: "Access administration: org users, platform access, API clients, role assignments. Never approves customers (SoD)"
-    grid:
-      org.user: [read, create, delete, administer]
-      org.tree: [read]
-      admin.access: [read, administer]
-      admin.api_client: [read, create, administer]
-      rbac.role: [read, create, modify, delete]
-      rbac.user: [read]
-      rbac.assignment: [read, create, authorize, administer]
-      rbac.grant: [read, create, administer]
-      rbac.review: [read, create, administer]
-      rbac.audit: [read]
-
-  platform_engineer:
-    kind: PLATFORM
-    approval: platform
-    description: "Platform engineering: deployments, backups, connectors, configuration"
-    grid:
-      admin.platform_ops: [read, execute, administer]
-      admin.connector: [read, modify, execute, administer]
-      admin.config: [read, modify]
-      admin.simulation: [read]
-      ops.monitoring: [execute]
-
-  platform_break_glass:
-    kind: PLATFORM
-    approval: break_glass
-    max_hours: 8
-    description: "Emergency access to restore access and lift holds; time-boxed (8 h), approved, alerted"
-    grid_all_rows: [read]
-    grid:
-      admin.access: [administer]
-      org.user: [create, delete, administer]
-      ops.suspension: [administer]
-      org.suspension: [administer]
-      rbac.assignment: [create, administer]
-
-  lender_officer:
-    kind: PLATFORM
-    approval: platform
-    description: "MiPay staff operating the lender side for partner lenders"
-    grid:
-      lender.advance: [read, authorize]
-      lender.assessment: [read, execute]
-      lender.collection: [read, execute]
-      lender.portfolio: [read, execute]
-
-  sandbox_tester:
-    kind: SANDBOX
-    approval: none
-    description: "Simulation controls (sandbox and UAT only; refused in production)"
-    grid:
-      admin.simulation: [read, simulate]
-      merchant.payment: [simulate]
-      merchant.advance: [simulate]
-
-  # Legacy parity (OA8, enforce): the cells today's TPTS_OPS / MINDLABS_ADMIN reach that
-  # the designed roles above do not. RBacBackfill assigns them next to the D9 roles so
-  # switching enforcement on changes nobody's access. The legacy checks still run as
-  # well, so these never widen effective access. Shrink them in the matrix as the D9
-  # split takes over; delete them when empty. Split in two each because a platform role
-  # may not both administer and authorize.
-  legacy_tpts_ops:
-    kind: PLATFORM
-    approval: platform
-    description: "Legacy parity: today's TPTS ops access to org onboarding, org users, org roles and KYC editing, beyond the D9 roles"
-    grid:
-      kyc.application: [modify, submit, delete]
-      org.onboarding: [create, authorize]
-      org.user: [create, delete]
-      rbac.role: [create, modify, delete]
-      rbac.assignment: [create, authorize, administer]
-
-  legacy_tpts_ops_admin:
-    kind: PLATFORM
-    approval: platform
-    description: "Legacy parity: today's TPTS ops administration of org rights, suspensions and org users"
-    grid:
-      org.rights: [administer]
-      org.suspension: [administer]
-      org.user: [administer]
-
-  legacy_mindlabs_admin:
-    kind: PLATFORM
-    approval: platform
-    description: "Legacy parity: today's MiNdLABS admin access to KYC, onboarding, compliance screens and org administration, beyond the D9 roles"
-    grid:
-      admin.aml_alert: [read]
-      admin.dsar: [read, create, export]
-      admin.sar: [read, create, submit]
-      admin.bootstrap: [administer]
-      kyc.application: [read, modify, submit, delete]
-      kyc.form: [read]
-      kyc.task: [read]
-      org.onboarding: [read, create]
-      org.rights: [read, administer]
-      org.suspension: [administer]
-
-  legacy_mindlabs_review:
-    kind: PLATFORM
-    approval: platform
-    description: "Legacy parity: today's MiNdLABS admin decisions on KYC tasks and onboarding requests"
-    grid:
-      kyc.task: [authorize]
-      org.onboarding: [authorize]
+    description: "Root organization administrator: every permission on every row"
+    grid_all_rows: [read, create, modify, delete, submit, authorize, execute, export, administer, simulate]
 
 # ---------------------------------------------------------------------------
 # Role ceilings (docs/plans/extended-rbac.md X3): ORG roles inside EVERY org's ceiling,
 # whatever the onboarder chose, so an org can always fill in its KYC and be administered.
 # ---------------------------------------------------------------------------
-ceiling_baseline: [kyc_applicant, org_admin]
+ceiling_baseline: []
 
 # ---------------------------------------------------------------------------
 # Separation of duty (fapi2-design §9.4, G.5). STATIC: no user may HOLD a role from
@@ -396,32 +57,6 @@ ceiling_baseline: [kyc_applicant, org_admin]
 # declared here so it is audited and shown on the Roles & access screen.
 # ---------------------------------------------------------------------------
 sod:
-  - id: ssd-access-admin-not-reviewer
-    kind: STATIC
-    a: [platform_user_admin]
-    b: [platform_ops_reviewer, platform_compliance_officer, platform_mlro, platform_senior_approver]
-    reason: "Whoever grants access must not also approve customers"
-  - id: ssd-two-review-stages
-    kind: STATIC
-    a: [platform_ops_reviewer]
-    b: [platform_senior_approver]
-    reason: "Senior approval of high-risk / PIP cases (FIA s.23) must be a different person from the first-line reviewer"
-  - id: ssd-mlro-independent
-    kind: STATIC
-    a: [platform_mlro]
-    b: [platform_user_admin]
-    reason: "The MLRO stays independent of access administration"
-  - id: ssd-break-glass-separate
-    kind: STATIC
-    a: [platform_break_glass]
-    b: [platform_auditor, platform_operations, platform_ops_reviewer, platform_compliance_officer, platform_mlro,
-        platform_senior_approver, platform_user_admin, platform_engineer, lender_officer]
-    reason: "Emergency access is a separate, monitored identity"
-  - id: dsd-one-review-stage-per-session
-    kind: DYNAMIC
-    a: [platform_ops_reviewer]
-    b: [platform_compliance_officer]
-    reason: "The same login never clears two review stages in one sitting"
   - id: obj-maker-not-checker
     kind: OBJECT
     cell_a: "kyc.application:submit"
@@ -432,6 +67,7 @@ sod:
     cell_a: "merchant.withdrawal:execute"
     cell_b: "ops.bank_account_approval:authorize"
     reason: "Whoever moves money can't approve the account it goes to"
+
 
 # Rows where one party legitimately both submits and authorizes (the same-row maker/checker
 # rule of G.5 does not apply). Each needs a reason compliance can sign.

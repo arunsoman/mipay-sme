@@ -117,6 +117,19 @@ public class KycController {
         return schema.schemaFor(orgId, entityType);
     }
 
+    /** The KYC form for an org type, before the org exists (the onboarding wizard). */
+    @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Get the KYC schema an org type fills in")
+    @GetMapping("/api/kyc/schema/types/{orgType}")
+    public Map<String, Object> schemaForType(@PathVariable String orgType,
+                                             @RequestParam(name = "entityType", required = false) String entityType) {
+        String t = orgType == null ? "" : orgType.toUpperCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("MANUFACTURER", "DISTRIBUTOR", "SUPPLIER", "MERCHANT", "LENDER").contains(t)) {
+            throw new com.mipay.sme.common.BadRequestException("ORG_TYPE_REQUIRED", "unknown org type " + orgType);
+        }
+        return schema.schemaForType(t, "NA", entityType);
+    }
+
     /** Large lists (MCC, branches) with parent filtering, search and paging. */
     @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.NONE, tenant = "null",
           description = "Read KYC reference lists (MCC, branches, etc.)")

@@ -70,9 +70,6 @@ public class UserLifecycleService {
             throw new ForbiddenException("ORG_INELIGIBLE",
                     "users may only be created in operational or pending-applicant orgs");
         }
-        if (users.existsByPhone(reg.phone()))
-            throw new SimException("DUPLICATE_PHONE", "Phone already registered");
-
         User user = new User();
         user.setName(reg.name());
         user.setPhone(reg.phone());
@@ -235,10 +232,6 @@ public class UserLifecycleService {
     public void updateLoginContact(String uid, String username, String phone, String email) {
         User user = users.findById(uid)
                 .orElseThrow(() -> new SimException("UNKNOWN_USER", "user does not exist"));
-        if (phone != null && !phone.isBlank() && !phone.equals(user.getPhone())
-                && users.existsByPhone(phone)) {
-            throw new SimException("DUPLICATE_PHONE", "Phone already registered");
-        }
         if (username != null && !username.isBlank()) user.setUsername(username);
         if (phone != null && !phone.isBlank()) user.setPhone(phone);
         if (email != null && !email.isBlank()) user.setEmail(email);

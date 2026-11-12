@@ -405,6 +405,12 @@ class RbacGridTest {
 
     @Test
     void registryAndRolePack() {
+        // listPermissions gives the UI masks and the gateway's flat list
+        Decisions.Permissions p0 = decisions.listPermissions("tomas", "oka", List.of());
+        assertTrue(p0.operations().contains("merchant.inventory:create"));
+        assertFalse(p0.operations().contains("merchant.withdrawal:execute"));
+        assertTrue(decisions.holders("org_admin", "oka").stream().anyMatch(h -> h.subject().equals("jonas")), "subtree admins hold above");
+        // the code is the source of the rows: a registration keeps only what it registers
         Map<String, Object> r = store.registerCatalog("mipay", List.of(Map.of("id", "kyc.application:modify", "description", "save")),
                 List.of(new RbacStore.EndpointReg("PUT", "/api/kyc/orgs/{id}", "kyc.application:modify", "PATH", "KycController#save")));
         assertEquals(1, r.get("endpoints"));
@@ -413,11 +419,8 @@ class RbacGridTest {
         String md = new RolePack(db, policy).render("dev");
         assertTrue(md.contains("## `org_admin`") && md.contains("PUT /api/kyc/orgs/{id}") && md.contains("Approved for use"));
         assertTrue(md.contains("ssd-access-admin-not-reviewer"));
-        // listPermissions gives the UI masks and the gateway's flat list
-        Decisions.Permissions p = decisions.listPermissions("tomas", "oka", List.of());
-        assertTrue(p.operations().contains("merchant.inventory:create"));
-        assertFalse(p.operations().contains("merchant.withdrawal:execute"));
-        assertTrue(decisions.holders("org_admin", "oka").stream().anyMatch(h -> h.subject().equals("jonas")), "subtree admins hold above");
+        assertTrue(db.queryForList("SELECT 1 FROM rbac_resources WHERE id='merchant.inventory'").isEmpty(),
+                "a row the code no longer registers is removed");
     }
 
     @Test

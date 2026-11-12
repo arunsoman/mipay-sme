@@ -303,6 +303,12 @@ public class AuthSyncService {
             log.debug("rbac sync disabled: go-live role swap for {} skipped", adminUid);
             return;
         }
+        // Since 2026-11-12 there are no standard org roles (org_admin, kyc_applicant are gone): the
+        // new org's people get org-defined roles from its user manager (User management).
+        if (true) {
+            log.info("[go-live] {} in {}: no standard org role to grant (org-defined roles only)", adminUid, orgId);
+            return;
+        }
         String actor = actorId == null ? ACTOR_SYSTEM_KYC : actorId;
         try {
             // a system source: the core's own decision, independent of the core_authorized bridge

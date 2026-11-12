@@ -26,7 +26,8 @@ public class User {
 
     private String name;
 
-    @Column(unique = true, nullable = false)
+    /** Not unique (V20): one person may administer several organizations. */
+    @Column(nullable = false)
     private String phone;
 
     private String email;

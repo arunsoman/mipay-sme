@@ -79,63 +79,26 @@ public class RbacBackfill {
         }
         String platformTenant = provisioning.ensurePlatformRoot().getId();
 
-        // 1. org membership: org_role becomes org_admin / org_staff on the user's org
-        Map<String, Map<String, Object>> orgTypeByUser = new HashMap<>();
-        for (User u : users.findAll().stream().filter(u -> u.getOrgId() != null).toList()) {
+        // Since 2026-11-12 there is one standard role: organization_root, for the administrators
+        // of the root organization (the PLATFORM orgs). Everyone else holds only org-defined
+        // roles, which their org's user manager creates and assigns (User management).
+        for (User u : users.findAll()) {
+            if (u.getOrgId() == null || u.getStatus() == Enums.UserStatus.ARCHIVED) continue;
             Organization org = orgs.findById(u.getOrgId()).orElse(null);
             if (org == null) {
-                rows.add(new Row(u.getId(), "org_member", u.getOrgId(), "FAILED", "user org does not exist"));
+                rows.add(new Row(u.getId(), "-", u.getOrgId(), "FAILED", "user org does not exist"));
                 errors = true;
                 continue;
             }
-            String mismatch = typeMismatch(u, org);
-            if (mismatch != null) conflicts.add(mismatch);
-
-            if (Enums.OrgType.PLATFORM.equals(org.getOrgType())) {
-                // platform members' authority comes from platform roles; a stray org_role is reported
-                if (u.getOrgRole() != null) conflicts.add(
-                        "platform member " + u.getId() + " holds org_role " + u.getOrgRole() + " (dropped)");
-                rows.add(new Row(u.getId(), String.valueOf(u.getOrgRole()), platformTenant,
-                        "SKIPPED", "platform member: platform roles only"));
-            } else if (u.getOrgRole() == null) {
-                rows.add(new Row(u.getId(), "org_member", org.getId(), "SKIPPED", "no org_role"));
-            } else {
-                String role = u.getOrgRole() == Enums.OrgMemberRole.ADMIN ? "org_admin" : "org_staff";
-                if (!dry && assign(rows, u.getId(), role, org.getId(), "own")) assignments++;
-                else if (dry) rows.add(new Row(u.getId(), role, org.getId(), "WOULD_ASSIGN", null));
-            }
-        }
-
-        // 2. platform functions -> platform roles (scope all)
-        Map<String, String> functionRole = Map.of(
-                UserPlatformFunction.OPS_REVIEWER, "platform_ops_reviewer",
-                UserPlatformFunction.COMPLIANCE_OFFICER, "platform_compliance_officer",
-                UserPlatformFunction.MLRO, "platform_mlro",
-                UserPlatformFunction.SENIOR_APPROVER, "platform_senior_approver");
-        for (UserPlatformFunction f : platformFunctions.findAll()) {
-            String role = functionRole.get(f.getFunction());
-            if (role == null) {
-                conflicts.add("unknown platform function " + f.getFunction() + " on user " + f.getUserId());
+            boolean rootAdmin = Enums.OrgType.PLATFORM.equals(org.getOrgType())
+                    && (u.getOrgRole() == Enums.OrgMemberRole.ADMIN
+                        || u.getRole() == Enums.UserRole.MINDLABS_ADMIN || u.getRole() == Enums.UserRole.TPTS_OPS);
+            if (!rootAdmin) {
+                rows.add(new Row(u.getId(), "-", org.getId(), "SKIPPED", "org-defined roles only"));
                 continue;
             }
-            if (!dry && assign(rows, f.getUserId(), role, platformTenant, "all")) assignments++;
-            else if (dry) rows.add(new Row(f.getUserId(), role, platformTenant, "WOULD_ASSIGN", "from " + f.getFunction()));
-        }
-
-        // 3. legacy platformUserRole enum values -> D9 platform roles
-        for (User u : users.findAll().stream()
-                .filter(x -> x.getRole() == Enums.UserRole.TPTS_OPS || x.getRole() == Enums.UserRole.MINDLABS_ADMIN)
-                .toList()) {
-            // the D9 roles, plus the legacy-parity roles (grid.yaml) so enforcement changes no
-            // one's access; sandbox_tester covers the simulation screens and is refused in production
-            List<String> roles = u.getRole() == Enums.UserRole.TPTS_OPS
-                    ? List.of("platform_ops_reviewer", "platform_operations", "legacy_tpts_ops", "legacy_tpts_ops_admin")
-                    : List.of("platform_user_admin", "platform_engineer", "legacy_mindlabs_admin",
-                            "legacy_mindlabs_review", "sandbox_tester");
-            for (String role : roles) {
-                if (!dry && assign(rows, u.getId(), role, platformTenant, "all")) assignments++;
-                else if (dry) rows.add(new Row(u.getId(), role, platformTenant, "WOULD_ASSIGN", "from " + u.getRole()));
-            }
+            if (!dry && assign(rows, u.getId(), "organization_root", platformTenant, "all")) assignments++;
+            else if (dry) rows.add(new Row(u.getId(), "organization_root", platformTenant, "WOULD_ASSIGN", "root organization admin"));
         }
 
         // 4. org_rights -> org.onboarding:create grants (DIRECT own, CEILING delegable subtree)

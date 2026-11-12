@@ -119,7 +119,7 @@ public class AuthService {
                 .requireNonNullElse(phone, ""));
         if (matched.size() > 1) {
             throw new ConflictException("AMBIGUOUS_IDENTIFIER",
-                    "Identifier matches more than one account; use phone");
+                    "This phone number belongs to more than one account; sign in with your username");
         }
         User user = matched.isEmpty()
                 ? throwInvalid() : matched.get(0);
@@ -174,6 +174,12 @@ public class AuthService {
     }
 
     private User userByPhone(String phone) {
-        return userRepo.findByPhone(phone).orElseThrow(() -> new ConflictException("No user for phone " + phone));
+        java.util.List<User> all = userRepo.findAllByPhone(phone);
+        if (all.size() > 1) {
+            throw new ConflictException("AMBIGUOUS_IDENTIFIER",
+                    "This phone number belongs to more than one account; sign in with your username");
+        }
+        if (all.isEmpty()) throw new ConflictException("No user for phone " + phone);
+        return all.get(0);
     }
 }

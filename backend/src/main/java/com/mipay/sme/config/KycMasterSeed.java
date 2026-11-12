@@ -572,6 +572,13 @@ public class KycMasterSeed implements ApplicationRunner {
         fld(ub, "nationality", "Nationality", 30).type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2).tag("UBO_NATIONALITY");
         fld(ub, "residentialAddress", "Residential Address", 40).help("Current home address of key personnel.")
                 .len(5, 300).tag("UBO_ADDRESS").sens(KycField.Sensitivity.PII, KycField.Mask.HIDE);
+        // V20: Person 1's phone and email are the org administrator's login contact
+        fld(ub, "phoneNumber", "Phone Number", 45)
+                .help("Mobile number. For Person 1 it is also the MiPay administrator's login contact.")
+                .type(KycField.DataType.PHONE, null).len(6, 20).tag("UBO_PHONE").sens(KycField.Sensitivity.PII, null);
+        fld(ub, "emailAddress", "Email Address", 46)
+                .help("For Person 1, the MiPay username and activation link are sent here.")
+                .type(KycField.DataType.EMAIL, null).len(5, 200).tag("UBO_EMAIL").sens(KycField.Sensitivity.PII, null);
         fld(ub, "identificationType", "Government-Issued ID: Document Type", 50)
                 .help("Passport, National ID, or Driver's License.").type(KycField.DataType.ENUM, "KYC_ID_DOC_TYPE").tag("UBO_ID_TYPE");
         fld(ub, "identificationNumber", "Government-Issued ID: ID Number", 60).len(5, 32).tag("UBO_ID_NUMBER")

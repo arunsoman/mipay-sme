@@ -1,6 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { MyAccess, USER_ADMIN_CELL } from '../../../../../shared/users/user-management';
 import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
@@ -16,7 +19,6 @@ import { MeView } from '../../core/api';
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
   host: { '(document:keydown.escape)': 'closeNav()' },
   template: `
-    @if (simulated()) {<div class="sim-banner">SANDBOX · SIMULATED ENVIRONMENT · NO REAL MONEY OR DATA</div>}
     <div class="layout">
       <div class="backdrop" aria-hidden="true" [class.show]="navOpen()" (click)="navOpen.set(false)"></div>
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
@@ -24,10 +26,9 @@ import { MeView } from '../../core/api';
         <nav>
           <a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>
           <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>
-          <a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>
+          @if (canManageUsers()) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
           <a routerLink="/permissions" routerLinkActive="active" (click)="closeNav()">Permissions</a>
           <a routerLink="/rbac" routerLinkActive="active" (click)="closeNav()">RBAC Matrix</a>
-          <a routerLink="/access" routerLinkActive="active" (click)="closeNav()">Roles &amp; access</a>
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
@@ -104,8 +105,16 @@ export class Shell implements OnInit {
     this.navOpen.set(false);
   }
 
+  private readonly http = inject(HttpClient);
+  /** User management shows only to holders of org.user:administer (RBAC or extended RBAC). */
+  readonly canManageUsers = signal(false);
+
   async ngOnInit() {
     await this.auth.hydrate();
+    try {
+      const a = await firstValueFrom(this.http.get<MyAccess>('/api/orgs/me/access'));
+      this.canManageUsers.set(a.permissions.some((x) => x.id === USER_ADMIN_CELL));
+    } catch { this.canManageUsers.set(false); }
   }
 
   who() {

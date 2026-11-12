@@ -93,8 +93,19 @@ public class EndpointManifestPublisher {
         List<Map<String, String>> perms = new ArrayList<>();
         catalogue.forEach((id, d) -> perms.add(Map.of("id", id, "description", d)));
         body.put("permissions", perms);
+        // the rows themselves: the @Perm annotations are the only source of the permission grid
+        List<Map<String, String>> rows = new ArrayList<>();
+        new java.util.TreeSet<>(catalogue.keySet().stream().map(id -> id.substring(0, id.indexOf(':'))).toList())
+                .forEach(row -> rows.add(Map.of("id", row, "description", describeRow(row))));
+        body.put("rows", rows);
         body.put("endpoints", endpoints);
         Thread.ofVirtual().start(() -> register(body));
+    }
+
+    /** "merchant.bank_account" → "Merchant bank account": a row is described by its @Perm resource id. */
+    static String describeRow(String row) {
+        String t = row.replace('.', ' ').replace('_', ' ');
+        return t.isEmpty() ? t : Character.toUpperCase(t.charAt(0)) + t.substring(1);
     }
 
     /** Retries in the background; RBAC may start after the backend. */

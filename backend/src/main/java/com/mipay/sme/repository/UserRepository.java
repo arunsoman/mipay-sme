@@ -13,6 +13,9 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     Optional<User> findByPhone(String phone);
 
+    /** Phones are shared across organizations (V20): sign-in by phone must match exactly one. */
+    java.util.List<User> findAllByPhone(String phone);
+
     boolean existsByPhone(String phone);
 
     Optional<User> findByUsername(String username);

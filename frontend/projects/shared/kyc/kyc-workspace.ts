@@ -89,7 +89,8 @@ const LABELS: Record<string, string> = {
                     discardText="Discard the unsaved changes to this KYC application?"
                     (closed)="closeEditor()">
             @if (editing()) {
-              <mp-kyc-application #editor [orgId]="id" (changed)="onChanged($event)" />
+              <!-- the same five-step form as onboarding, opened on the saved data -->
+              <mp-kyc-application #editor [orgId]="id" [wizard]="true" (changed)="onChanged($event)" />
             }
           </mp-modal>
         } @else {

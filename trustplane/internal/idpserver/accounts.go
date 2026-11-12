@@ -94,9 +94,23 @@ func (s *Server) accountByLogin(ctx context.Context, login string) (*Account, er
 		return a, nil
 	}
 	if p := normalizePhone(login); p != "" {
-		return s.accountBy(ctx, "phone=$1", p)
+		return s.accountByPhone(ctx, p)
 	}
 	return nil, pgx.ErrNoRows
+}
+
+// accountByPhone finds the one account with this phone. A phone shared by several accounts
+// (one person administering several organizations) identifies none of them: the user signs
+// in with their login name instead.
+func (s *Server) accountByPhone(ctx context.Context, phone string) (*Account, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM accounts WHERE phone=$1`, phone).Scan(&n); err != nil {
+		return nil, err
+	}
+	if n != 1 {
+		return nil, pgx.ErrNoRows
+	}
+	return s.accountBy(ctx, "phone=$1", phone)
 }
 
 var phoneRe = regexp.MustCompile(`^\+?[0-9]{6,15}$`)

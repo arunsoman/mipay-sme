@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { PortalAuthService } from '../../core/auth';
 import { OrgView, statusClass } from '../../core/api';
 import { PORTAL } from '../../portal.config';
+import { MyAccess, USER_ADMIN_CELL } from '../../../../../shared/users/user-management';
 
 /**
  * Portal shell ([layout]/C11): a left navigation sidebar. On screens wider
@@ -17,7 +18,6 @@ import { PORTAL } from '../../portal.config';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    @if (auth.me()?.simulated ?? true) {<div class="sim-banner">SANDBOX · SIMULATED ENVIRONMENT · NO REAL MONEY OR DATA</div>}
     <div class="layout">
       <div class="backdrop" aria-hidden="true" [class.show]="navOpen()" (click)="navOpen.set(false)"></div>
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
@@ -25,9 +25,8 @@ import { PORTAL } from '../../portal.config';
         <nav>
           <a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>
           <a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>
-          <a routerLink="/users" routerLinkActive="active" (click)="closeNav()">Users</a>
+          @if (canManageUsers()) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
           <a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>
-          <a routerLink="/access" routerLinkActive="active" (click)="closeNav()">Roles &amp; access</a>
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
@@ -111,8 +110,15 @@ export class Shell implements OnInit {
     this.navOpen.set(false);
   }
 
+  /** User management shows only to holders of org.user:administer (RBAC or extended RBAC). */
+  readonly canManageUsers = signal(false);
+
   async ngOnInit() {
     try { this.org.set(await firstValueFrom(this.http.get<OrgView>('/api/orgs/me'))); } catch { /* header only */ }
+    try {
+      const a = await firstValueFrom(this.http.get<MyAccess>('/api/orgs/me/access'));
+      this.canManageUsers.set(a.permissions.some((x) => x.id === USER_ADMIN_CELL));
+    } catch { this.canManageUsers.set(false); }
     window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }
 

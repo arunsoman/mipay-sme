@@ -196,25 +196,18 @@ class AuthSyncRealIT {
     }
 
     @Test
-    void goLiveSwapsKycApplicantForOrgAdminInTheRealRbac() throws Exception {
+    void goLiveGrantsNoStandardOrgRole() throws Exception {
+        // since 2026-11-12 there are no standard org roles: go-live grants nothing; the org's
+        // people get org-defined roles from its user manager (User management)
         String tag = UUID.randomUUID().toString().substring(0, 6);
         Seeded seeded = seedMerchant(tag, true);
-        orgTreeSync.sync();   // the org tenant must be known to RBAC before its first assignment
-        var granted = rbac.assign(seeded.orgId(), Map.of("actor", "sync-it", "core_authorized", true,
-                "subject", seeded.adminId(), "role", "kyc_applicant", "scope", "own",
-                "reason", "applicant setup completed"));
-        assertFalse(granted.isEmpty());
+        orgTreeSync.sync();
 
         authSync.applicantBecomesAdmin(seeded.orgId(), seeded.adminId(), "sync-it");
 
         var rows = rbac.assignments(seeded.orgId()).stream()
                 .filter(r -> seeded.adminId().equals(String.valueOf(r.get("subject")))).toList();
-        assertTrue(rows.stream().anyMatch(r -> "org_admin".equals(String.valueOf(r.get("role")))
-                        && "ACTIVE".equalsIgnoreCase(String.valueOf(r.get("status")))),
-                "org_admin granted at go-live: " + rows);
-        assertFalse(rows.stream().anyMatch(r -> "kyc_applicant".equals(String.valueOf(r.get("role")))
-                        && "ACTIVE".equalsIgnoreCase(String.valueOf(r.get("status")))),
-                "kyc_applicant revoked at go-live: " + rows);
+        assertFalse(rows.stream().anyMatch(r -> "org_admin".equals(String.valueOf(r.get("role")))), "no org_admin: " + rows);
     }
 
     @Test

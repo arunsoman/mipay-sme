@@ -10,13 +10,4 @@ orgs:
   - {id: e2e-kav,      name: "E2E Kavango Wholesale", type: DISTRIBUTOR, parent: e2e-platform}
   - {id: e2e-sib,      name: "E2E Rundu Corner Shop", type: MERCHANT, parent: e2e-kav}
 
-assignments:
-  - {subject: rootadmin, role: platform_user_admin,   scope: all}
-  - {subject: uadmin2,   role: platform_user_admin,   scope: all}
-  - {subject: alice,     role: platform_ops_reviewer, scope: all}
-  - {subject: mlro1,     role: platform_mlro,         scope: all}
-  - {subject: selma,     role: org_admin,  tenant: e2e-oka,   scope: own}
-  - {subject: tomas,     role: org_staff,  tenant: e2e-oka,   scope: own}
-  - {subject: jonas,     role: org_admin,  tenant: e2e-namib, scope: subtree}
-  - {subject: mira,      role: org_staff,  tenant: e2e-oka,   scope: own}
-# carol has no assignment: a valid token without an RBAC assignment is powerless.
+assignments: []   # 2026-11-12: every role but organization_root deleted; users get org-defined roles

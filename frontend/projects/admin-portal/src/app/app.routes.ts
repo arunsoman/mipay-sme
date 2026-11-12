@@ -3,11 +3,10 @@ import { adminGuard } from './core/guards';
 import { Login } from './features/login/login';
 import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
-import { Users } from './features/users/users';
+import { UserManagement } from '../../../shared/users/user-management';
 import { Permissions } from './features/permissions/permissions';
 import { Kyc } from './features/kyc/kyc';
 import { PermissionMatrix } from './features/permission-matrix/permission-matrix';
-import { Access } from './features/access/access';
 
 /**
  * Admin portal surface (deliberately minimal): Onboarding, KYC, User
@@ -23,10 +22,9 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'onboarding' },
       { path: 'onboarding', component: Onboarding, canActivate: [adminGuard] },
       { path: 'kyc', component: Kyc, canActivate: [adminGuard] },
-      { path: 'users', component: Users, canActivate: [adminGuard] },
+      { path: 'users', component: UserManagement, canActivate: [adminGuard] },
       { path: 'permissions', component: Permissions, canActivate: [adminGuard] },
       { path: 'rbac', component: PermissionMatrix, canActivate: [adminGuard] },
-      { path: 'access', component: Access, canActivate: [adminGuard] },
     ],
   },
   { path: '**', redirectTo: 'login' },

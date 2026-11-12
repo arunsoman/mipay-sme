@@ -281,7 +281,10 @@ public class SchemaAndSeed implements ApplicationRunner {
         for (Object o : list(raw.get("entitlements"))) {
             Map<String, Object> en = map(o);
             Verbs.Cell c = Verbs.parse(str(en.get("cell"), ""));
-            if (c == null || !resources.containsKey(c.row())) throw new IllegalArgumentException("bad entitlement cell " + en.get("cell"));
+            if (c == null) throw new IllegalArgumentException("bad entitlement cell " + en.get("cell"));
+            // rows come from the code's registration; until it arrives the entitlement holds a placeholder row
+            db.update("INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING",
+                    c.row(), "mipay", c.row().replace('.', ' '));
             db.update("UPDATE rbac_resources SET grant_verbs = grant_verbs | ?, grant_attribute=? WHERE id=?",
                     c.bit(), str(en.get("attribute"), null), c.row());
         }
@@ -306,11 +309,28 @@ public class SchemaAndSeed implements ApplicationRunner {
             db.update("UPDATE roles SET all_rows_verbs=?, seed_hash=? WHERE name=?", allRows, hash, name);
             db.update("DELETE FROM rbac_role_grid WHERE role=?", name);
             for (var g : map(r.get("grid")).entrySet()) {
-                if (!resources.containsKey(g.getKey())) throw new IllegalArgumentException(name + ": unknown row " + g.getKey());
+                if (db.queryForList("SELECT 1 FROM rbac_resources WHERE id=?", g.getKey()).isEmpty()) {
+                    log.warn("[rbac] {}: row {} is not registered (yet) by any service: tick skipped", name, g.getKey());
+                    continue;
+                }
                 db.update("INSERT INTO rbac_role_grid (role, resource, verbs) VALUES (?,?,?)",
                         name, g.getKey(), Verbs.mask(strings(g.getValue())));
             }
             changed++;
+        }
+        // seeded roles that left the seed are deleted with their assignments (2026-11-12: every
+        // standard role but organization_root was removed); ceilings naming them are cleared
+        List<String> gone = db.queryForList("SELECT name FROM roles WHERE seeded AND NOT (name = ANY(?::text[]))",
+                String.class, pgArray(new ArrayList<>(roles.keySet())));
+        if (!gone.isEmpty()) {
+            db.update("DELETE FROM review_items WHERE assignment_id IN (SELECT id FROM assignments WHERE role = ANY(?::text[]))", pgArray(gone));
+            int asg = db.update("DELETE FROM assignments WHERE role = ANY(?::text[])", pgArray(gone));
+            db.update("DELETE FROM roles WHERE name = ANY(?::text[])", pgArray(gone));
+            db.update("UPDATE roles SET base_roles = ARRAY(SELECT b FROM unnest(base_roles) b WHERE NOT (b = ANY(?::text[]))) "
+                    + "WHERE base_roles && ?::text[]", pgArray(gone), pgArray(gone));
+            db.update("UPDATE tenants SET role_ceiling = NULL, role_delegable = NULL WHERE role_ceiling && ?::text[] OR role_delegable && ?::text[]",
+                    pgArray(gone), pgArray(gone));
+            log.warn("[rbac] seed removed {} role(s) and {} assignment(s): {}", gone.size(), asg, gone);
         }
         // hierarchy (rewritten for seeded roles; cycles refused)
         Map<String, List<String>> inherits = new LinkedHashMap<>();

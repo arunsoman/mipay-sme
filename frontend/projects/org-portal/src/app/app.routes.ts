@@ -5,9 +5,8 @@ import { Activate } from './features/activate/activate';
 import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
 import { Network } from './features/network/network';
-import { Users } from './features/users/users';
+import { UserManagement } from '../../../shared/users/user-management';
 import { Kyc } from './features/kyc/kyc';
-import { Access } from './features/access/access';
 
 /**
  * Org portal (manufacturer / distributor / supplier): an org ADMIN onboards
@@ -25,9 +24,8 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'onboarding' },
       { path: 'onboarding', component: Onboarding },
       { path: 'network', component: Network },
-      { path: 'users', component: Users },
+      { path: 'users', component: UserManagement },
       { path: 'kyc', component: Kyc },
-      { path: 'access', component: Access },
     ],
   },
   { path: '**', redirectTo: 'login' },

@@ -33,9 +33,13 @@ public class KycSchemaFacade {
     @Transactional(readOnly = true)
     public Map<String, Object> schemaFor(String orgId, String entityType) {
         var org = orgRepo.findById(orgId).orElseThrow(() -> new NotFoundException("Organization not found"));
-        KycMasterService.ProfileBundle bundle = master.resolveByOrg(
-                org.getOrgType() == null ? "MERCHANT" : org.getOrgType().name(),
-                org.getCountry(), entityType);
+        return schemaForType(org.getOrgType() == null ? "MERCHANT" : org.getOrgType().name(), org.getCountry(), entityType);
+    }
+
+    /** The form an org of this type fills in, before the org exists (the onboarding wizard). */
+    @Transactional(readOnly = true)
+    public Map<String, Object> schemaForType(String orgType, String country, String entityType) {
+        KycMasterService.ProfileBundle bundle = master.resolveByOrg(orgType, country, entityType);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("profile", Map.of(
@@ -50,8 +54,8 @@ public class KycSchemaFacade {
 
         List<Map<String, Object>> sections = new ArrayList<>();
         Map<String, Object> context = Map.of(
-                "orgType", org.getOrgType() == null ? "" : org.getOrgType().name(),
-                "country", org.getCountry() == null ? "NA" : org.getCountry(),
+                "orgType", orgType == null ? "" : orgType,
+                "country", country == null ? "NA" : country,
                 "licenceType", "PSP");
         for (KycSection section : bundle.sections()) {
             boolean visible = KycConditionEvaluator.evaluate(KycJson.parse(section.getVisibleWhen()),

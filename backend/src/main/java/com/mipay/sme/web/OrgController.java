@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Org-tree API (org-hierarchy spec): me-scoped views [D4/M10], generic
@@ -108,6 +109,30 @@ public class OrgController {
                         req.supplierType(), req.ownerIdNumber(),
                         toTypes(req.rightsDirect()), toTypes(req.rightsCeiling()),
                         req.roleCeiling(), req.roleDelegable()));
+    }
+
+    /** {type, kyc: the whole KYC document, licenceRef?, rightsDirect?, rightsCeiling?, roleCeiling?, roleDelegable?} */
+    public record OnboardWithKycRequest(String type, Map<String, Object> kyc, String licenceRef,
+                                        List<String> rightsDirect, List<String> rightsCeiling,
+                                        List<String> roleCeiling, List<String> roleDelegable) { }
+
+    /**
+     * The onboarding wizard's one call: creates the org with UBO Person 1 as its administrator,
+     * saves and submits its KYC, all or nothing.
+     */
+    @Perm(resource = "org.onboarding", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Onboard a child organization with its complete KYC (all or nothing)")
+    @PostMapping("/me/children/with-kyc")
+    public Map<String, Object> submitChildWithKyc(@RequestBody OnboardWithKycRequest req) {
+        Enums.OrgType childType;
+        try {
+            childType = Enums.OrgType.valueOf(req.type().toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new BadRequestException("ORG_TYPE_REQUIRED",
+                    "type must be one of MANUFACTURER, DISTRIBUTOR, SUPPLIER, MERCHANT, LENDER");
+        }
+        return onboarding.onboardWithKyc(Current.get(), childType, req.kyc(), req.licenceRef(),
+                toTypes(req.rightsDirect()), toTypes(req.rightsCeiling()), req.roleCeiling(), req.roleDelegable());
     }
 
     // ---------------- staff [C3/H9] ----------------

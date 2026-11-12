@@ -5,13 +5,13 @@ export function shortStepLabel(sec: { key: string; title: string } | undefined):
   if (!sec) return '';
   const known: Record<string, string> = {
     businessProfile: 'Business', operationalDetails: 'Operations', addresses: 'Addresses',
-    ubos: 'Owners', bankAccounts: 'Bank account',
+    ubos: 'Ultimate Beneficial Owners (UBO) & Key Management', bankAccounts: 'Bank account',
   };
   return known[sec.key] ?? sec.title.split(/ & | \(|:/)[0];
 }
 
 /** The short names of the five KYC steps, for screens drawn before the schema is loaded. */
-export const KYC_STEP_LABELS = ['Business', 'Operations', 'Addresses', 'Owners', 'Bank account'];
+export const KYC_STEP_LABELS = ['Business', 'Operations', 'Addresses', 'Ultimate Beneficial Owners (UBO) & Key Management', 'Bank account'];
 
 /**
  * A quiet step indicator: one thin bar per step with its short name underneath.
@@ -41,7 +41,7 @@ export const KYC_STEP_LABELS = ['Business', 'Operations', 'Addresses', 'Owners',
     button:disabled { cursor: default; }
     button:focus-visible .bar { outline: 2px solid var(--a-teal); outline-offset: 2px; }
     .bar { height: 4px; border-radius: 4px; background: #262626; transition: background .2s; }
-    .name { font-size: 12.5px; color: #7a7a7a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .name { font-size: 12.5px; line-height: 1.35; color: #7a7a7a; }
     .tick { color: var(--a-green); margin-right: 5px; }
     .done .bar { background: color-mix(in srgb, var(--a-teal) 45%, #262626); }
     .done .name { color: var(--a-dim); }

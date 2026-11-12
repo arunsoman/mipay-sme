@@ -50,6 +50,27 @@ public class UsernamePolicy {
         return base.substring(0, Math.min(base.length(), 20)) + "." + Integer.toString(random.nextInt(1 << 20), 36);
     }
 
+    /**
+     * An onboarded org's administrator: the legal business name folded to [a-z0-9] followed by
+     * the MCC, e.g. "Namib Fresh (Pty) Ltd" + 5411 → "namibfreshptyltd5411"; "-2", "-3"… when
+     * taken. Falls back to {@link #generate} without a usable name.
+     */
+    public String forBusiness(String legalName, String mcc, String fallbackName, String fallbackEmail) {
+        String name = legalName == null ? "" : Normalizer.normalize(legalName.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        String code = mcc == null ? "" : mcc.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+        if (name.isEmpty()) return generate(fallbackName, fallbackEmail);
+        if (!Character.isLetter(name.charAt(0))) name = "o" + name;
+        int room = 28 - code.length();                     // keeps "-NN" within the 32-char limit
+        if (name.length() > room) name = name.substring(0, Math.max(3, room));
+        String base = name + code;
+        if (free(base)) return base;
+        for (int i = 2; i < 100; i++) {
+            if (free(base + "-" + i)) return base + "-" + i;
+        }
+        return generate(fallbackName, fallbackEmail);
+    }
+
     private boolean free(String candidate) {
         return FORMAT.matcher(candidate).matches() && !LOOKS_LIKE_PHONE.matcher(candidate).matches()
                 && !userRepo.existsByUsername(candidate) && !userRepo.existsByPhone(candidate);

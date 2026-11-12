@@ -50,7 +50,10 @@ var DDL = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS accounts_login_name_uq ON accounts (lower(login_name))`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS accounts_phone_uq ON accounts (phone) WHERE phone IS NOT NULL`,
+	// one phone may serve several organizations' logins (core V20): not unique, and a phone
+	// signs in only when it matches exactly one account (accountByPhone)
+	`DROP INDEX IF EXISTS accounts_phone_uq`,
+	`CREATE INDEX IF NOT EXISTS accounts_phone_ix ON accounts (phone) WHERE phone IS NOT NULL`,
 	`CREATE TABLE IF NOT EXISTS account_links(
 		token_hash TEXT PRIMARY KEY,
 		subject TEXT NOT NULL REFERENCES accounts(subject) ON DELETE CASCADE,

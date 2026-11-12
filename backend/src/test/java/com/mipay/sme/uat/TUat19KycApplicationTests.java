@@ -75,6 +75,7 @@ class TUat19KycApplicationTests extends UatSupport {
                 "region": "Khomas", "postalCode": "10005", "country": "NA"}],
               "ubos": [{"fullLegalName": "Petrus Haufiku", "dateOfBirth": "1985-04-12", "nationality": "NA",
                 "residentialAddress": "7 Nelson Mandela Ave, Windhoek",
+                "phoneNumber": "0811234567", "emailAddress": "petrus@namib-dist.example.na",
                 "identificationType": "NATIONAL_ID", "identificationNumber": "85041200123",
                 "ownershipPercentage": 60, "politicallyExposedPerson": false}],
               "bankAccounts": [{"beneficiaryName": "Namib Distribution %d (Pty) Ltd", "bankCode": "BANK_WINDHOEK",
@@ -412,6 +413,50 @@ class TUat19KycApplicationTests extends UatSupport {
         assertThat(bundle.sections()).isNotEmpty()
                 .allMatch(s -> s.getSchemaVersionId().equals(v1.getId()));
         assertThat(bundle.profile()).isNotNull();
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("TC-KYCAPP-10 · the wizard's one call: org + UBO-1 admin (business name + MCC login, shared phone) + submitted KYC")
+    @SuppressWarnings("unchecked")
+    void tc10_onboardWithKyc() throws Exception {
+        Map<String, Object> doc = validDoc();
+        Map<String, Object> ubo = ((List<Map<String, Object>>) doc.get("ubos")).get(0);
+        ubo.put("phoneNumber", supAdmin.getPhone());   // the same person already administers another org
+        String legal = (String) ((Map<String, Object>) doc.get("businessProfile")).get("legalBusinessName");
+        ((List<Map<String, Object>>) doc.get("bankAccounts")).get(0).put("beneficiaryName", legal);
+
+        Map<String, Object> r = orgOnboard.onboardWithKyc(principalOf(distAdmin), Enums.OrgType.SUPPLIER, doc,
+                null, null, null, null, null);
+
+        String orgId = (String) r.get("orgId");
+        assertThat(orgs.findById(orgId).orElseThrow().getName()).isEqualTo(legal);
+        assertThat(open(orgId).getStatus()).isNotEqualTo(KycApplication.Status.DRAFT);
+        String login = (String) r.get("adminUsername");
+        String folded = legal.toLowerCase().replaceAll("[^a-z0-9]", "");
+        assertThat(login).isEqualTo(folded.substring(0, Math.min(folded.length(), 24)) + "5199");
+        User admin = users.findByUsername(login).orElseThrow();
+        assertThat(admin.getOrgId()).isEqualTo(orgId);
+        assertThat(admin.getPhone()).isEqualTo(supAdmin.getPhone());
+        assertThat(admin.getEmail()).isEqualTo("petrus@namib-dist.example.na");
+        assertThat(users.findAllByPhone(supAdmin.getPhone())).hasSize(2);
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("TC-KYCAPP-11 · a refused KYC in the one call creates nothing")
+    @SuppressWarnings("unchecked")
+    void tc11_onboardWithKycAllOrNothing() throws Exception {
+        Map<String, Object> doc = validDoc();
+        ((List<Map<String, Object>>) doc.get("ubos")).get(0).put("ownershipPercentage", 150);
+        String legal = (String) ((Map<String, Object>) doc.get("businessProfile")).get("legalBusinessName");
+        long before = orgs.count();
+
+        assertThatThrownBy(() -> orgOnboard.onboardWithKyc(principalOf(distAdmin), Enums.OrgType.SUPPLIER, doc,
+                null, null, null, null, null))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("at most 100");
+        assertThat(orgs.count()).isEqualTo(before);
+        assertThat(orgs.findAll()).noneMatch(o -> legal.equals(o.getName()));
     }
 
     // ---------------------------------------------------------------- helpers

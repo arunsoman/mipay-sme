@@ -348,7 +348,7 @@ func (s *Server) otpStart(w http.ResponseWriter, r *http.Request) {
 	var a *Account
 	var err error
 	if phone != "" {
-		a, err = s.accountBy(ctx, "phone=$1", phone)
+		a, err = s.accountByPhone(ctx, phone)
 	}
 	if phone == "" || err != nil || a.State != StateActive || a.locked(time.Now()) || a.MFAProfile != "MERCHANT_OTP" {
 		// same page as a real send: phone numbers are not enumerable here

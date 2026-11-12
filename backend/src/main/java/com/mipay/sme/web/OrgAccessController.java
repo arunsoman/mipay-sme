@@ -61,6 +61,8 @@ public class OrgAccessController {
     private Current.Principal requireManager(String orgId) {
         Current.Principal caller = Current.get();
         tree.visible(caller, orgId);
+        // under enforcement RBAC decides (the @Perm cell, and RBAC checks the actor itself)
+        if (!coreAuthorized()) return caller;
         if (tree.platformStaff(caller)) return caller;
         Organization own = tree.orgOf(caller);
         boolean ok = caller.isOrgAdmin() && own != null

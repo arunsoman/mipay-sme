@@ -69,6 +69,23 @@ public class OrgAccessMeshController {
         return a;
     }
 
+    /**
+     * A role built from picked permissions (no base roles) never exceeds its creator: every
+     * ticked cell must be one the actor holds in this org (no escalation through a new role).
+     */
+    private void holdsAll(String actor, String tenant, Map<String, Integer> grid) {
+        List<String> missing = new java.util.ArrayList<>();
+        for (var e : grid.entrySet()) {
+            for (String v : trustplane.rbac.core.Verbs.names(e.getValue())) {
+                String cell = e.getKey() + ":" + v;
+                if (!decisions.check(new Decisions.Request(actor, tenant, cell)).allowed()) missing.add(cell);
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new ApiException(403, "insufficient_permission", "you can only give permissions you hold yourself: " + missing);
+        }
+    }
+
     private static void ownedBy(Map<String, Object> role, String tenant) {
         if (!tenant.equals(role.get("owner_tenant"))) throw ApiException.notFound();
     }
@@ -90,7 +107,9 @@ public class OrgAccessMeshController {
         core(req, svc);
         if (b == null) throw ApiException.badRequest("body required");
         String actor = authorize(b.actor(), b.core_authorized(), tenant, "rbac.role:create");
-        return store.createOrgRole(actor, tenant, b.name(), b.description(), b.base_roles(), store.parseGrid(b.grid(), b.permissions()));
+        Map<String, Integer> grid = store.parseGrid(b.grid(), b.permissions());
+        if (b.base_roles() == null || b.base_roles().isEmpty()) holdsAll(actor, tenant, grid);
+        return store.createOrgRole(actor, tenant, b.name(), b.description(), b.base_roles(), grid);
     }
 
     @PublicEndpoint("mesh: the core changes an org-defined role on behalf of an org admin")
@@ -102,7 +121,9 @@ public class OrgAccessMeshController {
         ownedBy(store.getRole(name), tenant);
         String actor = authorize(b.actor(), b.core_authorized(), tenant, "rbac.role:modify");
         boolean gridGiven = b.grid() != null || b.permissions() != null;
-        return store.updateOrgRole(actor, name, b.description(), b.base_roles(), gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null);
+        Map<String, Integer> grid = gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null;
+        if (grid != null && (b.base_roles() == null || b.base_roles().isEmpty())) holdsAll(actor, tenant, grid);
+        return store.updateOrgRole(actor, name, b.description(), b.base_roles(), grid);
     }
 
     @PublicEndpoint("mesh: the core deletes an org-defined role with no assignments on behalf of an org admin")

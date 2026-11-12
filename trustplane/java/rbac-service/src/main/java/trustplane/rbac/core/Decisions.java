@@ -239,6 +239,10 @@ public class Decisions {
                     skipped.add("role_not_owned:" + r.name() + "@" + a.tenant());
                     continue;
                 }
+                if (r.baseRoles().isEmpty()) {   // built from picked permissions: no base-role bound
+                    out.add(a);
+                    continue;
+                }
                 Set<String> bases = new LinkedHashSet<>();
                 for (String b : r.baseRoles()) if (c.allows(b)) bases.add(b);
                 if (bases.isEmpty()) {

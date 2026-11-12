@@ -38,7 +38,8 @@ public class MeshController {
         return Set.of(WebSupport.normalize(cfg.coreCN()));
     }
 
-    public record Catalog(String service, List<Map<String, String>> permissions, List<Map<String, Object>> endpoints) {}
+    public record Catalog(String service, List<Map<String, String>> permissions, List<Map<String, Object>> endpoints,
+                          List<Map<String, String>> rows) {}
 
     @PublicEndpoint("mesh: a service registers its own grid cells and endpoints (certificate CN = service)")
     @PostMapping("/rbac/internal/permissions/register")
@@ -58,7 +59,8 @@ public class MeshController {
                         e.get("handler") == null ? null : String.valueOf(e.get("handler"))));
             }
         }
-        return store.registerCatalog(c.service(), c.permissions() == null ? List.of() : c.permissions(), eps);
+        return store.registerCatalog(c.service(), c.permissions() == null ? List.of() : c.permissions(), eps,
+                c.rows() == null ? List.of() : c.rows());
     }
 
     /** {closure:[{ancestor,descendant,depth}], orgs:[{id,name,type,parent,lifecycle,held,holds[]}]} (tenantMapping accepted too). */
@@ -156,6 +158,16 @@ public class MeshController {
                 b.operation(), List.of(), b.attributes() == null ? Map.of() : b.attributes()));
         return Map.of("allowed", d.allowed(), "reason", d.reason(), "decision_id", d.decisionId(),
                 "tenant_version", d.tenantVersion(), "matched_roles", d.matchedRoles());
+    }
+
+    /** Every cell a subject holds in an org ("" = in any org): menus and the role builder. */
+    @PublicEndpoint("mesh: the core lists the permissions a user holds in an org")
+    @GetMapping("/rbac/internal/permissions/held")
+    public Map<String, Object> held(@RequestParam String subject, @RequestParam(defaultValue = "") String tenant,
+                                    @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc, HttpServletRequest req) {
+        WebSupport.meshCaller(req, svc, core());
+        Decisions.Permissions p = decisions.listPermissions(subject, tenant, List.of());
+        return Map.of("operations", p.operations());
     }
 
     @PublicEndpoint("liveness probe (mTLS at the listener)")

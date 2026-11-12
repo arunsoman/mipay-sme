@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,11 +76,12 @@ class UserLifecycleServicePostgresIT {
     }
 
     @Test
-    void duplicatePhoneRefusesAndLeavesNoPartialState() {
-        lifecycle.create(reg(platformOrg(), "+264811000002", Enums.OrgMemberRole.ADMIN));
-        assertThrows(SimException.class, () -> lifecycle.create(reg(platformOrg(), "+264811000002",
-                Enums.OrgMemberRole.ADMIN)));
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM users WHERE phone='+264811000002'", Integer.class));
+    void onePhoneMayServeSeveralLogins() {
+        // V20: one person may administer several organizations; each login keeps its own username
+        User a = lifecycle.create(reg(platformOrg(), "+264811000002", Enums.OrgMemberRole.ADMIN));
+        User b = lifecycle.create(reg(platformOrg(), "+264811000002", Enums.OrgMemberRole.ADMIN));
+        assertNotEquals(a.getUsername(), b.getUsername());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM users WHERE phone='+264811000002'", Integer.class));
     }
 
     @Test

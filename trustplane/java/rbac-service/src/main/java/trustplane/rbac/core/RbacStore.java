@@ -175,6 +175,28 @@ public class RbacStore {
 
     @Transactional
     public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints) {
+        return registerCatalog(service, permissions, endpoints, List.of());
+    }
+
+    /** Org types a row applies to, from its prefix (merchant.* only in merchant orgs, …); null = any org type. */
+    static String tenantTypesOf(String row) {
+        String p = row.contains(".") ? row.substring(0, row.indexOf('.')) : row;
+        return switch (p) {
+            case "merchant" -> "MERCHANT";
+            case "supplier" -> "SUPPLIER";
+            case "lender" -> "LENDER";
+            default -> null;
+        };
+    }
+
+    /**
+     * The code is the source of the permission grid (2026-11-12): a service's registration
+     * creates its rows (described by {@code rows}), sets the verbs its endpoints use, and
+     * removes the rows it no longer registers together with every tick on them.
+     */
+    @Transactional
+    public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints,
+                                               List<Map<String, String>> rowDescriptions) {
         if (service == null || service.isBlank()) throw ApiException.badRequest("service required");
         int newRows = 0;
         Set<String> rows = new LinkedHashSet<>();
@@ -187,10 +209,24 @@ public class RbacStore {
             }
             rows.add(c.row());
         }
+        Map<String, String> described = new java.util.HashMap<>();
+        for (Map<String, String> r : rowDescriptions) if (r.get("id") != null) described.put(r.get("id"), r.get("description"));
         for (String row : rows) {
+            String d = described.getOrDefault(row, row.replace('.', ' '));
             newRows += db.update("""
-                    INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING""",
-                    row, service, row.replace('.', ' '));
+                    INSERT INTO rbac_resources (id, service, description, tenant_types) VALUES (?,?,?,?) ON CONFLICT (id) DO NOTHING""",
+                    row, service, d, tenantTypesOf(row));
+            db.update("UPDATE rbac_resources SET service=?, description=?, tenant_types=?, updated_at=now() WHERE id=?",
+                    service, d, tenantTypesOf(row), row);
+        }
+        // rows this service no longer has in code: their ticks and endpoints go with them
+        List<String> stale = db.queryForList("SELECT id FROM rbac_resources WHERE service=? AND NOT (id = ANY(?::text[]))",
+                String.class, service, SchemaAndSeed.pgArray(new ArrayList<>(rows)));
+        if (!rows.isEmpty() && !stale.isEmpty()) {
+            db.update("DELETE FROM rbac_role_grid WHERE resource = ANY(?::text[])", SchemaAndSeed.pgArray(stale));
+            db.update("DELETE FROM rbac_cell_endpoints WHERE resource = ANY(?::text[])", SchemaAndSeed.pgArray(stale));
+            db.update("DELETE FROM rbac_resources WHERE id = ANY(?::text[]) AND grant_verbs = 0", SchemaAndSeed.pgArray(stale));
+            log.info("[rbac] rows no longer in {}'s code removed: {}", service, stale);
         }
         db.update("DELETE FROM rbac_cell_endpoints WHERE service=?", service);
         int eps = 0;
@@ -205,10 +241,11 @@ public class RbacStore {
                         service, e.method(), e.path(), c.row(), c.bit(), e.tenantSource(), e.handler());
             }
         }
-        // used = the cells that have an endpoint; rows nobody registers keep their declared cells
+        // used = the cells that have an endpoint (declared follows the code too)
         db.update("""
                 UPDATE rbac_resources r SET used_verbs = COALESCE(
                     (SELECT bit_or(verb) FROM rbac_cell_endpoints ce WHERE ce.resource = r.id), r.declared_verbs), updated_at=now()""");
+        db.update("UPDATE rbac_resources SET declared_verbs = used_verbs WHERE service=?", service);
         policy.reload();
         touchAll();
         List<String> orphans = orphanTicks();
@@ -440,7 +477,9 @@ public class RbacStore {
         if (Set.of("REJECTED", "BLOCKED", "CLOSED", "ARCHIVED").contains(String.valueOf(t.get(0).get("lifecycle")))) {
             throw ApiException.conflict("org is " + t.get(0).get("lifecycle") + ": no new roles");
         }
-        if (bases == null || bases.isEmpty()) throw ApiException.badRequest("base_roles required: the roles this one is carved from");
+        // since 2026-11-12 a role may be built from picked permissions alone (no base roles): it is
+        // then bounded by what its creator holds, which the caller checks (OrgAccessMeshController)
+        if (bases == null) bases = List.of();
         Ceilings.Effective c = ceilings.of(tenant);
         for (String b : bases) {
             Policy.Role br = s.roles().get(b);
@@ -457,7 +496,7 @@ public class RbacStore {
         }
         if (grid == null || grid.values().stream().allMatch(v -> v == 0)) throw ApiException.badRequest("the role ticks no cell");
         List<String> beyond = new ArrayList<>();
-        for (var e : grid.entrySet()) {
+        for (var e : bases.isEmpty() ? Map.<String, Integer>of().entrySet() : grid.entrySet()) {
             int bound = 0;
             for (String b : bases) bound |= s.mask(b, e.getKey());
             for (String v : Verbs.names(e.getValue() & ~bound)) beyond.add(e.getKey() + ":" + v);

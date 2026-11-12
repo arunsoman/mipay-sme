@@ -153,6 +153,12 @@ public class RbacMeshClient {
         return call("POST", "/rbac/internal/platform/assignments/" + enc(id) + "/revoke", body, new TypeReference<>() { });
     }
 
+    /** Every cell the subject holds in the org ("" = any org): {operations:[row:verb, …]}. */
+    public Map<String, Object> held(String subject, String tenant) {
+        return call("GET", "/rbac/internal/permissions/held?subject=" + enc(subject) + "&tenant=" + enc(tenant),
+                null, new TypeReference<>() { });
+    }
+
     /** One @Perm decision: {allowed, reason, decision_id, ...}. tenant "" = in any tenant. */
     public Map<String, Object> check(String subject, String tenant, String operation) {
         return call("POST", "/rbac/internal/check", Map.of("subject", subject, "tenant", tenant == null ? "" : tenant,
