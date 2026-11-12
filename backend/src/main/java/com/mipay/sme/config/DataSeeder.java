@@ -79,6 +79,10 @@ public class DataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        if (!props.isSeedDemoData()) {
+            log.info("DataSeeder skipped - demo seeding is disabled");
+            return;
+        }
         if (!props.isSimulatedEnvironment()) {
             log.info("DataSeeder skipped - production environment");
             return;

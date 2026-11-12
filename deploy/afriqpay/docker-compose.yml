@@ -35,6 +35,7 @@ services:
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=65 -XX:InitialRAMPercentage=20 -Xss512k -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m"
       SPRING_PROFILES_ACTIVE: postgres
       APP_ENVIRONMENT: sandbox            # all bank / lender / provider events stay SIMULATED
+      APP_SEED_DEMO_DATA: "false"        # this public sandbox contains real user records; never reseed demo credentials
       APP_JWT_SECRET: ${APP_JWT_SECRET:?set in .env}
       APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
       APP_PUBLIC_BASE_URL: https://admin.afriqpay.com
