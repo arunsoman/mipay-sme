@@ -29,6 +29,9 @@ public class RootAdminBootstrap {
     private final UserRepository users;
     private final OrgProvisioningService provisioning;
     private final UserLifecycleService lifecycle;
+    private final com.mipay.sme.security.auth.AuthProviderRegistry authProviders;
+    private final com.mipay.sme.service.ActivationService activation;
+    private final com.mipay.sme.repository.ActivationTokenRepository tokens;
 
     @Value("${app.root-admin.name:}") private String name;
     @Value("${app.root-admin.phone:}") private String phone;
@@ -41,15 +44,23 @@ public class RootAdminBootstrap {
     public void ensureRootAdmin() {
         if (phone == null || phone.isBlank()) return;
         var root = provisioning.ensurePlatformSubOrg("tpts", "TPTS (operating root)", "org_tpts_platform");
-        boolean hasAdmin = users.findByOrgId(root.getId()).stream()
-                .anyMatch(u -> u.getOrgRole() == Enums.OrgMemberRole.ADMIN && u.getStatus() != Enums.UserStatus.ARCHIVED);
-        if (hasAdmin) return;
-        User admin = lifecycle.create(new UserLifecycleService.Registration(root.getId(),
-                name == null || name.isBlank() ? "Root administrator" : name,
-                username == null || username.isBlank() ? null : username, phone,
-                email == null || email.isBlank() ? null : email,
-                Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.ADMIN, "root-admin-bootstrap"));
-        log.warn("[root-admin] the root organization had no administrator: created {} ({}) PENDING; "
-                + "the set-up link is in the activation outbox", admin.getId(), admin.getUsername());
+        User admin = users.findByOrgId(root.getId()).stream()
+                .filter(u -> u.getOrgRole() == Enums.OrgMemberRole.ADMIN && u.getStatus() != Enums.UserStatus.ARCHIVED)
+                .findFirst().orElse(null);
+        if (admin == null) {
+            admin = lifecycle.create(new UserLifecycleService.Registration(root.getId(),
+                    name == null || name.isBlank() ? "Root administrator" : name,
+                    username == null || username.isBlank() ? null : username, phone,
+                    email == null || email.isBlank() ? null : email,
+                    Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.ADMIN, "root-admin-bootstrap"));
+            log.warn("[root-admin] the root organization had no administrator: created {} ({}) PENDING",
+                    admin.getId(), admin.getUsername());
+        }
+        // without a credential provider the set-up link is MiPay's own activation link
+        if (admin.getStatus() == Enums.UserStatus.PENDING && !authProviders.enabled()
+                && !tokens.existsByUserIdAndUsedAtIsNullAndExpiresAtAfter(admin.getId(), java.time.Instant.now())) {
+            activation.issue(admin, "root-admin-bootstrap");
+            log.warn("[root-admin] activation link issued for {} (sandbox: in the activation outbox)", admin.getUsername());
+        }
     }
 }

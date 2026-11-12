@@ -28,4 +28,7 @@ public interface ActivationTokenRepository extends JpaRepository<ActivationToken
             where t.userId = :userId and t.usedAt is null
             """)
     void invalidateAllForUser(@Param("userId") String userId, @Param("now") Instant now);
+
+    /** A user still has a usable set-up link. */
+    boolean existsByUserIdAndUsedAtIsNullAndExpiresAtAfter(String userId, Instant now);
 }
