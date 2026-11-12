@@ -114,6 +114,7 @@ Stages are ordered. Work inside a stage runs in parallel where the tracks allow.
 | 3.5 | C4: SMS factor and merchant phone-OTP login, code-complete and tested in the sandbox | 2fa phase 4 | ⬜ |
 | 3.6 | B1 completes: failover, receipts, suppression, retry queue | comms P1 | ⬜ |
 | 3.7 | Extended RBAC ER5: roles step in onboarding, ceiling editor on "My network", "Roles & access" in the org and admin portals (part of P5.5) | extended-rbac | ✅ 2026-11-12: portal builds green; screens driven through the same API in the e2e run; not deployed |
+| 3.8 | P5.5 (part): the admin portal's RBAC Matrix on the live grid: all-roles overview (every row × every role, own vs inherited) and a per-role editor of own cells (inherited locked, unused cells n/a, grid rules refused inline); `/api/admin/rbac/*` backed by RBAC's mesh API (`PlatformAccessMeshController`) instead of hard-coded demo data; dead `RbacClientService` removed. Still open in P5.5: access-review campaigns, SoD view, platform-role assignment screen (API done), G.8 four-eyes on privileged grid changes | cut-over P5.5 | 🟡 2026-11-12: headless UI check 19/19 (admin + supplier portals) on an isolated stack |
 
 **Gate 3:** 7 days of shadow with zero unexplained mismatches; **compliance signs off the role pack**; every portal on the BFF in staging.
 
@@ -199,7 +200,6 @@ These assume one developer on Track A and a second on Tracks B and C. The comms 
 | Extended RBAC migration is `V16__org_role_ceilings.sql`; the P3 work in the same tree is at V15 (untracked). Renumber whichever lands second if both take V16 | before either is committed | dev | extended-rbac |
 | Compliance review of the generated role pack [`docs/rbac/role-pack-v1.md`](../rbac/role-pack-v1.md) (starts 0.2; sign-off needed at Gate 3) | Gate 3 | compliance | cut-over P2.5a |
 | Set `IDP_CORE_EVENTS_URL` when the core's `POST /internal/auth/events` exists | P3.6 | dev | cut-over P1 status |
-| The admin portal's permission screens and the backend's `RbacClientService` still call the removed RBAC endpoints (they already failed before: no mTLS, no gateway context) | P5.5 Roles & access | dev | cut-over §4.1 |
 | Disk space on the dev host: about 2.7 GB free on a 97 GB disk; a full disk crashed the Java services once (§8.1) | any further image builds | you | — |
 
 Resolved elsewhere, kept here for traceability: who holds compliance roles in production is now RBAC assignments (cut-over D9/D10), and comms owns the SMS/email provider choice (2fa §17).

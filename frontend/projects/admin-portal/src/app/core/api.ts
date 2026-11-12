@@ -234,25 +234,42 @@ export interface KycApplicationView {
 }
 
 // ---------------------------------------------------------------------------
-// RBAC permission matrix (§16: trustplane RBAC proxy)
-// Mirrors com.mipay.sme.web.Dtos.RbacRoleView, RbacRoleUpdate, RbacUserView,
-// RbacAssignmentView, RbacMatrixCell
+// RBAC administration (cut-over P5.5): /api/admin/rbac/*, backed by RBAC's mesh API.
+// Mirrors com.mipay.sme.web.Dtos.RbacRoleView, RbacRoleUpdate, RbacResourceView,
+// RbacUserView, RbacAssignmentView.
 // ---------------------------------------------------------------------------
 
+/** own = cells ticked on the role itself (what the matrix edits); permissions = effective. */
 export interface RbacRoleView {
   name: string;
   description: string;
   permissions: string[];
+  kind: string;
+  approval: string;
+  seeded: boolean;
+  inherits: string[];
+  own: string[];
+  allRows: string[];
 }
 
+/** The role's OWN cells ("row:verb"). */
 export interface RbacRoleUpdate {
   permissions: string[];
+}
+
+/** A grid row; only the verbs in `used` exist as cells. */
+export interface RbacResourceView {
+  id: string;
+  service: string;
+  description: string;
+  used: string[];
+  tenantTypes: string[];
 }
 
 export interface RbacUserView {
   id: string;
   displayName: string;
-  supplier: string;
+  orgId: string | null;
   kind: string;
   status: string;
 }
@@ -266,13 +283,6 @@ export interface RbacAssignmentView {
   status: string;
 }
 
-export interface RbacMatrixCell {
-  resource: string;
-  verb: string;
-  permission: string;
-  granted: boolean;
-}
-
 export type RbacVerb =
   | 'read' | 'create' | 'modify' | 'delete' | 'submit'
   | 'authorize' | 'execute' | 'export' | 'administer' | 'simulate';
@@ -282,12 +292,6 @@ export const RBAC_VERBS: RbacVerb[] = [
   'authorize', 'execute', 'export', 'administer', 'simulate',
 ];
 
-export interface RbacMatrixRow {
-  resource: string;
-  cells: Record<RbacVerb, 'granted' | 'not-granted' | 'n/a'>;
-}
-
-export interface RbacMatrixData {
-  rows: RbacMatrixRow[];
-  verbs: RbacVerb[];
-}
+/** own: ticked on the role (editable) · inherited: from a junior role or an all-rows tick (locked) ·
+ *  off: not granted (editable) · na: no endpoint uses this cell, so it doesn't exist. */
+export type RbacCellState = 'own' | 'inherited' | 'off' | 'na';

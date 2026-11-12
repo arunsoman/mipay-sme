@@ -684,18 +684,31 @@ public final class Dtos {
 
     // ------------------------------------------------------------------ RBAC (§16: trustplane RBAC proxy)
 
-    /** A role with its permissions, from trustplane RBAC. */
-    public record RbacRoleView(String name, String description, List<String> permissions) { }
+    /**
+     * A standard role from trustplane RBAC: {@code own} = the cells ticked on the role itself
+     * (what the matrix edits); {@code permissions} = effective (own + inherited + all-rows).
+     */
+    public record RbacRoleView(String name, String description, List<String> permissions,
+                               String kind, String approval, boolean seeded, List<String> inherits,
+                               List<String> own, List<String> allRows) { }
 
-    /** Request to update a role's permissions. */
+    /** Request to set a role's OWN cells ("row:verb"); inherited cells come from its juniors. */
     public record RbacRoleUpdate(List<String> permissions) { }
 
-    /** A user in the RBAC store. */
-    public record RbacUserView(String id, String displayName, String supplier, String kind, String status) { }
+    /** A grid row: the verbs some endpoint uses (other cells don't exist) and the org types it applies to. */
+    public record RbacResourceView(String id, String service, String description, List<String> used,
+                                   List<String> tenantTypes) { }
+
+    /** A core user as the access screens show it (RBAC subject = core user id). */
+    public record RbacUserView(String id, String displayName, String orgId, String kind, String status) { }
 
     /** A role assignment (subject → role). */
     public record RbacAssignmentView(String id, String subject, String role, String tenant, String scope,
                                      String status) { }
+
+    /** POST /api/admin/rbac/assignments */
+    public record RbacAssignRequest(String subject, String role, String tenant, String scope, String expiresAt,
+                                    String reason) { }
 
     /** One cell of the permission matrix: resource × verb for one role. */
     public record RbacMatrixCell(String resource, String verb, String permission, boolean granted) { }

@@ -87,6 +87,32 @@ public class RbacMeshClient {
         return call("POST", "/rbac/internal/tenants/" + enc(tenant) + "/approvals/" + enc(id), body, new TypeReference<>() { });
     }
 
+    // ---- platform-wide (admin portal; cut-over P5.5) ----
+
+    public List<Map<String, Object>> platformRoles() {
+        return call("GET", "/rbac/internal/platform/roles", null, new TypeReference<>() { });
+    }
+
+    public List<Map<String, Object>> platformResources() {
+        return call("GET", "/rbac/internal/platform/resources", null, new TypeReference<>() { });
+    }
+
+    public Map<String, Object> updatePlatformRole(String name, Map<String, Object> body) {
+        return call("PUT", "/rbac/internal/platform/roles/" + enc(name), body, new TypeReference<>() { });
+    }
+
+    public List<Map<String, Object>> platformAssignments(String status) {
+        return call("GET", "/rbac/internal/platform/assignments?status=" + enc(status), null, new TypeReference<>() { });
+    }
+
+    public Map<String, Object> platformAssign(Map<String, Object> body) {
+        return call("POST", "/rbac/internal/platform/assignments", body, new TypeReference<>() { });
+    }
+
+    public Map<String, Object> platformRevoke(String id, Map<String, Object> body) {
+        return call("POST", "/rbac/internal/platform/assignments/" + enc(id) + "/revoke", body, new TypeReference<>() { });
+    }
+
     // ------------------------------------------------------------------
 
     private HttpClient http() throws Exception {
