@@ -12,6 +12,7 @@ import { KpiRow } from '../../design-system/organisms/kpi-row';
 import { EventTimeline } from '../../design-system/organisms/event-timeline';
 import { MpTable, MpColumn } from '../../design-system/organisms/mp-table';
 import { MpEntityForm, MpFieldSchema } from '../../design-system/organisms/mp-entity-form';
+import { MpPerm } from '../../../../projects/shared/web-core/perm-directive';
 import { MerchantService } from '../../core/services';
 import { SimulatedBanner } from '../../design-system/molecules/simulated-banner';
 import * as D from '../../core/dto';
@@ -78,7 +79,7 @@ export class MerchantDashboard implements OnInit {
 @Component({
   selector: 'merchant-accept',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, MpCard, PageHeader, MpButton, CurrencyAmount, StatusBadge, MpSpinner],
+  imports: [FormsModule, MpCard, PageHeader, MpButton, CurrencyAmount, StatusBadge, MpSpinner, MpPerm],
   template: `
     <page-header title="Accept payment" subtitle="M06: QR / short code / card. Card posts PENDING until the issuer confirms (TC-ACC-01)" />
     <div class="grid2">
@@ -94,7 +95,7 @@ export class MerchantDashboard implements OnInit {
           </select>
           <label>Payer reference</label>
           <input class="in" [(ngModel)]="payerRef" name="payerRef" placeholder="customer phone / card mask" />
-          <mp-button type="submit" [loading]="busy()">Create payment</mp-button>
+          <mp-button type="submit" *mpPerm="'merchant.payment:execute'" [loading]="busy()">Create payment</mp-button>
         </form>
         @if (last(); as p) {
           <div class="created">
@@ -107,10 +108,12 @@ export class MerchantDashboard implements OnInit {
       <mp-card title="Issuer / acquirer callback simulator" subtitle="Exactly one confirmation per payment (E31, idempotency-key)">
         @if (lastId(); as id) {
           <div class="simbtns">
-            @for (a of actions; track a) {
-              <mp-button [variant]="a === 'confirm' ? 'primary' : (a === 'fail' ? 'danger' : 'ghost')"
-                         (onClick)="simulate(a)">{{ a.toUpperCase() }}</mp-button>
-            }
+            <ng-container *mpPerm="'merchant.payment:simulate'">
+              @for (a of actions; track a) {
+                <mp-button [variant]="a === 'confirm' ? 'primary' : (a === 'fail' ? 'danger' : 'ghost')"
+                           (onClick)="simulate(a)">{{ a.toUpperCase() }}</mp-button>
+              }
+            </ng-container>
           </div>
           @if (simRes(); as s) { <status-badge [status]="s.status" /> <p class="dim">{{ s.label }}</p> }
           @else { <p class="dim">Create a payment, then replay a callback kind.</p> }
@@ -212,7 +215,7 @@ export class MerchantPayments implements OnInit {
 @Component({
   selector: 'merchant-payment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MpCard, PageHeader, KpiRow, EventTimeline, MpSpinner, CurrencyAmount, StatusBadge, MpButton, FormsModule],
+  imports: [CommonModule, MpCard, PageHeader, KpiRow, EventTimeline, MpSpinner, CurrencyAmount, StatusBadge, MpButton, FormsModule, MpPerm],
   template: `
     @if (p(); as pay) {
       <page-header [title]="'Payment ' + pay.id.slice(0, 8)" subtitle="M10 - full trail with issuer events and idempotency keys (TC-ACC-05)" />
@@ -227,7 +230,7 @@ export class MerchantPayments implements OnInit {
         <div class="row">
           <input class="in" [(ngModel)]="refundAmount" type="number" placeholder="Amount" />
           <input class="in" [(ngModel)]="refundReason" placeholder="Reason" />
-          <mp-button (onClick)="refund()">Refund</mp-button>
+          <mp-button *mpPerm="'merchant.payment:execute'" (onClick)="refund()">Refund</mp-button>
         </div>
         @if (refundMsg(); as m) {<div class="dim mt">{{ m }}</div>}
       </mp-card>
@@ -269,7 +272,7 @@ export class MerchantPaymentDetail implements OnInit {
 @Component({
   selector: 'merchant-balance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MpCard, PageHeader, KpiRow, MpTable, MpSpinner, MpEntityForm],
+  imports: [CommonModule, MpCard, PageHeader, KpiRow, MpTable, MpSpinner, MpEntityForm, MpPerm],
   template: `
     @if (bal(); as b) {
       <page-header title="Balance & withdrawal" subtitle="M05: confirmed / pending / held / owed + M26 release to the issuer bank account" />
@@ -280,7 +283,7 @@ export class MerchantPaymentDetail implements OnInit {
         { label: 'Advance owed', amount: b.owed, sub: '10% daily collections' },
       ]" />
       <div class="grid2 mt">
-        <mp-entity-form #wf [schema]="withdrawSchema" submitLabel="Request withdrawal" (submitted)="withdraw($event)" />
+        <mp-entity-form #wf [schema]="withdrawSchema" submitLabel="Request withdrawal" *mpPerm="'merchant.withdrawal:execute'" (submitted)="withdraw($event)" />
         <mp-card title="Withdrawal history">
           <mp-table [cols]="wdCols" [rows]="withdrawals() ?? []" empty="No withdrawals yet" />
         </mp-card>
@@ -350,7 +353,7 @@ export class MerchantBalance implements OnInit {
 @Component({
   selector: 'merchant-orders',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpCard, MpButton, MpSpinner, CurrencyAmount, StatusBadge, FormsModule],
+  imports: [PageHeader, MpTable, MpCard, MpButton, MpSpinner, CurrencyAmount, StatusBadge, FormsModule, MpPerm],
   template: `
     <page-header title="Stock orders & supplier invoices" subtitle="M13 order from catalogue, M16 pay invoice from balance (funds held, then settled atomically)" />
     <div class="grid2 mt">
@@ -363,7 +366,7 @@ export class MerchantBalance implements OnInit {
               <option value="">Choose item...</option>
               @for (i of c; track i.id) { <option [value]="i.supplierId + ':' + i.id">{{ i.productName }} at {{ i.unitPrice }}</option> }
             </select>
-            <mp-button (onClick)="placeOrder()" [disabled]="!orderItemId">Order 1 unit</mp-button>
+            <mp-button *mpPerm="'merchant.order:create'" (onClick)="placeOrder()" [disabled]="!orderItemId">Order 1 unit</mp-button>
           </div>
         } @else { <mp-spinner label="Loading catalogue..." /> }
       </mp-card>
@@ -374,8 +377,8 @@ export class MerchantBalance implements OnInit {
             <div class="kvrow"><span class="dim">Ref</span><b>{{ inv.uniqueReference }}</b></div>
             <div class="kvrow"><span class="dim">Amount</span><currency-amount [amount]="inv.amount" /></div>
             <div class="row mt">
-              <mp-button (onClick)="payInvoice('EFT')">Pay via EFT</mp-button>
-              <mp-button variant="ghost" (onClick)="payInvoice('BOOK_TRANSFER')">Pay via book transfer</mp-button>
+              <mp-button *mpPerm="'merchant.invoice:execute'" (onClick)="payInvoice('EFT')">Pay via EFT</mp-button>
+              <mp-button *mpPerm="'merchant.invoice:execute'" variant="ghost" (onClick)="payInvoice('BOOK_TRANSFER')">Pay via book transfer</mp-button>
             </div>
             <p class="dim">Native IPP is NOT routed for B2B at go-live (BOOK_TRANSFER/EFT only).</p>
             @if (payMsg(); as m) {<div class="ok">{{ m }}</div>}
@@ -466,7 +469,7 @@ export class MerchantOrders implements OnInit {
 @Component({
   selector: 'merchant-inventory',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard],
+  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard, MpPerm],
   template: `
     <page-header title="Inventory" subtitle="K05: stock movement ledger + K06 low-stock warnings" />
     <mp-card title="Stock items" class="mt">
@@ -475,8 +478,8 @@ export class MerchantOrders implements OnInit {
       } @else { <mp-spinner label="Loading inventory..." /> }
     </mp-card>
     <div class="grid2 mt">
-      <mp-entity-form #af [schema]="addItemSchema" submitLabel="Add item" (submitted)="addItem($event)" />
-      <mp-entity-form #mf [schema]="moveSchema" submitLabel="Record movement" (submitted)="move($event)" />
+      <mp-entity-form #af [schema]="addItemSchema" submitLabel="Add item" *mpPerm="'merchant.inventory:create'" (submitted)="addItem($event)" />
+      <mp-entity-form #mf [schema]="moveSchema" submitLabel="Record movement" *mpPerm="'merchant.inventory:modify'" (submitted)="move($event)" />
     </div>
   `,
   styles: [`
@@ -542,7 +545,7 @@ export class MerchantInventory implements OnInit {
 @Component({
   selector: 'merchant-khata',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, CurrencyAmount, StatusBadge],
+  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, CurrencyAmount, StatusBadge, MpPerm],
   template: `
     <page-header title="Khata (credit book)" subtitle="M30: customer credit notes - NEVER in lender feeds (business rule: khata excluded)" />
     <mp-card title="Customer accounts" class="mt">
@@ -553,13 +556,13 @@ export class MerchantInventory implements OnInit {
           @if (entries(); as e) {
             <mp-table [cols]="entryCols" [rows]="e" empty="No entries yet" />
           }
-          <mp-button class="mt" variant="ghost" (onClick)="remind(k.id)">Send reminder (CU02)</mp-button>
+          <mp-button *mpPerm="'merchant.khata:execute'" class="mt" variant="ghost" (onClick)="remind(k.id)">Send reminder (CU02)</mp-button>
         }
       } @else { <mp-spinner label="Loading khata..." /> }
     </mp-card>
-    <mp-entity-form #kf class="mt" [schema]="createSchema" submitLabel="Create khata customer" (submitted)="create($event)" />
+    <mp-entity-form #kf class="mt" [schema]="createSchema" submitLabel="Create khata customer" *mpPerm="'merchant.khata:create'" (submitted)="create($event)" />
     @if (sel()) {
-      <mp-entity-form #ef class="mt" [schema]="entrySchema" submitLabel="Add entry" (submitted)="addEntry($event)" />
+      <mp-entity-form #ef class="mt" [schema]="entrySchema" submitLabel="Add entry" *mpPerm="'merchant.khata:create'" (submitted)="addEntry($event)" />
     }
     @if (msg(); as m) {<div class="ok">{{ m }}</div>}
   `,
@@ -651,7 +654,7 @@ export class MerchantKhata implements OnInit {
 @Component({
   selector: 'merchant-tabs',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, FormsModule],
+  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, FormsModule, MpPerm],
   template: `
     <page-header title="Tabs" subtitle="M36: open a customer tab in two taps; M37: one tap to settle or remind (M37)" />
     <mp-card title="Open tabs" class="mt">
@@ -659,8 +662,8 @@ export class MerchantKhata implements OnInit {
         <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="select($event)" empty="No tabs yet - two taps to create one" />
         @if (selId(); as id) {
           <div class="row mt">
-            <mp-button (onClick)="settle(id)">Settle (M37)</mp-button>
-            <mp-button variant="ghost" (onClick)="remind(id)">Remind</mp-button>
+            <mp-button *mpPerm="'merchant.tab:execute'" (onClick)="settle(id)">Settle (M37)</mp-button>
+            <mp-button *mpPerm="'merchant.tab:execute'" variant="ghost" (onClick)="remind(id)">Remind</mp-button>
           </div>
           @if (entries(); as e) {
             <mp-table [cols]="entryCols" [rows]="e" empty="No entries yet" />
@@ -668,7 +671,7 @@ export class MerchantKhata implements OnInit {
         }
       } @else { <mp-spinner label="Loading tabs..." /> }
     </mp-card>
-    <mp-entity-form #tf class="mt" [schema]="createSchema" submitLabel="Create tab" (submitted)="create($event)" />
+    <mp-entity-form #tf class="mt" [schema]="createSchema" submitLabel="Create tab" *mpPerm="'merchant.tab:create'" (submitted)="create($event)" />
     @if (msg(); as m) {<div class="ok">{{ m }}</div>}
   `,
   styles: [`
@@ -746,7 +749,7 @@ export class MerchantTabs implements OnInit {
 @Component({
   selector: 'merchant-advance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpButton, MpCard, CurrencyAmount, StatusBadge, FormsModule, KpiRow, SimulatedBanner],
+  imports: [PageHeader, MpTable, MpSpinner, MpButton, MpCard, CurrencyAmount, StatusBadge, FormsModule, KpiRow, SimulatedBanner, MpPerm],
   template: `
     <page-header title="Cash advance" subtitle="M21-M25: cap = lesser of N$25 000 / 20% of avg monthly net receipts / lender limit; repayment 10% of eligible daily receipts (TC-ADV)" />
     <simulated-banner class="mt-block" />
@@ -758,7 +761,7 @@ export class MerchantTabs implements OnInit {
             <option value="">Choose lender...</option>
             @for (l of ls; track l.id) { <option [value]="l.id">{{ l.name }}</option> }
           </select>
-          <mp-button (onClick)="grant()" [disabled]="!consentLenderId">Grant data consent</mp-button>
+          <mp-button *mpPerm="'merchant.advance:create'" (onClick)="grant()" [disabled]="!consentLenderId">Grant data consent</mp-button>
         </div>
       } @else { <mp-spinner label="Loading lenders (one call)..." /> }
       @if (consents(); as cs) {
@@ -776,7 +779,7 @@ export class MerchantTabs implements OnInit {
         <p class="dim">Excluded: khata, refunds, circular/self transfers (rules applied: {{ e.rulesApplied.join(', ') }})</p>
       }
       <div class="row mt">
-        <mp-button (onClick)="assess()" [disabled]="!consentLenderId">Request assessment</mp-button>
+        <mp-button *mpPerm="'merchant.advance:submit'" (onClick)="assess()" [disabled]="!consentLenderId">Request assessment</mp-button>
       </div>
       @if (offer(); as a) {
         <div class="offer mt">
@@ -798,7 +801,7 @@ export class MerchantTabs implements OnInit {
             <b>{{ money(a.principalAmount) }}</b> <span>repay {{ money(a.totalRepayment) }}</span>
             <span class="dim">rate: {{ rateText(a.repaymentRate) }}</span>
           </div>
-          <mp-button class="mt" (onClick)="accept()" [disabled]="a.status !== 'OFFERED'">Accept offer</mp-button>
+          <mp-button *mpPerm="'merchant.advance:authorize'" class="mt" (onClick)="accept()" [disabled]="a.status !== 'OFFERED'">Accept offer</mp-button>
           @if (v.repayments?.length) {
             <mp-table [cols]="repayCols" [rows]="v.repayments" class="mt" empty="No collections yet" />
           }
@@ -925,10 +928,10 @@ export class MerchantSettings implements OnInit {
 @Component({
   selector: 'merchant-statements',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard],
+  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard, MpPerm],
   template: `
     <page-header title="Statements" subtitle="M28: generate for a period; downloads valid 60 minutes (C04)" />
-    <mp-entity-form #gf [schema]="genSchema" submitLabel="Generate statement" (submitted)="generate($event)" class="mt" />
+    <mp-entity-form #gf [schema]="genSchema" submitLabel="Generate statement" *mpPerm="'merchant.statement:execute'" (submitted)="generate($event)" class="mt" />
     <mp-card title="Available statements" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="download($event)" empty="No statements yet" />

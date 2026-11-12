@@ -11,4 +11,12 @@ body {
   background: var(--mp-bg);
 }
 h1, h2, h3 { margin: 0; font-weight: 600; }
-a { color: var(--mp-teal); text-decoration: none; }
+a { color: var(--mp-accent-deep); text-decoration: none; }
+
+/* native form controls follow the theme; :where keeps specificity low so
+   atom/component styles still override */
+:where(input, select, textarea) {
+  color: var(--mp-text);
+  background: var(--mp-surface);
+}
+:where(input, select, textarea)::placeholder { color: var(--mp-text-dim); opacity: 1; }

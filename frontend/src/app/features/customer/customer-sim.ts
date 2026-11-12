@@ -39,7 +39,7 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
     .res { font-size: var(--fs-sm); }
     .res.money { color: #16a34a; }
     .res.fail { color: #dc2626; }
-    .go { background: #146c94; color: #fff; border: none; border-radius: var(--radius-1); padding: 9px var(--sp-5); font-weight: 600; cursor: pointer; font: inherit; }
+    .go { background: var(--mp-accent); color: var(--mp-accent-ink); border: none; border-radius: var(--radius-1); padding: 9px var(--sp-5); font-weight: 600; cursor: pointer; font: inherit; }
   `],
 })
 export class CustomerSim {

@@ -6,6 +6,9 @@ import { filter, map } from 'rxjs/operators';
 import { AuthService } from '../../core/auth.service';
 import { SimulatedBanner } from '../molecules/simulated-banner';
 import { EnvironmentService } from '../../core/env.service';
+import { ThemeService } from '../../core/theme.service';
+import { AccessService } from '../../../../projects/shared/web-core/access';
+import { ROUTE_PERMS } from '../../access-map';
 
 /**
  * Organism: application shell - sidebar nav (role-aware), topbar (user +
@@ -35,6 +38,7 @@ import { EnvironmentService } from '../../core/env.service';
           <div class="env"><simulated-banner /></div>
           <div class="user">
             <span class="dim">{{ me()?.name }}</span>
+            <button class="out theme" (click)="theme.toggle()" [title]="theme.dark() ? 'Switch to light theme' : 'Switch to dark theme'">{{ theme.dark() ? '☾ Dark' : '☀ Light' }}</button>
             <button class="out" (click)="logout()">Logout</button>
           </div>
         </header>
@@ -74,6 +78,13 @@ export class NavShell {
   private readonly auth = inject(AuthService);
   private readonly envSvc = inject(EnvironmentService);
   private readonly router = inject(Router);
+  readonly theme = inject(ThemeService);
+  readonly access = inject(AccessService);
+
+  constructor() {
+    // rights drive the nav; load them as soon as the shell renders
+    void this.access.load();
+  }
 
   readonly me = () => this.auth.me();
   readonly env = () => this.envSvc.env() ?? { environment: '', simulated: true, banner: '' };
@@ -88,7 +99,9 @@ export class NavShell {
 
   readonly current = () => this.routerEvents() ?? '';
 
-  // role-aware nav config (single config: role gates which groups appear)
+  // role selects the persona group; held permissions select the items inside it
+  // (rbac grid: an item appears the moment its row is granted, and every route
+  // re-guards itself, so deep links without the right land on /no-access).
   readonly nav = computed(() => {
     const r = this.auth.role();
     const groups: { label: string; icon: string; link: string; roles: string[] }[] = [
@@ -126,8 +139,14 @@ export class NavShell {
       { label: 'Access', icon: '⚿', link: '/admin/access', roles: ['MINDLABS_ADMIN'] },
       { label: 'Compliance', icon: '⛨', link: '/admin/compliance', roles: ['MINDLABS_ADMIN'] },
       { label: 'Ops hygiene', icon: '◷', link: '/admin/hygiene', roles: ['MINDLABS_ADMIN'] },
+      { label: 'Perms inventory', icon: '⌗', link: '/inventory', roles: ['MINDLABS_ADMIN'] },
     ];
-    return groups.filter((g) => g.roles.includes(r));
+    return groups
+      .filter((g) => g.roles.includes(r))
+      .filter((g) => {
+        const perm = ROUTE_PERMS[g.link];
+        return perm ? this.access.can(perm) : true;
+      });
   });
 
   logout() {

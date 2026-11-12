@@ -78,7 +78,7 @@ export interface MpColumn {
     td { padding: 9px 8px; border-bottom: 1px solid color-mix(in srgb, var(--mp-border) 55%, transparent); }
     tr:last-child td { border-bottom: none; }
     tr.clickable { cursor: pointer; }
-    tr.clickable:hover td { background: color-mix(in srgb, var(--mp-navy) 4%, transparent); }
+    tr.clickable:hover td { background: color-mix(in srgb, var(--mp-text) 5%, transparent); }
     .right { text-align: right; }
     .dim { color: var(--mp-text-dim); font-size: var(--fs-sm); }
     .none { text-align: center; color: var(--mp-text-dim); padding: var(--sp-5); }

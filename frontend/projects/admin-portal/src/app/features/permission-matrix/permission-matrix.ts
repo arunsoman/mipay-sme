@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } 
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { MpPerm } from '../../../../../shared/web-core/perm-directive';
+import { AccessService } from '../../../../../shared/web-core/access';
 import {
   RbacResourceView, RbacRoleUpdate, RbacRoleView, RBAC_VERBS, RbacVerb, readProblem,
 } from '../../core/api';
@@ -77,7 +79,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 @Component({
   selector: 'mpa-permission-matrix',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, MpPerm],
   template: `
     @if (rbacMode() && rbacMode() !== 'enforce') {
       <div class="rbac-status" role="status">
@@ -86,8 +88,8 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     }
 
     <div class="head">
-      <h2>Permission Matrix</h2>
-      <button class="primary" (click)="startCreate()" [disabled]="busy() || loading()">+ New role</button>
+      <h2>Roles and permissions</h2>
+      <button *mpPerm="'rbac.role:create'" class="primary" (click)="startCreate()" [disabled]="busy() || loading()">+ New role</button>
       <button class="ghost" (click)="reload()" [disabled]="loading()">Refresh</button>
     </div>
 
@@ -97,7 +99,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       <span class="legend small">
         <span><b class="chip-v own">view</b> on the role</span>
         <span><b class="chip-v inh">view</b> inherited</span>
-        <span><b class="flag">⚑</b> privileged (provisional rule until risk tiers)</span>
+        <span><b class="flag">⚑</b> sensitive (money or access)</span>
       </span>
     </div>
 
@@ -157,16 +159,16 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
         </div>
         <div class="meta small">
           <span>{{ r.description }}</span>
-          <span>inherits: {{ r.inherits.length ? labels(r.inherits) : 'nothing' }}</span>
+          <span>builds on: {{ r.inherits.length ? labels(r.inherits) : 'nothing' }}</span>
           <span>granting it needs {{ approvalLabel(r.approval) }}</span>
-          @if (r.locked) {<span class="tag amber">seeded · read-only here</span>}
-          @else if (r.seeded) {<span class="tag amber">seeded · sandbox edit, lasts until the next grid.yaml change</span>}
+          @if (r.locked) {<span class="tag amber">built-in role · read-only</span>}
+          @else if (r.seeded) {<span class="tag amber">built-in role · changes here last until the next release</span>}
         </div>
         @if (r.locked) {
-          <div class="seeded-warning" role="status">Seeded roles can't be changed here in this environment. Update the reviewed grid.yaml and deploy it.</div>
+          <div class="seeded-warning" role="status">Built-in roles can't be changed here. They change with a reviewed release.</div>
         }
         @if (!r.seeded) {
-          <div class="danger-row"><button class="danger" (click)="deleteRole(r.name)" [disabled]="busy()">Delete this role</button>
+          <div class="danger-row"><button *mpPerm="'rbac.role:delete'" class="danger" (click)="deleteRole(r.name)" [disabled]="busy()">Delete this role</button>
             <span class="muted small">only while nobody holds it</span></div>
         }
         <div class="muted small hint">Click an action to give or take it. Inherited actions are changed on the role they come from.</div>
@@ -186,7 +188,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
                           [class.inh]="states().get(row.id + ':' + v) === 'inh'"
                           [class.off]="states().get(row.id + ':' + v) === 'off'"
                           [class.dirty]="isDirty(row.id, $any(v))"
-                          [disabled]="r.locked || states().get(row.id + ':' + v) === 'inh' || busy()"
+                          [disabled]="r.locked || !access.can('rbac.role:modify') || states().get(row.id + ':' + v) === 'inh' || busy()"
                           [attr.aria-pressed]="states().get(row.id + ':' + v) !== 'off'"
                           [title]="chipTitle(r, row, $any(v), states().get(row.id + ':' + v) ?? 'off')"
                           (click)="toggle(row.id, $any(v))">
@@ -207,7 +209,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           <div class="actions">
             <span class="muted small">{{ dirtyCount() }} change(s)</span>
             <button class="ghost" (click)="discard()" [disabled]="busy()">Discard</button>
-            <button class="primary" (click)="save()" [disabled]="busy()">Save {{ roleLabel(r.name) }}</button>
+            <button *mpPerm="'rbac.role:modify'" class="primary" (click)="save()" [disabled]="busy()">Save {{ roleLabel(r.name) }}</button>
           </div>
         }
       </div>
@@ -234,8 +236,8 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           <table class="overview ctl">
             <thead>
               <tr>
-                <th class="resource-col">Endpoint</th>
-                <th class="perm-col">Needs</th>
+                <th class="resource-col">Screen action (API)</th>
+                <th class="perm-col">Needs permission</th>
                 @for (r of scopeRoles(); track r.name) {
                   <th class="rolehead" [title]="r.name + ': ' + r.description">
                     <button type="button" class="rolebtn" (click)="openRole(r.name)"><span>{{ roleLabel(r.name) }}</span></button>
@@ -249,7 +251,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
                 <tr class="ctlhead" (click)="toggleCtl(c.name)" [attr.aria-expanded]="open">
                   <td [attr.colspan]="scopeRoles().length + 2">
                     <span class="caret">{{ open ? '▾' : '▸' }}</span>
-                    <b>{{ c.name }}</b>
+                    <b>{{ ctlLabel(c.name) }}</b>
                     <span class="muted small"> · {{ c.endpoints.length }} endpoint{{ c.endpoints.length === 1 ? '' : 's' }}</span>
                   </td>
                 </tr>
@@ -416,6 +418,8 @@ export class PermissionMatrix implements OnInit {
   readonly resources = signal<RbacResourceView[]>([]);
   /** No org-type tabs: one matrix of every standard role over every row from the code. */
   readonly scope = signal<ScopeId>('PLATFORM');
+  /** Actions hide themselves without their permission (*mpPerm). */
+  readonly access = inject(AccessService);
   readonly q = signal('');
   readonly showAll = signal(false);
   /** Overview: grouped by controller (each expandable) or the permission grid. */
@@ -446,6 +450,11 @@ export class PermissionMatrix implements OnInit {
     this.openCtl.set(s);
   }
   expandAll() { this.openCtl.set(new Set(this.controllers().map((c) => c.name))); }
+  /** "OrgAuthAccessController" -> "Org auth access" */
+  ctlLabel(name: string) {
+    const t = name.replace(/Controller$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
   collapseAll() { this.openCtl.set(new Set()); }
   readonly editingName = signal<string | null>(null);
   /** The edited role's own cells (all rows, not only the visible ones). */

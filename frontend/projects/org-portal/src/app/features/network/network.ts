@@ -1,3 +1,4 @@
+import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 import { Modal } from '../../../../../shared/ui/modal';
 import { RoleCeiling } from '../../../../../shared/rbac/role-ceiling';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
@@ -25,7 +26,7 @@ const HINTS: Record<string, string> = {
 @Component({
   selector: 'mpo-network',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Modal, FormsModule, DatePipe, RoleCeiling],
+  imports: [MpPerm, Modal, FormsModule, DatePipe, RoleCeiling],
   template: `
     <div class="head">
       <h2>My network</h2>
@@ -81,14 +82,14 @@ const HINTS: Record<string, string> = {
                 <span class="chip bad">HOLD</span>
                 <span>{{ h.reason }}</span>
                 <span class="muted small">since {{ h.createdAt | date:'MMM d, HH:mm' }}</span>
-                @if (!isOwn()) {<button class="ghost" (click)="lift(h.id)" [disabled]="busy()">Lift</button>}
+                @if (!isOwn()) {<button *mpPerm="'org.suspension:administer'" class="ghost" (click)="lift(h.id)" [disabled]="busy()">Lift</button>}
               </div>
             } @empty {
               <div class="muted small">{{ o.effectiveStatus === 'SUSPENDED_BY_ANCESTOR'
                 ? 'Suspended because an organization above it is suspended.' : 'No holds on this organization.' }}</div>
             }
             @if (!isOwn() && o.lifecycle === 'ACTIVE') {
-              <div class="row"><button class="danger" (click)="openSuspend()">Suspend…</button></div>
+              <div class="row" *mpPerm="'org.suspension:administer'"><button class="danger" (click)="openSuspend()">Suspend…</button></div>
               <mp-modal [open]="suspending()" size="narrow" eyebrow="Suspend" [title]="o.name"
                         [dirty]="!!reason.trim()" (closed)="suspending.set(false)">
                 <div class="warnbox">Suspending {{ o.name }} also blocks the {{ o.subtree?.descendants ?? 0 }} organizations
@@ -128,7 +129,7 @@ const HINTS: Record<string, string> = {
                   </tbody>
                 </table>
                 @if (!isOwn() && rightTypes().length) {
-                  <div class="row"><button class="primary" (click)="openRights()">Edit rights</button></div>
+                  <div class="row" *mpPerm="'org.rights:administer'"><button class="primary" (click)="openRights()">Edit rights</button></div>
                   <mp-modal [open]="editingRights()" eyebrow="Onboarding rights" [title]="o.name"
                             subtitle="Untick to take a right away; it applies to the whole sub-network at once. Rights cannot be added back here."
                             [dirty]="dirty()" discardText="Discard the narrowing? Nothing has been saved."
@@ -153,7 +154,7 @@ const HINTS: Record<string, string> = {
                     @if (modalError(); as e) {<div class="err">{{ e }}</div>}
                     <div modal-footer>
                       <button class="ghost" type="button" (click)="closeRights()">Cancel</button>
-                      <button class="primary" (click)="saveRights()" [disabled]="busy() || !dirty()">Save narrowing</button>
+                      <button class="primary" (click)="saveRights()" [disabled]="busy() || !dirty()">Save</button>
                     </div>
                   </mp-modal>
                 }

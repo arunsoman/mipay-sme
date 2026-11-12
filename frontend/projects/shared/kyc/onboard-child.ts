@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, OnInit, output, signal, viewChildren } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, output, signal, viewChildren } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -24,6 +24,10 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, KycSchemaEditor, KycProgress, Modal],
   template: `
+    @if (compact()) {
+      <button class="primary" type="button" (click)="openForm()" [disabled]="!grantable()?.children?.length"
+              [title]="grantError() || (grantable()?.children?.length ? 'You may onboard: ' + allowedSummary(grantable()!) : 'Your organization has no onboarding rights')">＋ Onboard organization</button>
+    } @else {
     <section class="panel pad">
       <div class="ptitle">Onboard an organization</div>
       @if (grantError(); as e) {<div class="err">{{ e }}</div>}
@@ -40,6 +44,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
         <div class="muted">Loading your onboarding rights…</div>
       }
     </section>
+    }
 
     <mp-modal [open]="open()" size="wide" eyebrow="New organization"
               [title]="done() ? legalName() : 'Onboard an organization'"
@@ -133,6 +138,8 @@ export class OnboardChild implements OnInit {
   readonly onboarded = output<OrgDecisionResult>();
   /** Fires when the new org's KYC was submitted. */
   readonly kycChanged = output<string>();
+  /** Just the "Onboard organization" button (a page header), no panel around it. */
+  readonly compact = input(false);
 
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);

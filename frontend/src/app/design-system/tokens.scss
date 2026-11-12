@@ -3,21 +3,35 @@
 // decision; feature code never hardcodes colors/spacing/radius).
 // Currency: NAD. All bank/lender events in this product are SIMULATED
 // (amber), per UAT SB p.16.
+//
+// Palette extracted from the TPTS brand site (tptsnam.com):
+//   light  = warm cream surfaces (#fffaf0 / #fff) with ink (#111) text
+//   dark   = near-black ladder (#050505 / #111 / #171717) with #f4f4f4 text
+//   accent = TPTS gold #f0a10e (light gold #f7bc55 as the soft variant),
+//            green #84efb2 / cyan #7cecff / purple #bfa4ff as secondary hues.
+// Historical token names kept for continuity (--mp-navy is the ink chrome,
+// --mp-teal is the brand accent) - same convention the portals use.
 // =====================================================================
 :root {
   // brand
-  --mp-navy: #0b2447;
-  --mp-navy-2: #19376d;
-  --mp-teal: #146c94;
-  --mp-amber: #f59e0b;      // SIMULATED / synthetic label color
-  --mp-bg: #f4f6fa;
+  --mp-navy: #111111;        // ink chrome (sidebar, dark buttons) - historical name
+  --mp-navy-2: #171717;      // raised panel on ink (site --k3)
+  --mp-teal: #f0a10e;        // brand gold accent - historical name
+  --mp-accent: #f0a10e;      // canonical accent name
+  --mp-accent-ink: #141004;  // text/badge ink on the gold accent
+  --mp-accent-deep: #8a5a05; // darker gold for links/text on cream
+  --mp-amber: #f7bc55;       // SIMULATED / synthetic label color (site light gold)
+  --mp-sun: #84efb2;         // secondary success hue (site green)
+  --mp-cyan: #7cecff;        // secondary info hue (site cyan)
+  --mp-purple: #bfa4ff;      // secondary highlight hue (site purple)
+  --mp-bg: #fffaf0;          // cream page background (site --cream)
   --mp-surface: #ffffff;
-  --mp-border: #e2e8f0;
+  --mp-border: #dcdcd3;      // site --line
 
   // text
-  --mp-text: #1e293b;
-  --mp-text-dim: #64748b;
-  --mp-text-invert: #f8fafc;
+  --mp-text: #111111;        // site --ink
+  --mp-text-dim: #6d6d67;    // site --muted
+  --mp-text-invert: #ffffff; // text on the ink chrome
 
   // status palette (keys used by status-badge via status-maps.ts)
   --st-confirmed: #16a34a;
@@ -51,11 +65,11 @@
 
   // radii + shadow
   --radius-1: 6px; --radius-2: 10px; --radius-3: 14px;
-  --shadow-1: 0 1px 3px rgb(15 23 42 / 0.08);
-  --shadow-2: 0 4px 16px rgb(15 23 42 / 0.10);
+  --shadow-1: 0 1px 3px rgb(17 17 17 / 0.08);
+  --shadow-2: 0 4px 16px rgb(17 17 17 / 0.10);
 
-  // typography
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  // typography (Figtree is the TPTS site face)
+  --font: 'Figtree', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --fs-xs: 11px; --fs-sm: 12px; --fs-md: 14px; --fs-lg: 18px; --fs-xl: 24px;
 
   // layout
@@ -63,7 +77,18 @@
   --topbar-h: 56px;
 }
 
+// TPTS dark: near-black ladder from the site (--k / --k2 / --k3), gold stays.
 .mp-dark {
-  --mp-bg: #0f172a; --mp-surface: #1e293b; --mp-border: #334155;
-  --mp-text: #e2e8f0; --mp-text-dim: #94a3b8; --mp-text-invert: #0f172a;
+  --mp-bg: #050505;
+  --mp-surface: #111111;
+  --mp-border: #242424;
+  --mp-text: #f4f4f4;
+  --mp-text-dim: #a3a3a3;
+  --mp-text-invert: #f4f4f4;
+
+  --mp-navy: #111111;        // sidebar stays the raised panel on the #050505 page
+  --mp-navy-2: #171717;
+  --mp-accent-deep: #f7bc55; // light gold reads as a link on near-black
+  --shadow-1: 0 1px 3px rgb(0 0 0 / 0.5);
+  --shadow-2: 0 4px 16px rgb(0 0 0 / 0.55);
 }

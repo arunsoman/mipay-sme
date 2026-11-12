@@ -1,3 +1,4 @@
+import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -36,16 +37,15 @@ const HINTS: Record<string, string> = {
 @Component({
   selector: 'mpo-onboarding',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, DatePipe, RouterLink, OnboardChild, Modal],
+  imports: [MpPerm, FormsModule, DatePipe, RouterLink, OnboardChild, Modal],
   template: `
     <div class="head">
       <h2>Onboarding</h2>
       <button class="ghost" (click)="reload()">Refresh</button>
+      <!-- new org (shared, rights-based, continues into KYC) -->
+      <mp-onboard-child *mpPerm="'org.onboarding:create'" [compact]="true" (onboarded)="onOnboarded()" />
     </div>
     @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
-
-    <!-- ---------------- new org (shared, rights-based, continues into KYC) ---------------- -->
-    <mp-onboard-child (onboarded)="onOnboarded()" />
 
     <!-- ---------------- requests ---------------- -->
     <section class="panel pad">
@@ -81,40 +81,43 @@ const HINTS: Record<string, string> = {
       }
 
       <table class="grid">
-        <thead><tr><th>Organization</th><th>Kind</th><th>Rights (direct / ceiling)</th>
-          <th>Submitted</th><th>Status</th><th>Reviewed</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Organization</th><th>May onboard</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
         <tbody>
           @for (r of rows(); track r.id) {
             <tr>
-              <td>{{ r.orgName }} <span class="chip">{{ r.orgType }}</span></td>
-              <td class="small">{{ r.kind === 'ADMIN_RECOVERY' ? 'Admin recovery' : 'New organization' }}</td>
-              <td class="mono">{{ r.rightsDirect || '—' }} / {{ r.rightsCeiling || '—' }}</td>
+              <td><div class="nm">{{ r.orgName }}</div>
+                <div class="muted small">{{ title(r.orgType) }}@if (r.kind === 'ADMIN_RECOVERY') { · admin recovery}</div></td>
+              <td class="small">{{ words(r.rightsDirect) }}</td>
               <td>{{ r.createdAt | date:'MMM d, HH:mm' }}
                 @if (mine(r)) {<div class="muted small">by you</div>}</td>
-              <td><span class="chip {{ cls(r.status) }}">{{ r.status }}</span></td>
-              <td>{{ r.reviewedAt | date:'MMM d, HH:mm' }}</td>
-              <td class="small muted">{{ r.note ?? '' }}</td>
+              <td><span class="chip {{ cls(r.status) }}">{{ tabLabel(r.status) }}</span>
+                @if (r.reviewedAt) {<div class="muted small">decided {{ r.reviewedAt | date:'MMM d' }}</div>}</td>
               <td>
                 @if (r.kind === 'ORG_ONBOARDING') {
-                  <a class="btnlink" routerLink="/kyc" [queryParams]="{ org: r.orgId }">KYC</a>
+                  <a *mpPerm="'kyc.application:read'" class="btn ghost" routerLink="/kyc" [queryParams]="{ org: r.orgId }">View KYC</a>
                 } @else if (r.status === 'PENDING_REVIEW') {
                   @if (mine(r)) {
                     <span class="muted small" title="Second-person rule">awaiting another admin</span>
                   } @else {
-                    <button (click)="pick(r)">Review</button>
+                    <button *mpPerm="'org.onboarding:authorize'" (click)="pick(r)">Review</button>
                   }
                 }
               </td>
             </tr>
           } @empty {
-            <tr><td colspan="8" class="muted">No {{ tabLabel(tab()).toLowerCase() }} requests.</td></tr>
+            <tr><td colspan="5" class="muted">No {{ tabLabel(tab()).toLowerCase() }} requests.</td></tr>
           }
         </tbody>
       </table>
     </section>
   `,
   styles: [`
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .head { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
+    .nm { font-weight: 600; }
+    td { vertical-align: middle; }
+    a.btn { display: inline-flex; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--a-border); color: var(--a-text);
+            text-decoration: none; font-size: 13px; white-space: nowrap; }
+    section { overflow-x: auto; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; flex: 1; }
     section { margin-bottom: 16px; }
     .pad { padding: 16px; }
@@ -177,6 +180,7 @@ export class Onboarding implements OnInit {
 
   title(t: string | null) { return t ? t.charAt(0) + t.slice(1).toLowerCase() : '—'; }
   tabLabel(s: string) { return s === 'PENDING_REVIEW' ? 'Pending' : this.title(s); }
+  words(csv: string | null) { const xs = (csv ?? '').split(',').map((x) => x.trim()).filter(Boolean); return xs.length ? xs.map((x) => this.title(x)).join(', ') : '—'; }
   mine(r: OnboardingRequestRow) { return r.requestedBy === this.auth.me()?.userId; }
 
   setTab(t: OnboardingStatus) {

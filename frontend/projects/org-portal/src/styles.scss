@@ -1,4 +1,18 @@
 /* MiPay org portal theme - TPTS brand like the admin portal; the per-portal accent only tints the portal name in the shell. Self-contained. */
+@use '../../../src/app/design-system/tokens.scss';
+
+/* Mirror the portal dark palette onto the shared web-core tokens: the commerce screens
+   (catalogue, orders, invoices, accounts, statements - shared with sme-ui) and the core
+   empty shell read --mp-* and must blend into the portal chrome. */
+:root {
+  --mp-bg: #0b0b0b; --mp-surface: #141414; --mp-border: #272727;
+  --mp-text: #ededed; --mp-text-dim: #a3a3a3; --mp-text-invert: #0b0b0b;
+  --mp-navy: #111111; --mp-accent: #f0a10e; --mp-accent-ink: #141004;
+  --mp-accent-deep: #f7bc55; --mp-amber: #f7c66b;
+  --radius-1: 12px; --radius-2: 16px; --radius-3: 20px;
+  --font: "Figtree", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
 :root {
   /* TPTS brand (tptsnam.com): amber on near-black, Figtree, pill controls */
   --a-bg: #070707;

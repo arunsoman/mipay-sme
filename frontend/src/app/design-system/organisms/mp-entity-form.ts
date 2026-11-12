@@ -56,7 +56,7 @@ export interface MpFieldSchema {
     .cell { min-width: 0; }
     .foot { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-2); }
     .grow { flex: 1; }
-    .msg { font-size: var(--fs-sm); color: var(--st-confirmed, var(--mp-teal)); }
+    .msg { font-size: var(--fs-sm); color: var(--st-confirmed, var(--mp-accent-deep)); }
     .msg.fail { color: #dc2626; }
   `],
 })

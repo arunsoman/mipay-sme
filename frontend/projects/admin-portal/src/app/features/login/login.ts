@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AdminAuthService, PortalRefusedError } from '../../core/auth';
 import { readProblem } from '../../core/api';
 
@@ -14,12 +14,12 @@ import { readProblem } from '../../core/api';
 @Component({
   selector: 'mpa-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="stage">
       <div class="head">
         <div class="brand">MiPay <span>Admin</span></div>
-        <div class="sub">Onboarding · User management · Permissions</div>
+        <div class="sub">Sign in to manage your organizations</div>
       </div>
       <form class="card" (ngSubmit)="go()">
         <label>Username
@@ -41,7 +41,7 @@ import { readProblem } from '../../core/api';
           <span class="simtag">SIMULATED</span>
         </div>}
       </form>
-      <div class="foot">Identity provider (IdP) backed · JWT with org binding claims</div>
+      <div class="foot">Got a set-up link? <a routerLink="/activate">Set your password</a></div>
     </div>
   `,
   styles: [`

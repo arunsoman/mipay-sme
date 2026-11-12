@@ -1,3 +1,4 @@
+import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 import { Modal } from '../../../../../shared/ui/modal';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -17,10 +18,10 @@ import { problemText } from '../onboarding/onboarding';
 @Component({
   selector: 'mpa-permissions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, Modal],
+  imports: [FormsModule, Modal, MpPerm],
   template: `
     <div class="head">
-      <h2>Permissions</h2>
+      <h2>Onboarding rights</h2>
       <button class="ghost" (click)="reload()">Refresh</button>
     </div>
 
@@ -36,7 +37,7 @@ import { problemText } from '../onboarding/onboarding';
                  (keydown.enter)="pick(n)">
               <span class="indent">{{ indent(n.depth) }}</span>
               <span class="nm">{{ n.name }}</span>
-              <span class="chip small">{{ n.type }}</span>
+              <span class="ty">{{ word(n.type) }}</span>
             </div>
           }
         }
@@ -44,27 +45,33 @@ import { problemText } from '../onboarding/onboarding';
 
       <div class="panel details">
         @if (selected(); as org) {
-          <div class="ptitle">Rights of {{ org.name }} <span class="chip">{{ org.type }}</span></div>
+          <div class="dhead">
+            <div><h3>{{ org.name }}</h3><div class="muted small">{{ word(org.type) }} · what it may onboard</div></div>
+            <button *mpPerm="'org.rights:administer'" class="primary" (click)="openEdit()" [disabled]="!rights()">Edit rights</button>
+          </div>
 
           @if (rightsError(); as e) {<div class="err">{{ e }}</div>}
           @if (rights(); as r) {
-            <div class="summary">
-              <div class="kv"><span>DIRECT</span><span class="mono">{{ r.direct || 'none' }}</span></div>
-              <div class="kv"><span>CEILING</span><span class="mono">{{ r.ceiling || 'none' }}</span></div>
-              <div class="kv"><span>eff DIRECT</span><span class="mono">{{ r.effDirect || 'none' }}</span></div>
-              <div class="kv"><span>eff CEILING</span><span class="mono">{{ r.effCeiling || 'none' }}</span></div>
+            <div class="cards">
+              <div class="card">
+                <div class="ctitle">Onboards directly</div>
+                <div class="tags">@for (t of list(r.effDirect); track t) {<span class="tag">{{ word(t) }}</span>} @empty {<span class="muted">Nothing</span>}</div>
+              </div>
+              <div class="card">
+                <div class="ctitle">Anywhere below it</div>
+                <div class="tags">@for (t of list(r.effCeiling); track t) {<span class="tag">{{ word(t) }}</span>} @empty {<span class="muted">Nothing</span>}</div>
+              </div>
             </div>
             @if (!editing() && flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
-            <div class="row"><button class="primary" (click)="openEdit()">Edit rights</button></div>
-            <div class="hint">Narrowing only ([D1]): rights can never be widened here; ancestors grant at onboarding time.</div>
+            <div class="hint">You can only narrow these here. Wider rights are given by the organization above it, when it is onboarded.</div>
 
-            <mp-modal [open]="editing()" eyebrow="Permissions" [title]="'Rights of ' + org.name"
-                      subtitle="Untick to narrow. Rights can never be widened here."
+            <mp-modal [open]="editing()" eyebrow="Onboarding rights" [title]="'Rights of ' + org.name"
+                      subtitle="Untick to narrow. Rights can't be widened here."
                       [dirty]="dirty()" discardText="Discard the narrowing? Nothing has been saved."
                       (closed)="closeEdit()">
             <div class="blocks">
                 <div class="block">
-                  <div class="btitle">DIRECT <span class="muted small">— child types this org may onboard itself</span></div>
+                  <div class="btitle">Onboards directly <span class="muted small">— types it may onboard itself</span></div>
                   <div class="opts">
                     @for (t of allTypes; track t) {
                       <label class="opt" [class.locked]="!holds('direct', t)">
@@ -72,15 +79,15 @@ import { problemText } from '../onboarding/onboarding';
                                [ngModel]="holds('direct', t) ? true : false"
                                [disabled]="!holds('direct', t) || busy()"
                                (ngModelChange)="toggle('direct', t, $event)" />
-                        <span>{{ t }}</span>
+                        <span>{{ word(t) }}</span>
                       </label>
                     }
                   </div>
-                  <div class="muted small">Currently: {{ r.direct || 'none' }}</div>
+
                 </div>
 
                 <div class="block">
-                  <div class="btitle">CEILING <span class="muted small">— subtree-wide upper bound</span></div>
+                  <div class="btitle">Anywhere below it <span class="muted small">— the most its whole network may onboard</span></div>
                   <div class="opts">
                     @for (t of allTypes; track t) {
                       <label class="opt" [class.locked]="!holds('ceiling', t)">
@@ -88,36 +95,36 @@ import { problemText } from '../onboarding/onboarding';
                                [ngModel]="holds('ceiling', t) ? true : false"
                                [disabled]="!holds('ceiling', t) || busy()"
                                (ngModelChange)="toggle('ceiling', t, $event)" />
-                        <span>{{ t }}</span>
+                        <span>{{ word(t) }}</span>
                       </label>
                     }
                   </div>
-                  <div class="muted small">Currently: {{ r.ceiling || 'none' }}</div>
+
                 </div>
 
               </div>
               @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
               <div modal-footer>
                 <button class="ghost" type="button" (click)="closeEdit()">Cancel</button>
-                <button class="primary" [disabled]="busy() || !dirty()" (click)="save()">Save narrowing</button>
+                <button class="primary" [disabled]="busy() || !dirty()" (click)="save()">Save</button>
               </div>
             </mp-modal>
           }
 
           @if (grantable(); as g) {
             <div class="grantable">
-              <div class="btitle">Your org's grantable child types <span class="muted small">(eff DIRECT derived)</span></div>
+              <div class="btitle">What your organization may onboard</div>
               <table class="grid">
-                <thead><tr><th>Child type</th><th>Allowed ceiling</th><th>Default direct</th></tr></thead>
+                <thead><tr><th>Type</th><th>It may let them onboard</th><th>Ticked by default</th></tr></thead>
                 <tbody>
                   @for (c of g.children; track c.type) {
                     <tr>
-                      <td><span class="chip teal small">{{ c.type }}</span></td>
-                      <td class="mono small">{{ c.allowedCeiling.join(', ') || '—' }}</td>
-                      <td class="mono small">{{ c.defaultDirect.join(', ') || '—' }}</td>
+                      <td>{{ word(c.type) }}</td>
+                      <td class="small">{{ words(c.allowedCeiling) }}</td>
+                      <td class="small">{{ words(c.defaultDirect) }}</td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="3" class="muted">Your org may not onboard anything.</td></tr>
+                    <tr><td colspan="3" class="muted">Your organization may not onboard anything.</td></tr>
                   }
                 </tbody>
               </table>
@@ -130,8 +137,19 @@ import { problemText } from '../onboarding/onboarding';
     </div>
   `,
   styles: [`
+    .dhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .dhead h3 { margin: 0; font-size: 19px; color: var(--a-text); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card { border: 1px solid #222; background: #0f0f0f; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+    .ctitle { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--a-dim); font-weight: 700; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag { padding: 4px 11px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--a-teal) 14%, transparent); color: var(--a-teal); }
+    .ty { margin-left: auto; font-size: 11.5px; color: var(--a-dim); }
     .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; margin: 6px 0 12px; }
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .head { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
+    .grantable table td { vertical-align: middle; }
+    .grantable { overflow-x: auto; }
+    @media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr) !important; } .dhead { flex-wrap: wrap; } }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; }
     .cols { display: grid; grid-template-columns: 360px 1fr; gap: 14px; align-items: start; }
     .panel { padding: 12px; }
@@ -196,6 +214,11 @@ export class Permissions implements OnInit {
   });
 
   async ngOnInit() { await this.reload(); }
+
+  /** "MERCHANT" -> "Merchant" */
+  word(t: string | null) { return t ? t.charAt(0) + t.slice(1).toLowerCase() : ''; }
+  list(csv: string | null) { return (csv ?? '').split(',').map((x) => x.trim()).filter(Boolean); }
+  words(xs: string[]) { return xs.length ? xs.map((x) => this.word(x)).join(', ') : '—'; }
 
   indent(d: number) { return d <= 0 ? '' : '  '.repeat(d - 1) + '└ '; }
 

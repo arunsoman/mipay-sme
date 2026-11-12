@@ -3,6 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { Modal } from '../ui/modal';
+import { MpPerm } from '../web-core/perm-directive';
+import { AccessService } from '../web-core/access';
 import { readProblem } from '../kyc/kyc-api';
 import { OrgRolesView, RbacRole, RBAC_HINTS, RoleAssignment } from '../rbac/rbac-api';
 
@@ -31,13 +33,13 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
 @Component({
   selector: 'mp-user-management',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, Modal],
+  imports: [FormsModule, Modal, MpPerm],
   template: `
     <div class="head">
       <h2>User management</h2>
       @if (access(); as a) {<span class="org">{{ a.orgName }}</span>}
       <span class="grow"></span>
-      @if (canManage()) {<button class="primary" type="button" (click)="startAdd()">＋ Add person</button>}
+      @if (canManage()) {<button *mpPerm="'org.user:create'" class="primary" type="button" (click)="startAdd()">＋ Add person</button>}
     </div>
 
     @if (loadError(); as e) {<div class="flash bad">{{ e }}</div>}
@@ -60,9 +62,9 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
                 <td><span class="st {{ p.status.toLowerCase() }}">{{ p.status.toLowerCase() }}</span></td>
                 <td class="act">
                   @if (p.status === 'PENDING') {
-                    <button type="button" class="ghost sm" (click)="setupLink(p)" [disabled]="busy()">Set-up link</button>
+                    <button *mpPerm="'org.user:administer'" type="button" class="ghost sm" (click)="setupLink(p)" [disabled]="busy()">Set-up link</button>
                   }
-                  <button type="button" class="ghost sm" (click)="startRole(p)">Give a role</button></td>
+                  <button *mpPerm="'rbac.assignment:create'" type="button" class="ghost sm" (click)="startRole(p)">Give a role</button></td>
               </tr>
             } @empty {
               <tr><td colspan="5" class="sub pad">No people in this organization yet.</td></tr>
@@ -110,7 +112,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
               [dirty]="mode() === 'new' && (picked().size > 0 || !!newRole.name)"
               discardText="Discard this role? Nothing has been created yet." (closed)="roleFor.set(null)">
       <div class="seg" role="tablist">
-        <button type="button" role="tab" [class.on]="mode() === 'new'" (click)="mode.set('new')">Create a role</button>
+        <button *mpPerm="'rbac.role:create'" type="button" role="tab" [class.on]="mode() === 'new'" (click)="mode.set('new')">Create a role</button>
         <button type="button" role="tab" [class.on]="mode() === 'existing'" [disabled]="!orgRoles().length"
                 (click)="mode.set('existing')">Use an existing role ({{ orgRoles().length }})</button>
       </div>
@@ -218,6 +220,8 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
 })
 export class UserManagement implements OnInit {
   private readonly http = inject(HttpClient);
+  /** Every action here hides itself without its permission (*mpPerm). */
+  readonly accessSvc = inject(AccessService);
   readonly cell = USER_ADMIN_CELL;
 
   readonly access = signal<MyAccess | null>(null);
@@ -339,7 +343,8 @@ export class UserManagement implements OnInit {
     this.filterText = '';
     this.picked.set(new Set());
     this.existing = '';
-    this.mode.set('new');
+    // without rbac.role:create a manager can only give the org's existing roles
+    this.mode.set(this.accessSvc.can('rbac.role:create') ? 'new' : 'existing');
     this.roleFor.set(p);
   }
 

@@ -10,6 +10,7 @@ import { EmptyState } from '../../design-system/molecules/empty-state';
 import { PageHeader } from '../../design-system/organisms/page-header';
 import { MpTable, MpColumn } from '../../design-system/organisms/mp-table';
 import { MpEntityForm, MpFieldSchema } from '../../design-system/organisms/mp-entity-form';
+import { MpPerm } from '../../../../projects/shared/web-core/perm-directive';
 import { SimulatedBanner } from '../../design-system/molecules/simulated-banner';
 import { SupplierService } from '../../core/services';
 import { KpiRow } from '../../design-system/organisms/kpi-row';
@@ -27,7 +28,7 @@ function wireMsg(e: unknown): string {
   imports: [PageHeader, MpCard, MpSpinner, StatusBadge, SimulatedBanner],
   template: `
     @if (s(); as sup) {
-      <page-header [title]="sup.businessName" subtitle="C21: approval status, KYC, counters (C21)" />
+      <page-header [title]="sup.businessName" subtitle="Your approval status, KYC and activity at a glance" />
       <div class="grid3 mt">
         <mp-card title="Approval status">
           <status-badge [status]="sup.approvalStatus" />
@@ -70,15 +71,15 @@ export class SupplierHome implements OnInit {
 @Component({
   selector: 'supplier-catalogue',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm],
+  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm, MpPerm],
   template: `
-    <page-header title="Catalogue" subtitle="C22: items go live only after ops approval; PENDING until the registry approves you (C23)" />
+    <page-header title="Catalogue" subtitle="New items go live once MiPay approves them" />
     <mp-card title="My catalogue" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" empty="No items yet - add your first product below" />
       } @else { <mp-spinner label="Loading catalogue..." /> }
     </mp-card>
-    <mp-entity-form #cf class="mt" [schema]="addSchema" submitLabel="Add catalogue item" (submitted)="add($event)" />
+    <mp-entity-form #cf class="mt" [schema]="addSchema" submitLabel="Add catalogue item" *mpPerm="'supplier.catalogue:create'" (submitted)="add($event)" />
   `,
 })
 export class SupplierCatalogue implements OnInit {
@@ -114,9 +115,9 @@ export class SupplierCatalogue implements OnInit {
 @Component({
   selector: 'supplier-orders',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpCard, MpButton, CurrencyAmount, StatusBadge],
+  imports: [PageHeader, MpTable, MpSpinner, MpCard, MpButton, CurrencyAmount, StatusBadge, MpPerm],
   template: `
-    <page-header title="Orders & invoices" subtitle="C24: accept an order, C26: issue an invoice with a unique reference" />
+    <page-header title="Orders & invoices" subtitle="Accept orders and send invoices" />
     <mp-card title="Orders" class="mt">
       @if (orders(); as o) {
         <mp-table [cols]="orderCols" [rows]="o" [selectable]="true" (rowClick)="select($event)" empty="No orders yet" />
@@ -133,7 +134,7 @@ export class SupplierCatalogue implements OnInit {
           <mp-table [cols]="itemCols" [rows]="order.items" class="mt" />
         }
         <div class="row mt">
-          <mp-button (onClick)="issue(order.id!)">Issue invoice (C26 - unique reference)</mp-button>
+          <mp-button *mpPerm="'supplier.invoice:create'" (onClick)="issue(order.id!)">Send invoice</mp-button>
         </div>
         @if (issued(); as inv) {
           <div class="ok mt">Invoice issued: <b>{{ inv.uniqueReference }}</b> for <currency-amount [amount]="inv.amount" /></div>
@@ -205,7 +206,7 @@ export class SupplierOrders implements OnInit {
   imports: [CommonModule, PageHeader, MpCard, KpiRow, MpTable, MpSpinner, CurrencyAmount],
   template: `
     @if (inv(); as i) {
-      <page-header [title]="'Invoice ' + i.uniqueReference" subtitle="C27 - payments against this invoice (bank reference per E34)" />
+      <page-header [title]="'Invoice ' + i.uniqueReference" subtitle="Payments received against this invoice" />
       <kpi-row [tiles]="[
         { label: 'Amount', amount: i.amount, sub: i.currency },
         { label: 'Status', amount: i.status, money: false, sub: 'single source of truth' },
@@ -239,15 +240,15 @@ export class SupplierInvoiceDetail implements OnInit {
 @Component({
   selector: 'supplier-accounts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm],
+  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm, MpPerm],
   template: `
-    <page-header title="Receiving accounts" subtitle="C10/C14: change requests need a DIFFERENT approver than the requester (TC-SET-17)" />
+    <page-header title="Receiving accounts" subtitle="Where your payments are paid. A change is approved by someone other than the person who asks for it" />
     <mp-card title="My bank accounts" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" empty="No accounts yet - submit one below" />
       } @else { <mp-spinner label="Loading accounts..." /> }
     </mp-card>
-    <mp-entity-form #bf class="mt" [schema]="addSchema" submitLabel="Submit account change" (submitted)="change($event)" />
+    <mp-entity-form #bf class="mt" [schema]="addSchema" submitLabel="Submit account change" *mpPerm="'supplier.bank_account:modify'" (submitted)="change($event)" />
   `,
 })
 export class SupplierAccounts implements OnInit {
@@ -293,7 +294,7 @@ export class SupplierAccounts implements OnInit {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PageHeader, MpTable, MpSpinner, MpCard],
   template: `
-    <page-header title="Statements" subtitle="C25: supplier statements (generated by ops or the system)" />
+    <page-header title="Statements" subtitle="Your statements, ready to download" />
     <mp-card title="Available statements" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" empty="No statements yet" />

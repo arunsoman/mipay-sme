@@ -32,7 +32,9 @@ export class PortalAuthService {
   readonly name = computed(() => this.me()?.name ?? '');
   readonly eligible = computed(() => {
     const me = this.me();
-    return !!me && me.orgType === PORTAL.orgType && me.orgRole === 'ADMIN';
+    // any member of an org of this portal's type: what they may do is decided by their
+    // permissions (menus, pages and buttons hide themselves), not by an admin flag
+    return !!me && me.orgType === PORTAL.orgType;
   });
 
   async login(identifier: string, password: string): Promise<void> {
@@ -45,7 +47,7 @@ export class PortalAuthService {
     const me = await this.hydrate();
     if (!me || !this.eligible()) {
       const why = !me ? 'NO_PROFILE'
-        : me.orgType !== PORTAL.orgType ? 'WRONG_ORG_TYPE' : 'NOT_ADMIN';
+        : 'WRONG_ORG_TYPE';
       const orgType = me?.orgType ?? null;
       this.logout();
       throw new PortalRefusedError(why, orgType);

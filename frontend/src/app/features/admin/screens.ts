@@ -9,6 +9,7 @@ import { PageHeader } from '../../design-system/organisms/page-header';
 import { MpTable, MpColumn } from '../../design-system/organisms/mp-table';
 import { MpEntityForm, MpFieldSchema } from '../../design-system/organisms/mp-entity-form';
 import { KpiRow } from '../../design-system/organisms/kpi-row';
+import { MpPerm } from '../../../../projects/shared/web-core/perm-directive';
 import { AdminService } from '../../core/services';
 import * as D from '../../core/dto';
 
@@ -57,15 +58,15 @@ export class AdminHome implements OnInit {
 @Component({
   selector: 'admin-connectors',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpTable, MpSpinner, MpButton, StatusBadge, PageHeader],
+  imports: [MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
     <page-header title="Connectors" subtitle="C01-C09: NDB issuer, acquirer card gateway, IPP; C08 test, C09 rotate credentials" />
     @if (rows(); as r) {
       <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="pick($event)" empty="No connectors configured" />
       <div class="row mt">
         <span class="dim">Selected: {{ sel()?.slice(0, 8) || 'none' }}</span>
-        <mp-button [disabled]="!sel()" (onClick)="test()">Test (C08)</mp-button>
-        <mp-button variant="ghost" [disabled]="!sel()" (onClick)="rotate()">Rotate secret (C09)</mp-button>
+        <mp-button *mpPerm="'admin.connector:execute'" [disabled]="!sel()" (onClick)="test()">Test (C08)</mp-button>
+        <mp-button *mpPerm="'admin.connector:administer'" variant="ghost" [disabled]="!sel()" (onClick)="rotate()">Rotate secret (C09)</mp-button>
       </div>
       @if (testResult(); as t) {
         <div class="mt"><status-badge [status]="okLabel(t)" /> latency {{ t.latencyMs ?? 'n/a' }} ms {{ t.error ?? '' }}</div>
@@ -110,26 +111,26 @@ export class AdminConnectors implements OnInit {
 @Component({
   selector: 'admin-config',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpButton, PageHeader, MpEntityForm, FormsModule],
+  imports: [MpCard, MpTable, MpButton, PageHeader, MpEntityForm, FormsModule, MpPerm],
   template: `
     <page-header title="Configuration" subtitle="Tariffs (quoted/unquoted/provision), limits, business rules, notification templates, settings - every change audited before/after (TC-SET-21)" />
 
     <mp-card title="Fee tariffs (BC p.15)" class="mt">
       <mp-table [cols]="tariffCols" [rows]="tariffs() ?? []" empty="No tariffs" />
-      <mp-entity-form #tf [schema]="tariffSchema" submitLabel="Upsert tariff" (submitted)="upsertTariff($event)" class="mt" />
+      <mp-entity-form #tf [schema]="tariffSchema" submitLabel="Upsert tariff" *mpPerm="'admin.config:modify'" (submitted)="upsertTariff($event)" class="mt" />
     </mp-card>
 
     <mp-card title="Limit profiles (C10)" class="mt">
       <mp-table [cols]="limitCols" [rows]="limits() ?? []" empty="No limits" />
-      <mp-entity-form #lf [schema]="limitSchema" submitLabel="Upsert limit profile" (submitted)="upsertLimit($event)" class="mt" />
+      <mp-entity-form #lf [schema]="limitSchema" submitLabel="Upsert limit profile" *mpPerm="'admin.config:modify'" (submitted)="upsertLimit($event)" class="mt" />
     </mp-card>
 
     <mp-card title="Business rules (R1-R4 + exclusions)" class="mt">
       <mp-table [cols]="ruleCols" [rows]="rules() ?? []" empty="No rules" />
       <div class="row mt">
         <input class="in" [(ngModel)]="ruleCode" placeholder="R1" />
-        <mp-button (onClick)="toggleRule(true)">Enable</mp-button>
-        <mp-button variant="ghost" (onClick)="toggleRule(false)">Disable</mp-button>
+        <mp-button *mpPerm="'admin.config:modify'" (onClick)="toggleRule(true)">Enable</mp-button>
+        <mp-button *mpPerm="'admin.config:modify'" variant="ghost" (onClick)="toggleRule(false)">Disable</mp-button>
       </div>
     </mp-card>
 
@@ -138,7 +139,7 @@ export class AdminConnectors implements OnInit {
       <div class="row mt">
         <input class="in" [(ngModel)]="setKey" placeholder="mfa_policy" />
         <input class="in" [(ngModel)]="setValue" placeholder="OTP+device" />
-        <mp-button (onClick)="upsertSetting()">Save</mp-button>
+        <mp-button *mpPerm="'admin.config:modify'" (onClick)="upsertSetting()">Save</mp-button>
       </div>
     </mp-card>
 
@@ -270,7 +271,7 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
 @Component({
   selector: 'admin-simulator',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule, MpSpinner],
+  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule, MpSpinner, MpPerm],
   template: `
     <page-header title="Simulator" subtitle="E31: replay bank-side events; C31-C33 scenario library; bank-sim controls set the default X-Sim-Scenario applied to every bank call" />
 
@@ -281,7 +282,7 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
           <select class="sel" [(ngModel)]="chosenScenario">
             @for (s of SCENARIOS; track s) { <option [value]="s">{{ s }}</option> }
           </select>
-          <mp-button (onClick)="saveControls()">Apply</mp-button>
+          <mp-button *mpPerm="'admin.simulation:simulate'" (onClick)="saveControls()">Apply</mp-button>
           <span class="dim">simulatorEnabled: <b>{{ c.simulatorEnabled }}</b></span>
         </div>
         <div class="dim mt">Applies to every simulated bank call unless a merchant payment carries a per-request X-Sim-Scenario header. MANUAL preserves inline behavior; async scenes park the payment in HOLDING/PENDING until the virtual-thread bank callback lands. SIMULATED-labelled throughout.</div>
@@ -291,9 +292,9 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
     <mp-card title="Scenario library (C31)" class="mt">
       <mp-table [cols]="sceneCols" [rows]="scenes() ?? []" empty="No scenarios loaded" />
       <div class="row mt">
-        <mp-button (onClick)="runScene('happy_path')">Run happy path</mp-button>
-        <mp-button (onClick)="runScene('advance_flow')">Run advance flow</mp-button>
-        <mp-button variant="ghost" (onClick)="runScene('recon_break')">Run recon break scene</mp-button>
+        <mp-button *mpPerm="'admin.simulation:simulate'" (onClick)="runScene('happy_path')">Run happy path</mp-button>
+        <mp-button *mpPerm="'admin.simulation:simulate'" (onClick)="runScene('advance_flow')">Run advance flow</mp-button>
+        <mp-button *mpPerm="'admin.simulation:simulate'" variant="ghost" (onClick)="runScene('recon_break')">Run recon break scene</mp-button>
       </div>
       @if (runResult(); as r) {
         <div class="steps mt">
@@ -306,7 +307,7 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
 
     <div class="grid2 mt">
       <mp-card title="Inject a reconciliation break">
-        <mp-entity-form #bf [schema]="breakSchema" submitLabel="Inject" (submitted)="injectBreak($event)" />
+        <mp-entity-form #bf [schema]="breakSchema" submitLabel="Inject" *mpPerm="'admin.simulation:simulate'" (submitted)="injectBreak($event)" />
       </mp-card>
       <mp-card title="Quick actions">
         <div class="row">
@@ -465,7 +466,7 @@ export class AdminAccess implements OnInit {
 @Component({
   selector: 'admin-compliance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm],
+  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm, MpPerm],
   template: `
     <page-header title="Compliance" subtitle="C40: AML alerts; C41: SAR drafts; C42: submit; C43: DSAR data export (POPIA art. data export)" />
 
@@ -479,12 +480,12 @@ export class AdminAccess implements OnInit {
         <mp-button (onClick)="submitSar()" [disabled]="!selSar()">Submit SAR (C42)</mp-button>
         <span class="dim">Selected: {{ selSar()?.slice(0, 8) || 'none' }}</span>
       </div>
-      <mp-entity-form #sf [schema]="sarCreateSchema" submitLabel="Draft SAR from alert" (submitted)="createSar($event)" class="mt" />
+      <mp-entity-form #sf [schema]="sarCreateSchema" submitLabel="Draft SAR from alert" *mpPerm="'admin.sar:create'" (submitted)="createSar($event)" class="mt" />
     </mp-card>
 
     <mp-card title="Data subject access requests" class="mt">
       <mp-table [cols]="dsarCols" [rows]="dsars() ?? []" empty="No DSARs" />
-      <mp-entity-form #df [schema]="dsarCreateSchema" submitLabel="Create DSAR" (submitted)="createDsar($event)" class="mt" />
+      <mp-entity-form #df [schema]="dsarCreateSchema" submitLabel="Create DSAR" *mpPerm="'admin.dsar:create'" (submitted)="createDsar($event)" class="mt" />
       <div class="dim mt">Completed DSARs generate a full data export (balance, payments, invoices, consents, statements) for the merchant.</div>
     </mp-card>
   `,
@@ -562,7 +563,7 @@ export class AdminCompliance implements OnInit {
 @Component({
   selector: 'admin-hygiene',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpButton, PageHeader, MpEntityForm, FormsModule],
+  imports: [MpCard, MpTable, MpButton, PageHeader, MpEntityForm, FormsModule, MpPerm],
   template: `
     <page-header title="Ops hygiene" subtitle="API clients, deployments/rollback, backups with restore tests proving RTO 2h / RPO 0" />
 
@@ -571,12 +572,12 @@ export class AdminCompliance implements OnInit {
       <div class="row mt">
         <mp-button variant="ghost" (onClick)="revokeClient()" [disabled]="!selClient()">Revoke selected</mp-button>
       </div>
-      <mp-entity-form #cf [schema]="clientSchema" submitLabel="Create API client" (submitted)="createClient($event)" class="mt" />
+      <mp-entity-form #cf [schema]="clientSchema" submitLabel="Create API client" *mpPerm="'admin.api_client:create'" (submitted)="createClient($event)" class="mt" />
     </mp-card>
 
     <mp-card title="Deployments" class="mt">
       <mp-table [cols]="depCols" [rows]="deployments() ?? []" empty="No deployments (Eco release candidate RC1)" />
-      <mp-entity-form #ddf [schema]="depSchema" submitLabel="Record deployment" (submitted)="deploy($event)" class="mt" />
+      <mp-entity-form #ddf [schema]="depSchema" submitLabel="Record deployment" *mpPerm="'admin.platform_ops:execute'" (submitted)="deploy($event)" class="mt" />
       <div class="row mt">
         <input class="in" [(ngModel)]="rollbackVersion" placeholder="version to roll back" />
         <mp-button variant="danger" (onClick)="rollback()">Roll back</mp-button>

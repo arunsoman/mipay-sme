@@ -10,6 +10,7 @@ import { MpEntityForm, MpFieldSchema } from '../../design-system/organisms/mp-en
 import { EmptyState } from '../../design-system/molecules/empty-state';
 import { KpiRow } from '../../design-system/organisms/kpi-row';
 import { ApprovalActions } from '../../design-system/organisms/approval-actions';
+import { MpPerm } from '../../../../projects/shared/web-core/perm-directive';
 import { OpsService } from '../../core/services';
 import * as D from '../../core/dto';
 
@@ -22,7 +23,7 @@ function wireMsg(e: unknown): string {
 @Component({
   selector: 'ops-approvals',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, ApprovalActions, EmptyState],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, ApprovalActions, EmptyState, MpPerm],
   template: `
     <page-header title="Approvals" subtitle="T01-T04: onboarding queues. Bank changes need a DIFFERENT approver than the requester (TC-SET-17). Select a merchant/supplier row to review its recorded KYC checks" />
     <mp-card title="Merchant approvals (T02)" subtitle="Full directory - pending rows carry approve/reject; any row opens the KYC review panel" class="mt">
@@ -30,7 +31,7 @@ function wireMsg(e: unknown): string {
         <mp-table [cols]="merchCols" [rows]="m" [selectable]="true" (rowClick)="pick('merchant', $event)" empty="No merchants waiting for approval" />
         @for (row of m; track row.id) {
           @if (isPENDING(row.approvalStatus)) {
-            <approval-actions [status]="row.approvalStatus" (decide)="approveMerchant(row.id, $event)" />
+            <approval-actions [status]="row.approvalStatus" perm="ops.merchant_approval:authorize" (decide)="approveMerchant(row.id, $event)" />
           }
         }
       } @else { <mp-spinner label="Loading merchant queue..." /> }
@@ -40,7 +41,7 @@ function wireMsg(e: unknown): string {
         <mp-table [cols]="supCols" [rows]="s" [selectable]="true" (rowClick)="pick('supplier', $event)" empty="No suppliers waiting for approval" />
         @for (row of s; track row.id) {
           @if (isPENDING(row.approvalStatus)) {
-            <approval-actions [status]="row.approvalStatus" (decide)="approveSupplier(row.id, $event)" />
+            <approval-actions [status]="row.approvalStatus" perm="ops.supplier_approval:authorize" (decide)="approveSupplier(row.id, $event)" />
           }
         }
       } @else { <mp-spinner label="Loading supplier queue..." /> }
@@ -50,7 +51,7 @@ function wireMsg(e: unknown): string {
         <mp-table [cols]="bankCols" [rows]="b" [selectable]="true" (rowClick)="selBankId.set($event)" empty="No bank change requests" />
         @if (selBank(); as row) {
           @if (isPENDING(row.status)) {
-            <approval-actions [status]="row.status" (decide)="approveBank(row.id, $event)" />
+            <approval-actions [status]="row.status" perm="ops.bank_account_approval:authorize" (decide)="approveBank(row.id, $event)" />
           } @else { <div class="dim mt">Selected request is already {{ row.status }}.</div> }
         }
       } @else { <mp-spinner label="Loading bank queue..." /> }
@@ -163,11 +164,11 @@ export class OpsApprovals implements OnInit {
 @Component({
   selector: 'ops-recon',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
     <page-header title="Three-ledger reconciliation" subtitle="T05-T06: NDB issuer vs MiPay subledger vs credit ledger; open breaks BLOCK withdrawals (BC p.18)" />
     <div class="row mt">
-      <mp-button (onClick)="runRecon()">Run reconciliation (T05)</mp-button>
+      <mp-button *mpPerm="'ops.recon:execute'" (onClick)="runRecon()">Run reconciliation (T05)</mp-button>
     </div>
     @if (lastRun(); as r) {
       <mp-card title="Last run outcome" class="mt">
@@ -280,21 +281,21 @@ export class OpsRecon implements OnInit {
 @Component({
   selector: 'ops-incidents',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm, MpPerm],
   template: `
     <page-header title="Incidents" subtitle="T09: create; T10: acknowledge within 15 minutes (late flag); T11: resolve (TC-INC-01)" />
     <mp-card title="Open + historical incidents" class="mt">
       @if (rows(); as r) {
         <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="selSig.set($event)" empty="No incidents logged" />
         <div class="row mt">
-          <mp-button (onClick)="ack()" [disabled]="!selSig()">Acknowledge</mp-button>
-          <mp-button (onClick)="resolve()" [disabled]="!selSig()">Resolve</mp-button>
+          <mp-button *mpPerm="'ops.incident:modify'" (onClick)="ack()" [disabled]="!selSig()">Acknowledge</mp-button>
+          <mp-button *mpPerm="'ops.incident:modify'" (onClick)="resolve()" [disabled]="!selSig()">Resolve</mp-button>
           <span class="dim">Selected: {{ selSig()?.slice(0, 8) }}</span>
         </div>
       } @else { <mp-spinner label="Loading incidents..." /> }
       @if (done(); as m) { <div class="ok">{{ m }}</div> }
     </mp-card>
-    <mp-entity-form #cf class="mt" [schema]="schema" submitLabel="Log incident" (submitted)="create($event)" />
+    <mp-entity-form #cf class="mt" [schema]="schema" submitLabel="Log incident" *mpPerm="'ops.incident:create'" (submitted)="create($event)" />
   `,
   styles: [`
     .row { display: flex; align-items: center; gap: var(--sp-3); }
@@ -347,7 +348,7 @@ export class OpsIncidents implements OnInit {
 @Component({
   selector: 'ops-desk',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule, MpPerm],
   template: `
     <page-header title="Service desk" subtitle="T12: complaints (assign/resolve); T13: disputes; T14/T15: suspension lift restores LOGIN only on APPROVED accounts" />
     <div class="grid2">
@@ -355,8 +356,8 @@ export class OpsIncidents implements OnInit {
         @if (complaints(); as c) {
           <mp-table [cols]="compCols" [rows]="c" [selectable]="true" (rowClick)="selComp.set($event)" empty="No complaints" />
           <div class="row mt">
-            <mp-button variant="ghost" (onClick)="assign()" [disabled]="!selComp()">Assign to me</mp-button>
-            <mp-button (onClick)="resolveComp()" [disabled]="!selComp()">Resolve</mp-button>
+            <mp-button *mpPerm="'ops.complaint:modify'" variant="ghost" (onClick)="assign()" [disabled]="!selComp()">Assign to me</mp-button>
+            <mp-button *mpPerm="'ops.complaint:modify'" (onClick)="resolveComp()" [disabled]="!selComp()">Resolve</mp-button>
           </div>
         } @else { <mp-spinner label="Loading..." /> }
       </mp-card>
@@ -364,21 +365,21 @@ export class OpsIncidents implements OnInit {
         @if (disputes(); as d) {
           <mp-table [cols]="dispCols" [rows]="d" [selectable]="true" (rowClick)="selDisp.set($event)" empty="No disputes" />
           <div class="row mt">
-            <mp-button (onClick)="resolveDisp(true)" [disabled]="!selDisp()">Resolve in favour</mp-button>
-            <mp-button variant="ghost" (onClick)="resolveDisp(false)" [disabled]="!selDisp()">Resolve against</mp-button>
+            <mp-button *mpPerm="'ops.dispute:modify'" (onClick)="resolveDisp(true)" [disabled]="!selDisp()">Resolve in favour</mp-button>
+            <mp-button *mpPerm="'ops.dispute:modify'" variant="ghost" (onClick)="resolveDisp(false)" [disabled]="!selDisp()">Resolve against</mp-button>
           </div>
         } @else { <mp-spinner label="Loading..." /> }
       </mp-card>
       <mp-card title="Suspensions" class="mt">
         @if (suspensions(); as s) {
           <mp-table [cols]="suspCols" [rows]="s" [selectable]="true" (rowClick)="selSusp.set($event)" empty="No suspensions" />
-          <div class="row mt"><mp-button (onClick)="lift()" [disabled]="!selSusp()">Lift suspension</mp-button></div>
+          <div class="row mt"><mp-button *mpPerm="'ops.suspension:administer'" (onClick)="lift()" [disabled]="!selSusp()">Lift suspension</mp-button></div>
         } @else { <mp-spinner label="Loading..." /> }
       </mp-card>
       <div class="colgap">
-        <mp-entity-form #icf [schema]="incSchema" submitLabel="Log complaint" (submitted)="createComp($event)" />
-        <mp-entity-form #dcf [schema]="dispSchema" submitLabel="Open dispute" (submitted)="createDisp($event)" />
-        <mp-entity-form #scf [schema]="suspSchema" submitLabel="Suspend entity" (submitted)="suspend($event)" />
+        <mp-entity-form #icf [schema]="incSchema" submitLabel="Log complaint" *mpPerm="'ops.complaint:create'" (submitted)="createComp($event)" />
+        <mp-entity-form #dcf [schema]="dispSchema" submitLabel="Open dispute" *mpPerm="'ops.dispute:create'" (submitted)="createDisp($event)" />
+        <mp-entity-form #scf [schema]="suspSchema" submitLabel="Suspend entity" *mpPerm="'ops.suspension:administer'" (submitted)="suspend($event)" />
         <div class="dim">Suspension blocks login (OTP verify 403 with machine-readable code) (TC-SEC-02).</div>
       </div>
     </div>

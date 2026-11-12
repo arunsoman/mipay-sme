@@ -9,6 +9,7 @@ import { KycView } from './kyc-view';
 import { RouterLink } from '@angular/router';
 import { OnboardChild } from '../../../../../shared/kyc/onboard-child';
 import { Modal } from '../../../../../shared/ui/modal';
+import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 
 /**
  * Onboarding review queue ([M10]/second-person rule): every request the
@@ -24,20 +25,20 @@ import { Modal } from '../../../../../shared/ui/modal';
 @Component({
   selector: 'mpa-onboarding',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, DatePipe, KycView, RouterLink, OnboardChild, Modal],
+  imports: [FormsModule, DatePipe, KycView, RouterLink, OnboardChild, Modal, MpPerm],
   template: `
     <div class="head">
       <h2>Onboarding</h2>
-      <div class="tabs">
-        @for (t of tabs; track t) {
-          <button [class.tab-active]="tab() === t" (click)="setTab(t)">{{ label(t) }}</button>
-        }
-      </div>
+      <span class="grow"></span>
       <button class="ghost" (click)="load()">Refresh</button>
+      <!-- onboard under the platform root, within the root's rights, then straight into KYC -->
+      <mp-onboard-child *mpPerm="'org.onboarding:create'" [compact]="true" (onboarded)="load()" (kycChanged)="loadKycTasks()" />
     </div>
-
-    <!-- onboard under the platform root, within the root's rights, then straight into KYC -->
-    <mp-onboard-child (onboarded)="load()" (kycChanged)="loadKycTasks()" />
+    <div class="seg" role="tablist" aria-label="Request status">
+      @for (t of tabs; track t) {
+        <button role="tab" [class.on]="tab() === t" [attr.aria-selected]="tab() === t" (click)="setTab(t)">{{ label(t) }}</button>
+      }
+    </div>
 
     @if (problem(); as p) {<div class="err">{{ p }}</div>}
     @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
@@ -53,9 +54,8 @@ import { Modal } from '../../../../../shared/ui/modal';
         @if (row.kind === 'ORG_ONBOARDING') {
           <!-- [D8] ORG_ONBOARDING is decided by the KYC workflow's ops-review task -->
           <div class="muted small workflownote">
-            Org onboarding is decided through the KYC workflow: submit + complete the platform
-            <b>ops-review</b> task below. Approving the last task activates the organisation and
-            queues the activation link; the legacy onboarding decision endpoint can no longer act on it.
+            This organization is approved through its KYC: once the KYC review below is approved, the
+            organization goes live and its administrator gets their set-up link.
           </div>
         } @else {
         <div class="grid2">
@@ -69,7 +69,7 @@ import { Modal } from '../../../../../shared/ui/modal';
             </select>
           </label>
         </div>
-        <div class="row">
+        <div class="row" *mpPerm="'org.onboarding:authorize'">
           <button class="primary" (click)="decide(true)">Approve</button>
           <button class="danger" (click)="decide(false)">Reject</button>
         </div>
@@ -92,8 +92,8 @@ import { Modal } from '../../../../../shared/ui/modal';
             @if (kycTasksFor(k.orgId).length; as n) {
               <div class="dtitle sub">Open review tasks for this application</div>
               @for (t of kycTasksFor(k.orgId); track t.id) {
-                <div class="taskrow">
-                  <span class="chip small warn">{{ t.stageKey }} · seq {{ t.stageSeq }}</span>
+                <div class="taskrow" *mpPerm="'kyc.task:authorize'">
+                  <span class="chip small warn">{{ t.stageKey === 'ops-review' ? 'MiPay review' : t.stageKey }}</span>
                   <span class="muted small mono">{{ t.openNote ?? '' }}</span>
                   <input class="tsknote" name="note-{{t.id}}" [(ngModel)]="taskNotes[t.id]"
                          placeholder="decision note (returned/rejected to the org)" />
@@ -104,7 +104,7 @@ import { Modal } from '../../../../../shared/ui/modal';
                 </div>
               }
             } @else if (k.status !== 'NOT_STARTED' && isLiveStatus(k.status)) {
-              <div class="muted small">No open review tasks — the application awaits another step of the workflow.</div>
+              <div class="muted small">Nothing to review right now — the application is waiting on another step.</div>
             }
           }
         </div>
@@ -131,7 +131,7 @@ import { Modal } from '../../../../../shared/ui/modal';
               }
             </tbody>
           </table>
-          <div class="grid3">
+          <div class="grid3" *mpPerm="'ops.kyc_check:create'">
             <label>Check type
               <select name="kycType" [(ngModel)]="kycType">
                 <option value="IDENTITY">IDENTITY</option>
@@ -165,53 +165,38 @@ import { Modal } from '../../../../../shared/ui/modal';
       <div class="tablewrap">
       <table class="grid reqs">
         <thead><tr>
-          <th>Organization</th><th>Requested by</th><th>Rights <span class="muted">direct / ceiling</span></th>
-          <th>Requested</th><th>Status</th><th class="act"></th>
+          <th>Organization</th><th>May onboard</th><th>Requested</th><th>Status</th><th class="act"></th>
         </tr></thead>
         <tbody>
           @for (r of rows(); track r.id) {
             <tr>
               <td class="org">
                 <div class="nm">{{ r.orgName }}</div>
-                <div class="sub">
-                  <span class="chip small">{{ r.orgType }}</span>
-                  <span class="chip small" [class.warn]="r.kind === 'ADMIN_RECOVERY'">{{ label(r.kind) }}</span>
-                  <span class="mono muted" [title]="r.orgId">{{ short(r.orgId) }}</span>
-                </div>
+                <div class="sub">{{ typeLabel(r.orgType) }}@if (r.kind === 'ADMIN_RECOVERY') { · <span class="warnt">admin recovery</span>}</div>
                 @if (r.note && r.kind === 'ADMIN_RECOVERY') {<div class="muted small clip" [title]="r.note">{{ r.note }}</div>}
               </td>
-              <td>
-                <div class="small">{{ r.requestedByRole ?? '—' }}</div>
-                <div class="mono muted small" [title]="r.requestedBy">{{ short(r.requestedBy) }}</div>
-                <div class="muted small" [title]="r.parentOrgId ?? ''">under {{ short(r.parentOrgId) }}</div>
-              </td>
-              <td class="rights small">
-                <div>{{ pretty(r.rightsDirect) }}</div>
-                <div class="muted">{{ pretty(r.rightsCeiling) }}</div>
-              </td>
+              <td class="small">{{ pretty(r.rightsDirect) }}</td>
               <td class="nowrap small">{{ r.createdAt | date:'MMM d, HH:mm' }}</td>
               <td>
                 <span class="chip" [class.warn]="r.status === 'PENDING_REVIEW'"
                       [class.ok]="r.status === 'APPROVED'"
                       [class.bad]="r.status === 'BLOCKED' || r.status === 'REJECTED'">{{ label(r.status) }}</span>
-                @if (r.reviewedBy) {
-                  <div class="muted small" [title]="r.reviewedBy">by {{ short(r.reviewedBy) }} · {{ r.reviewedAt | date:'MMM d, HH:mm' }}</div>
-                }
+                @if (r.reviewedAt) {<div class="muted small">decided {{ r.reviewedAt | date:'MMM d' }}</div>}
               </td>
               <td class="act">
                 <div class="acts">
                   @if (r.status === 'PENDING_REVIEW' && r.kind === 'ADMIN_RECOVERY') {
-                    <button (click)="pick(r)">Decide</button>
+                    <button *mpPerm="'org.onboarding:authorize'" (click)="pick(r)">Decide</button>
                   }
                   @if (r.orgId) {
-                    <button class="ghost" (click)="pickKyc(r)">Review</button>
-                    <a class="btnlink" routerLink="/kyc" [queryParams]="{ org: r.orgId }">Edit KYC</a>
+                    <button *mpPerm="'kyc.application:read'" class="ghost" (click)="pickKyc(r)">Review</button>
+                    <a *mpPerm="'kyc.application:modify'" class="btn ghost" routerLink="/kyc" [queryParams]="{ org: r.orgId }">Edit KYC</a>
                   }
                 </div>
               </td>
             </tr>
           } @empty {
-            <tr><td colspan="6" class="muted">No {{ label(tab()) }} requests.</td></tr>
+            <tr><td colspan="5" class="muted empty">No {{ label(tab()).toLowerCase() }} requests.</td></tr>
           }
         </tbody>
       </table>
@@ -219,11 +204,18 @@ import { Modal } from '../../../../../shared/ui/modal';
     </div>
   `,
   styles: [`
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .head { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; }
-    .tabs { display: flex; gap: 4px; flex: 1; }
-    .tabs button { border-color: transparent; background: transparent; color: var(--a-dim); }
-    .tabs button.tab-active { color: var(--a-teal); background: var(--a-panel-2); border-color: var(--a-border); }
+    .grow { flex: 1; }
+    .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; margin-bottom: 4px; }
+    .seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 7px; font-size: 13.5px; color: var(--a-dim); }
+    .seg button.on { background: #262626; color: var(--a-text); font-weight: 600; }
+    .sub { color: var(--a-dim); font-size: 12.5px; margin-top: 3px; }
+    .warnt { color: var(--a-amber); }
+    .empty { padding: 28px 14px !important; text-align: center; }
+    a.btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--a-border);
+            color: var(--a-text); text-decoration: none; font-size: 13px; }
+    a.btn:hover { border-color: #5a5a5a; }
     .panel { padding: 4px 0; margin-top: 10px; }
     .decide { padding: 14px; }
     .dtitle { font-size: 13.5px; margin-bottom: 10px; }
@@ -247,8 +239,9 @@ import { Modal } from '../../../../../shared/ui/modal';
     table.reqs .rights { min-width: 140px; }
     table.reqs .nowrap { white-space: nowrap; }
     table.reqs th.act, table.reqs td.act { width: 1%; }
-    .acts { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-    .acts button { white-space: nowrap; padding: 5px 12px; }
+    .acts { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
+    .acts button, .acts a { white-space: nowrap; padding: 6px 14px; font-size: 13px; }
+    td { vertical-align: middle; }
     .acts .btnlink { text-align: center; }
     .kyc-section { margin-top: 16px; border-top: 1px solid var(--a-border); padding-top: 12px; }
     .kyc-table { font-size: var(--fs-sm); }
@@ -352,6 +345,8 @@ export class Onboarding implements OnInit {
   pretty(list: string | null) {
     return list ? list.split(',').map((t) => this.label(t.trim())).join(', ') : '—';
   }
+
+  typeLabel(t: string | null) { return t ? t.charAt(0) + t.slice(1).toLowerCase() : ''; }
 
   short(id: string | null) {
     return id ? (id.length > 14 ? id.slice(0, 8) + '…' : id) : '—';

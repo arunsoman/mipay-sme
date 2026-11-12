@@ -18,7 +18,7 @@ import { ChangeDetectionStrategy, Component, input, model } from '@angular/core'
       border: 1px solid var(--mp-border); border-radius: var(--radius-1);
       background: var(--mp-surface); outline: none;
     }
-    select:focus { border-color: var(--mp-teal); box-shadow: 0 0 0 2px rgb(20 108 148 / 0.15); }
+    select:focus { border-color: var(--mp-accent); box-shadow: 0 0 0 2px rgb(240 161 14 / 0.25); }
   `],
 })
 export class MpSelect {

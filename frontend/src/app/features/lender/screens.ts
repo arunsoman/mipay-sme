@@ -7,6 +7,7 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
 import { PageHeader } from '../../design-system/organisms/page-header';
 import { MpTable, MpColumn } from '../../design-system/organisms/mp-table';
 import { KpiRow } from '../../design-system/organisms/kpi-row';
+import { MpPerm } from '../../../../projects/shared/web-core/perm-directive';
 import { LenderService } from '../../core/services';
 import * as D from '../../core/dto';
 
@@ -14,7 +15,7 @@ import * as D from '../../core/dto';
 @Component({
   selector: 'lender-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, KpiRow, CurrencyAmount, PageHeader],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, KpiRow, CurrencyAmount, PageHeader, MpPerm],
   template: `
     <page-header title="Consents & merchant records" subtitle="L01: consent queue; L02: records only AFTER consent (90d window, khata never shared - TC-ADV-02)" />
     <mp-card title="Data consents" class="mt">
@@ -32,7 +33,7 @@ import * as D from '../../core/dto';
         <mp-table [cols]="monthCols" [rows]="r.monthly" class="mt" empty="No monthly data (simulated history)" />
       </mp-card>
       <mp-card title="Request assessment" class="mt">
-        <mp-button (onClick)="assess()">Assess {{ r.businessName }} (C02)</mp-button>
+        <mp-button *mpPerm="'lender.assessment:execute'" (onClick)="assess()">Assess {{ r.businessName }} (C02)</mp-button>
       </mp-card>
     } @else if (!consents()?.length) {
       <mp-card class="mt"><div class="dim">Ask a merchant to grant data consent from their dashboard, then refresh.</div></mp-card>
@@ -47,7 +48,7 @@ import * as D from '../../core/dto';
         </div>
         <div class="dim">{{ (o.reasonCodes ?? []).join(' - ') }}</div>
         <div class="row mt">
-          <mp-button variant="ghost" (onClick)="declineNote()">Decline (L05)</mp-button>
+          <mp-button *mpPerm="'lender.advance:authorize'" variant="ghost" (onClick)="declineNote()">Decline (L05)</mp-button>
         </div>
       </mp-card>
     }
@@ -116,7 +117,7 @@ export class LenderHome implements OnInit {
 @Component({
   selector: 'lender-portfolio',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, KpiRow, PageHeader],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, KpiRow, PageHeader, MpPerm],
   template: `
     <page-header title="Portfolio" subtitle="L06: outstanding / owed / arrears; L07: snapshots (C42)" [subtitle]="'L06/L07 portfolio + arrears'" />
     @if (port(); as p) {
@@ -132,7 +133,7 @@ export class LenderHome implements OnInit {
         <mp-table [cols]="arrCols" [rows]="p.arrears ?? []" empty="No arrears (all healthy SIMULATED book)" />
       </mp-card>
       <div class="row mt">
-        <mp-button (onClick)="snap()">Take snapshot (L07)</mp-button>
+        <mp-button *mpPerm="'lender.portfolio:execute'" (onClick)="snap()">Take snapshot (L07)</mp-button>
       </div>
       @if (snapResult(); as s) { <pre class="wire">{{ pretty(s) }}</pre> }
     } @else { <mp-spinner label="Loading portfolio..." /> }
@@ -183,11 +184,11 @@ export class LenderPortfolio implements OnInit {
 @Component({
   selector: 'lender-collections',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
     <page-header title="Collections" subtitle="L08: 10% of eligible daily receipts + arrears follow-ups (TC-ADV-04)" />
     <div class="row mt">
-      <mp-button (onClick)="sweep()">Run daily sweep (L09)</mp-button>
+      <mp-button *mpPerm="'lender.collection:execute'" (onClick)="sweep()">Run daily sweep (L09)</mp-button>
       <mp-button variant="ghost" (onClick)="refresh()">Refresh</mp-button>
     </div>
     @if (steps(); as s) {

@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { catchError, firstValueFrom, of } from 'rxjs';
 import { KYC_HINTS, KycApplicationView, KycDoc, kycStatusClass, readProblem, refusal } from './kyc-api';
 import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
+import { MpPerm } from '../web-core/perm-directive';
 
 /**
  * One organization's KYC application: status, the schema-driven form, and
@@ -15,7 +16,7 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
 @Component({
   selector: 'mp-kyc-application',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, FormsModule, KycSchemaEditor],
+  imports: [DatePipe, FormsModule, KycSchemaEditor, MpPerm],
   template: `
     @if (loadError(); as e) {<div class="err">{{ e }}</div>}
     @if (view(); as v) {
@@ -30,14 +31,13 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
           <button class="primary editbtn" (click)="edit.emit(v.orgId)">{{ doc() ? 'Edit KYC' : 'Start KYC application' }}</button>
         }
       </div>
-      <div class="muted small">{{ pathText(v) }}
-        @if (schema(); as s) { · {{ s.schema.code }} v{{ s.schema.version }}}</div>
+      <div class="muted small">{{ pathText(v) }}</div>
       @if (v.masked) {<div class="note">Identity and account numbers are masked: only the organization itself, its parent and MiPay see them in full.</div>}
       @switch (v.status) {
         @case ('REJECTED') {<div class="note bad">Rejected{{ v.decisionNote ? ': ' + v.decisionNote : '' }}.</div>}
         @case ('BLOCKED') {<div class="note bad">Blocked{{ v.decisionNote ? ': ' + v.decisionNote : '' }}. Contact MiPay to resolve.</div>}
         @case ('WITHDRAWN') {<div class="note">Withdrawn {{ v.updatedAt | date:'MMM d, HH:mm' }}.</div>}
-        @case ('APPROVED') {<div class="note ok">Approved {{ v.decidedAt | date:'MMM d, y' }}{{ v.decisionNote ? ' — ' + v.decisionNote : '' }}.</div>}
+        @case ('APPROVED') {<div class="note ok">Approved@if (v.decidedAt) { on {{ v.decidedAt | date:'MMM d, y' }}}@if (v.decisionNote) { — {{ v.decisionNote }}}</div>}
         @case ('ENTRY_CHECK') {<div class="note warn">Waiting for another ADMIN of the submitting organization to check it.</div>}
         @case ('VERIFYING') {<div class="note warn">Automated verification running.</div>}
         @case ('IN_REVIEW') {<div class="note warn">Submitted {{ v.submittedAt | date:'MMM d, HH:mm' }} — awaiting review. Locked until decided.</div>}
@@ -74,7 +74,7 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
             <span class="grow"></span>
             <button type="button" class="ghost" (click)="save()" [disabled]="busy()">Save draft</button>
             @if (editor()?.isLastStep()) {
-              <button type="button" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
+              <button *mpPerm="'kyc.application:submit'" type="button" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
             } @else {
               <button type="button" class="primary" (click)="next()" [disabled]="busy()">Continue</button>
             }
@@ -88,11 +88,11 @@ import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
             <button class="primary" (click)="start()" [disabled]="!schema()">Start KYC application</button>
           } @else {
             <button (click)="save()" [disabled]="busy()">Save draft</button>
-            <button class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
+            <button *mpPerm="'kyc.application:submit'" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
             <label class="chk small"><input type="checkbox" [(ngModel)]="sendToChecker" [ngModelOptions]="o" />
               ask another ADMIN of my organization to check it first</label>
             @if (v.status === 'DRAFT' || v.status === 'ENTRY_CHECK') {
-              @if (v.id) {<button class="ghost wd" (click)="withdraw()" [disabled]="busy()">Withdraw</button>}
+              @if (v.id) {<button *mpPerm="'kyc.application:delete'" class="ghost wd" (click)="withdraw()" [disabled]="busy()">Withdraw</button>}
             }
           }
           @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}

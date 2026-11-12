@@ -19,9 +19,9 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
       cursor: pointer; transition: filter .15s ease, opacity .15s ease;
     }
     button:disabled { opacity: .55; cursor: not-allowed; }
-    .primary { background: var(--mp-navy); color: var(--mp-text-invert); }
-    .primary:hover:not(:disabled) { filter: brightness(1.15); }
-    .ghost { background: transparent; color: var(--mp-navy); border-color: var(--mp-border); }
+    .primary { background: var(--mp-accent); color: var(--mp-accent-ink); }
+    .primary:hover:not(:disabled) { filter: brightness(1.08); }
+    .ghost { background: transparent; color: var(--mp-text); border-color: var(--mp-border); }
     .danger { background: #dc2626; color: #fff; }
     .spin { width: 12px; height: 12px; border: 2px solid #ffffff55; border-top-color: #fff; border-radius: 50%; animation: r .7s linear infinite; }
     @keyframes r { to { transform: rotate(360deg); } }

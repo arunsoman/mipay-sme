@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { ThemeService } from '../../core/theme.service';
 import { homeForRole } from '../../core/guards';
 import { MpCard } from '../../design-system/atoms/mp-card';
 import { MpButton } from '../../design-system/atoms/mp-button';
@@ -18,7 +19,10 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
   template: `
     <div class="wrap">
       <div class="head">
-        <h1>MiPay <span class="dim">SME</span></h1>
+        <div class="mp-u-between">
+          <h1>MiPay <span class="dim">SME</span></h1>
+          <button class="tswitch" (click)="theme.toggle()" [title]="theme.dark() ? 'Switch to light' : 'Switch to dark'">{{ theme.dark() ? '☾' : '☀' }}</button>
+        </div>
         <div class="hintline">Merchant payments, B2B stock purchases and cash advances (NAD)</div>
       </div>
       <mp-card class="box">
@@ -49,23 +53,25 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
   styles: [`
     .wrap { max-width: 380px; margin: 8vh auto 0; padding: var(--sp-4); }
     .head { margin-bottom: var(--sp-4); }
+    .tswitch { background: none; border: 1px solid var(--mp-border); color: var(--mp-text); border-radius: var(--radius-1); padding: 4px 8px; cursor: pointer; font: inherit; font-size: var(--fs-md); }
     h1 { font-size: var(--fs-xl); }
     .grid { display: grid; gap: var(--sp-3); }
     .in { width: 100%; padding: 10px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; }
     .row { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); }
-    .switch { background: none; border: none; color: var(--mp-teal); cursor: pointer; font: inherit; font-size: var(--fs-sm); }
-    .go { background: var(--mp-navy); color: #fff; border: none; border-radius: var(--radius-1); padding: 9px var(--sp-5); font-weight: 600; cursor: pointer; font: inherit; }
+    .switch { background: none; border: none; color: var(--mp-accent-deep); cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+    .go { background: var(--mp-accent); color: var(--mp-accent-ink); border: none; border-radius: var(--radius-1); padding: 9px var(--sp-5); font-weight: 600; cursor: pointer; font: inherit; }
     .hint { font-size: var(--fs-xs); color: var(--mp-text-dim); }
     .amber { color: #92610a; font-weight: 700; }
     .sim { background: var(--mp-amber); border-radius: 999px; padding: 1px 6px; font-size: 10px; color: #3b2f00; }
     .err { color: #dc2626; font-size: var(--fs-sm); }
     .mt { margin-top: var(--sp-3); }
-    a { color: var(--mp-teal); }
+    a { color: var(--mp-accent-deep); }
   `],
 })
 export class Login {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  readonly theme = inject(ThemeService);
 
   readonly mode = signal<'otp' | 'password'>('otp');
   readonly busy = signal(false);

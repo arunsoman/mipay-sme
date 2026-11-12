@@ -14,7 +14,7 @@ import { RBAC_HINTS, RoleCeilingView } from './rbac-api';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="block">
-      <div class="btitle">Role ceiling</div>
+      <div class="btitle">Roles it may use</div>
       @if (error(); as e) {<div class="err">{{ e }}</div>}
       @if (view(); as v) {
         <div class="muted small">
@@ -46,11 +46,11 @@ import { RBAC_HINTS, RoleCeilingView } from './rbac-api';
         @if (editable()) {
           <div class="row">
             @if (editing()) {
-              <button class="primary" (click)="save()" [disabled]="busy()">Save ceiling</button>
+              <button class="primary" (click)="save()" [disabled]="busy()">Save</button>
               <button class="ghost" (click)="inherit()" [disabled]="busy() || !v.explicit">Inherit from above</button>
               <button class="ghost" (click)="editing.set(false)">Cancel</button>
             } @else {
-              <button class="primary" (click)="startEdit()">Edit role ceiling</button>
+              <button class="primary" (click)="startEdit()">Change the roles it may use</button>
             }
           </div>
           <div class="hint">Narrowing applies at once: people holding a role that falls outside the ceiling lose it on their

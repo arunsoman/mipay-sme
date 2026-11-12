@@ -8,6 +8,8 @@ import {
 } from './kyc-api';
 import { KycApplication } from './kyc-application';
 import { Modal } from '../ui/modal';
+import { MpPerm } from '../web-core/perm-directive';
+import { AccessService } from '../web-core/access';
 
 const DECISIONS: Record<string, string[]> = {
   ENTRY_CHECK: ['CONFIRM', 'SEND_BACK'],
@@ -27,18 +29,18 @@ const LABELS: Record<string, string> = {
 @Component({
   selector: 'mp-kyc-workspace',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, KycApplication, Modal],
+  imports: [FormsModule, KycApplication, Modal, MpPerm],
   template: `
     <div class="head">
-      <h2>KYC</h2>
+      <h2>Organizations</h2>
       <button class="ghost" (click)="reload()">Refresh</button>
     </div>
     @if (problem(); as p) {<div class="err">{{ p }}</div>}
 
     <section class="panel tasks" [class.quiet]="!tasks().length">
       <div class="thead">
-        <h3>Review tasks <span class="chip" [class.warn]="tasks().length">{{ tasks().length }}</span></h3>
-        <span class="muted small">checks and approvals you may act on</span>
+        <h3>Waiting for review <span class="chip" [class.warn]="tasks().length">{{ tasks().length }}</span></h3>
+        <span class="muted small">applications waiting for your decision</span>
         @if (tasks().length) {
           <button class="ghost tog" (click)="tasksOpen.set(!tasksOpen())">{{ tasksOpen() ? 'Hide' : 'Show' }}</button>
         }
@@ -47,11 +49,11 @@ const LABELS: Record<string, string> = {
       @if (tasksOpen()) {
       @for (t of tasks(); track t.id) {
         <div class="taskrow">
-          <span class="chip warn small">{{ t.kind === 'ENTRY_CHECK' ? 'entry check' : t.stageKey }}</span>
+          <span class="chip warn small">{{ t.kind === 'ENTRY_CHECK' ? 'second check' : (t.stageKey === 'ops-review' ? 'MiPay review' : t.stageKey) }}</span>
           <button class="link nm" (click)="pick(t.orgId)">{{ t.orgName }}</button>
           <span class="chip {{ cls(t.applicationStatus) }}">{{ t.applicationStatus.replace('_', ' ') }}</span>
           <span class="grow"></span>
-          <button class="primary dec" [disabled]="busy()" (click)="openReview(t)">Review</button>
+          <button *mpPerm="'kyc.task:authorize'" class="primary dec" [disabled]="busy()" (click)="openReview(t)">Review</button>
         </div>
       } @empty {
         <div class="muted small">No open tasks for you right now.</div>
@@ -79,7 +81,7 @@ const LABELS: Record<string, string> = {
       <div class="panel details">
         @if (selectedId(); as id) {
           @for (k of [viewKey()]; track k) {
-            <mp-kyc-application [orgId]="id" [readOnly]="true" (edit)="editing.set(true)" />
+            <mp-kyc-application [orgId]="id" [readOnly]="true" [allowEdit]="access.can('kyc.application:modify')" (edit)="editing.set(true)" />
           }
           <mp-modal [open]="editing()" size="wide" eyebrow="KYC application" [title]="selectedName()"
                     [dirty]="editor()?.isDirty() ?? false"
@@ -165,6 +167,8 @@ export class KycWorkspace implements OnInit {
   readonly initialOrgId = input<string | null>(null);
 
   private readonly http = inject(HttpClient);
+  /** Every action here hides itself without its permission (*mpPerm). */
+  readonly access = inject(AccessService);
   readonly cls = kycStatusClass;
   readonly o = { standalone: true };
 
@@ -214,7 +218,9 @@ export class KycWorkspace implements OnInit {
     try {
       const t = await firstValueFrom(this.http.get<KycTreeNode>('/api/orgs/me/tree'));
       this.tree.set(t);
-      if (!this.selectedId()) this.selectedId.set(this.initialOrgId() ?? t.id);
+      // the platform root has no KYC: open on the first organization below it
+      const first = t.type === 'PLATFORM' ? (flattenTree(t).find((n) => n.type !== 'PLATFORM')?.id ?? t.id) : t.id;
+      if (!this.selectedId()) this.selectedId.set(this.initialOrgId() ?? first);
     } catch (e) {
       this.problem.set(refusal(e, KYC_HINTS));
     }

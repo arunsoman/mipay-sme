@@ -5,7 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { PortalAuthService } from '../../core/auth';
 import { OrgView, statusClass } from '../../core/api';
 import { PORTAL } from '../../portal.config';
-import { MyAccess, USER_ADMIN_CELL } from '../../../../../shared/users/user-management';
+import { AccessService } from '../../../../../shared/web-core/access';
 
 /**
  * Portal shell ([layout]/C11): a left navigation sidebar. On screens wider
@@ -25,8 +25,12 @@ import { MyAccess, USER_ADMIN_CELL } from '../../../../../shared/users/user-mana
         <nav>
           @if (can('org.onboarding')) {<a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>}
           @if (can('org.tree')) {<a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>}
-          @if (canManageUsers()) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
+          @if (can('org.user:administer')) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
           @if (can('kyc.application', 'kyc.task')) {<a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>}
+          @if (can('supplier.catalogue')) {<a routerLink="/supplier/catalogue" routerLinkActive="active" (click)="closeNav()">Catalogue</a>}
+          @if (can('supplier.order', 'supplier.invoice')) {<a routerLink="/supplier/orders" routerLinkActive="active" (click)="closeNav()">Orders & invoices</a>}
+          @if (can('supplier.bank_account')) {<a routerLink="/supplier/accounts" routerLinkActive="active" (click)="closeNav()">Receiving accounts</a>}
+          @if (can('supplier.statement')) {<a routerLink="/supplier/statements" routerLinkActive="active" (click)="closeNav()">Statements</a>}
         </nav>
         <div class="spacer"></div>
         <div class="navfoot">
@@ -110,35 +114,46 @@ export class Shell implements OnInit {
     this.navOpen.set(false);
   }
 
-  /** User management shows only to holders of org.user:administer (RBAC or extended RBAC). */
-  readonly canManageUsers = signal(false);
-  /** Cells the user holds in their own org: each menu shows only with its permission. */
-  readonly held = signal<Set<string>>(new Set());
   /** Pages and the permissions that show them, in menu order. */
-  private readonly pages: [string, string[]][] = [['/onboarding', ['org.onboarding']], ['/network', ['org.tree']], ['/users', ['org.user:administer']], ['/kyc', ['kyc.application', 'kyc.task']]];
+  private readonly pages: [string, string[]][] = [
+    ['/onboarding', ['org.onboarding']],
+    ['/network', ['org.tree']],
+    ['/users', ['org.user:administer']],
+    ['/kyc', ['kyc.application', 'kyc.task']],
+    ['/supplier/catalogue', ['supplier.catalogue']],
+    ['/supplier/orders', ['supplier.order', 'supplier.invoice']],
+    ['/supplier/accounts', ['supplier.bank_account']],
+    ['/supplier/statements', ['supplier.statement']],
+  ];
 
-  /** A user who may not use the page they landed on goes to the first page they may use. */
+  /** A user who may not use the page they landed on goes to the first page they may
+   *  use; a user with no rights at all lands on the shared empty shell - and one who
+   *  re-gains a right while sitting on it leaves it for the first allowed page. */
   private toAllowedPage() {
     const url = this.router.url.split('?')[0];
     const here = this.pages.find(([path]) => url.startsWith(path));
+    if (this.access.empty()) { void this.router.navigateByUrl('/no-access'); return; }
+    if (url === '/no-access') {
+      const first = this.pages.find(([, rows]) => this.can(...rows));
+      if (first) void this.router.navigateByUrl(first[0]);
+      return;
+    }
     if (here && this.can(...here[1])) return;
     const first = this.pages.find(([, rows]) => this.can(...rows));
-    if (first) void this.router.navigateByUrl(first[0]);
+    void this.router.navigateByUrl(first ? first[0] : '/no-access');
   }
 
+  /** The one shared access engine; nav + pages key off the held RBAC cells. */
+  readonly access = inject(AccessService);
+
   can(...rows: string[]) {
-    const h = this.held();
-    return rows.some((r) => r.includes(':') ? h.has(r) : [...h].some((c) => c.startsWith(r + ':')));
+    return this.access.can(...rows);
   }
 
   async ngOnInit() {
     try { this.org.set(await firstValueFrom(this.http.get<OrgView>('/api/orgs/me'))); } catch { /* header only */ }
-    try {
-      const a = await firstValueFrom(this.http.get<MyAccess>('/api/orgs/me/access'));
-      this.held.set(new Set(a.permissions.map((x) => x.id)));
-      this.canManageUsers.set(a.permissions.some((x) => x.id === USER_ADMIN_CELL));
-      this.toAllowedPage();
-    } catch { this.canManageUsers.set(false); }
+    await this.access.load();
+    this.toAllowedPage();
     window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }
 
