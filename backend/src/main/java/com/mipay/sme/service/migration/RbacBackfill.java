@@ -90,9 +90,12 @@ public class RbacBackfill {
                 errors = true;
                 continue;
             }
+            // Only the root org's ADMINs. The legacy role is NOT a signal: staff added through User
+            // management inherit their creator's legacy role (MINDLABS_ADMIN), so keying on it handed
+            // organization_root to every new platform staff member at the next boot. Existing
+            // assignments are never revoked here, so accounts that already hold it keep it.
             boolean rootAdmin = Enums.OrgType.PLATFORM.equals(org.getOrgType())
-                    && (u.getOrgRole() == Enums.OrgMemberRole.ADMIN
-                        || u.getRole() == Enums.UserRole.MINDLABS_ADMIN || u.getRole() == Enums.UserRole.TPTS_OPS);
+                    && u.getOrgRole() == Enums.OrgMemberRole.ADMIN;
             if (!rootAdmin) {
                 rows.add(new Row(u.getId(), "-", org.getId(), "SKIPPED", "org-defined roles only"));
                 continue;

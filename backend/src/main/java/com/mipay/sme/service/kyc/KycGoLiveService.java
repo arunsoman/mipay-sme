@@ -44,6 +44,7 @@ public class KycGoLiveService {
     private final OrgRightsService rights;
     private final com.mipay.sme.security.auth.AuthSyncService authSync;
     private final com.mipay.sme.config.AppProperties properties;
+    private final com.mipay.sme.security.rbac.StarterRoleService starterRoles;
 
     /**
      * Runs when the KYC workflow's last stage APPROVEs (or auto-approval fires).
@@ -95,6 +96,8 @@ public class KycGoLiveService {
                 // their kyc_applicant assignment for org_admin; the set-up link already went out
                 authSync.applicantBecomesAdmin(org.getId(), admin.getId(), actorId);
             }
+            // either identity mode: the admin needs an RBAC role or the portal shows them nothing
+            starterRoles.grantAtGoLive(org, admin.getId());
             authSync.reconcileOrg(org.getId());   // the ACTIVE org re-enables its users (no-op safe)
             auditService.record(actorId, "TPTS_OPS", "kyc_approved_go_live", "organization",
                     org.getId(), "PENDING", "ACTIVE", "application " + app.getId(), false, null);
