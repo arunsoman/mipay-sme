@@ -130,7 +130,10 @@ class InstallerServiceTest {
         when(lifecycle.create(any())).thenReturn(pending);
         when(rbac.configured()).thenReturn(true);
         when(rbac.platformResources()).thenReturn(List.of(
-                Map.of("id", "admin.bootstrap", "used", List.of("administer")),
+                Map.of("id", "org.user", "used", List.of("read", "create", "administer")),
+                Map.of("id", "rbac.role", "used", List.of("read", "create", "modify", "delete")),
+                Map.of("id", "rbac.user", "used", List.of("read")),
+                Map.of("id", "rbac.assignment", "used", List.of("read", "create", "administer", "authorize")),
                 Map.of("id", "admin.payment", "used", List.of("read", "authorize", "simulate"))));
         when(rbac.platformRoles()).thenReturn(List.of());
         when(rbac.assignmentsFor("new-admin")).thenReturn(List.of());
@@ -148,8 +151,9 @@ class InstallerServiceTest {
         verify(rbac).createPlatformRole(roleCaptor.capture());
         var role = roleCaptor.getValue();
         @SuppressWarnings("unchecked") var grid = (Map<String, List<String>>) role.get("grid");
-        assertEquals(List.of("administer"), grid.get("admin.bootstrap"));
-        assertEquals(List.of("read"), grid.get("admin.payment"));
+        assertEquals(List.of("read", "create", "administer"), grid.get("org.user"));
+        assertEquals(List.of("read", "create", "modify", "delete"), grid.get("rbac.role"));
+        assertFalse(grid.containsKey("admin.payment"));
         verify(rbac).assignSystem("new-admin", "organization_root", root.getId(), "all", "first administrator bootstrap");
     }
 }

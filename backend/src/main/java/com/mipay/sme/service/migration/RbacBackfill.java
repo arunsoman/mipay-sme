@@ -95,7 +95,9 @@ public class RbacBackfill {
             // organization_root to every new platform staff member at the next boot. Existing
             // assignments are never revoked here, so accounts that already hold it keep it.
             boolean rootAdmin = Enums.OrgType.PLATFORM.equals(org.getOrgType())
-                    && u.getOrgRole() == Enums.OrgMemberRole.ADMIN;
+                    && u.getOrgRole() == Enums.OrgMemberRole.ADMIN
+                    && u.getStatus() == Enums.UserStatus.ACTIVE
+                    && "installer".equals(u.getCreatedBy());
             if (!rootAdmin) {
                 rows.add(new Row(u.getId(), "-", org.getId(), "SKIPPED", "org-defined roles only"));
                 continue;

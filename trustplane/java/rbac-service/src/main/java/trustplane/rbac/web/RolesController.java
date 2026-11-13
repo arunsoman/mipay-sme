@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import trustplane.rbac.config.RbacConfig;
 import trustplane.rbac.core.Decisions;
 import trustplane.rbac.core.RbacStore;
+import trustplane.rbac.core.RootAdminPolicy;
 import trustplane.rbac.core.RolePack;
 import trustplane.shared.ApiException;
 import trustplane.shared.Permission;
@@ -73,6 +74,8 @@ public class RolesController {
     @PutMapping("/roles/{name}")
     public Map<String, Object> update(Authentication auth, @PathVariable String name, @RequestBody Body b) {
         if (b == null) throw ApiException.badRequest("body required");
+        if (RootAdminPolicy.ROLE.equals(name)) throw new ApiException(409, "BOOTSTRAP_ROLE_LOCKED",
+                "the bootstrap administrator role is fixed by the reviewed release");
         boolean gridGiven = b.grid() != null || b.permissions() != null;
         String owner = (String) store.getRole(name).get("owner_tenant");
         if (owner != null) {

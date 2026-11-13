@@ -6,6 +6,7 @@ import trustplane.rbac.config.RbacConfig;
 import trustplane.rbac.core.AccessService;
 import trustplane.rbac.core.Decisions;
 import trustplane.rbac.core.RbacStore;
+import trustplane.rbac.core.RootAdminPolicy;
 import trustplane.shared.ApiException;
 import trustplane.shared.PublicEndpoint;
 
@@ -74,11 +75,28 @@ public class PlatformAccessMeshController {
     public Map<String, Object> updateRole(@PathVariable String name, @RequestBody RoleBody b,
                                           @RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc, HttpServletRequest req) {
         core(req, svc);
+        if (RootAdminPolicy.ROLE.equals(name)) throw new ApiException(409, "BOOTSTRAP_ROLE_LOCKED",
+                "the bootstrap administrator role is fixed by the reviewed release");
         if (b == null) throw ApiException.badRequest("body required");
         if (store.getRole(name).get("owner_tenant") != null) throw ApiException.notFound(); // org-defined: per org
         String actor = authorize(b.actor(), b.core_authorized(), "rbac.role:modify");
         boolean gridGiven = b.grid() != null || b.permissions() != null;
         return store.updateRole(actor, name, b.description(), gridGiven ? store.parseGrid(b.grid(), b.permissions()) : null, null);
+    }
+
+    /** Apply the reviewed least-privilege scope to a role created by the temporary installer. */
+    @PublicEndpoint("mesh: the core repairs the first administrator's fixed access role")
+    @PostMapping("/bootstrap/restrict-organization-root")
+    public Map<String, Object> restrictRoot(@RequestHeader(value = "X-Mesh-Service", defaultValue = "") String svc,
+                                             HttpServletRequest req) {
+        core(req, svc);
+        Map<String, Object> role = store.getRole(RootAdminPolicy.ROLE);
+        if (!"PLATFORM".equals(role.get("kind")) || Boolean.TRUE.equals(role.get("seeded"))) {
+            throw new ApiException(409, "BOOTSTRAP_ROLE_MISMATCH", "organization_root is not the installer-created platform role");
+        }
+        return store.updateRole(RootAdminPolicy.SYSTEM_ACTOR, RootAdminPolicy.ROLE,
+                "Platform access administrator: users, roles and assignments only",
+                RootAdminPolicy.grid(), List.of());
     }
 
     @PublicEndpoint("mesh: the core creates a standard (non-seeded) role on behalf of a platform user admin")

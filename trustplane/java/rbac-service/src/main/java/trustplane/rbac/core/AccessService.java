@@ -204,6 +204,9 @@ public class AccessService {
         boolean system = source != null && SYSTEM_SOURCES.contains(source);
         if (req.subject() == null || req.subject().isBlank()) throw ApiException.badRequest("subject required (the core user id)");
         Policy.Role r = role(req.role());
+        if (!system && actor.equals(req.subject()) && !"break_glass".equals(r.approval())) {
+            throw new ApiException(403, "self_assignment_forbidden", "a user cannot assign a role to themselves");
+        }
         String tenant = req.tenant() == null || req.tenant().isBlank() ? null : req.tenant();
         String scope = req.scope() == null || req.scope().isBlank() ? ("PLATFORM".equals(r.kind()) ? "all" : "own") : req.scope();
         if (!Set.of("own", "subtree", "all").contains(scope)) throw ApiException.badRequest("scope must be own, subtree or all");

@@ -110,20 +110,15 @@ public class InstallerService implements ApplicationRunner {
     private void ensureRbac(String subject) {
         if (!rbac.configured()) throw new IllegalStateException("RBAC is required for first admin bootstrap");
         List<Map<String, Object>> resources = rbac.platformResources();
-        if (resources.stream().noneMatch(r -> "admin.bootstrap".equals(r.get("id"))
-                && ((List<?>) r.get("used")).contains("administer"))) {
-            throw new IllegalStateException("RBAC has not registered the first-admin endpoint yet; retry shortly");
+        Map<String, List<String>> grid = rootAdminGrid();
+        for (var row : grid.entrySet()) {
+            boolean ready = resources.stream().anyMatch(r -> row.getKey().equals(r.get("id"))
+                    && r.get("used") instanceof List<?> used && used.containsAll(row.getValue()));
+            if (!ready) throw new IllegalStateException("RBAC has not registered " + row.getKey() + " yet; retry shortly");
         }
         if (rbac.platformRoles().stream().noneMatch(r -> ROOT_ROLE.equals(r.get("name")))) {
-            Map<String, List<String>> grid = new LinkedHashMap<>();
-            for (Map<String, Object> row : resources) {
-                String id = String.valueOf(row.get("id"));
-                @SuppressWarnings("unchecked") List<String> used = (List<String>) row.get("used");
-                List<String> allowed = used.stream().filter(v -> !v.equals("authorize") && !v.equals("simulate")).toList();
-                if (!allowed.isEmpty()) grid.put(id, allowed);
-            }
             rbac.createPlatformRole(Map.of("actor", INSTALLER, "core_authorized", false,
-                    "name", ROOT_ROLE, "description", "First platform administrator (no approval authority)",
+                    "name", ROOT_ROLE, "description", "Platform access administrator: users, roles and assignments only",
                     "kind", "PLATFORM", "grid", grid));
         }
         String tenant = orgs.ensurePlatformRoot().getId();
@@ -131,6 +126,15 @@ public class InstallerService implements ApplicationRunner {
                 && "ACTIVE".equals(a.get("status")))) {
             rbac.assignSystem(subject, ROOT_ROLE, tenant, "all", "first administrator bootstrap");
         }
+    }
+
+    static Map<String, List<String>> rootAdminGrid() {
+        Map<String, List<String>> grid = new LinkedHashMap<>();
+        grid.put("org.user", List.of("read", "create", "administer"));
+        grid.put("rbac.role", List.of("read", "create", "modify", "delete"));
+        grid.put("rbac.user", List.of("read"));
+        grid.put("rbac.assignment", List.of("read", "create", "administer", "authorize"));
+        return grid;
     }
 
     @Transactional

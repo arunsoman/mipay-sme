@@ -269,6 +269,9 @@ class RbacGridTest {
 
     @Test
     void fourEyesByTheRiskOfTheRole() {
+        assertEquals(403, status(() -> access.request("selma",
+                new AccessService.AssignRequest("selma", "org_viewer", "oka", "own", null, "self"), "api")),
+                "access managers cannot give themselves a newly created role");
         // platform role: requested by a user admin, approved by a SECOND user admin
         Map<String, Object> req = access.request("ua1", new AccessService.AssignRequest("bob", "platform_operations", null, "all", null, "ops desk"), "api");
         assertEquals("PENDING_APPROVAL", req.get("status"));

@@ -22,7 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** organization_root goes to the root org's ADMINs only, never by legacy role. */
+/** Only the activated installer-created first admin may be backfilled into organization_root. */
 class RbacBackfillTest {
 
     private static final String ROOT = "00000000-0000-0000-0000-000000000000";
@@ -56,6 +56,7 @@ class RbacBackfillTest {
         when(u.getStatus()).thenReturn(Enums.UserStatus.ACTIVE);
         when(u.getRole()).thenReturn(role);
         when(u.getOrgRole()).thenReturn(orgRole);
+        when(u.getCreatedBy()).thenReturn(id.equals("admin") ? "installer" : "other");
         return u;
     }
 
@@ -74,6 +75,14 @@ class RbacBackfillTest {
                 user("staff", Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.STAFF),
                 user("ops", Enums.UserRole.TPTS_OPS, Enums.OrgMemberRole.STAFF));
         when(users.findAll()).thenReturn(all);
+        backfill.run();
+        verify(rbac, never()).assignSystem(anyString(), eq("organization_root"), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void anotherPlatformAdminIsNotGrantedRootByTheBootBackfill() {
+        User other = user("other-admin", Enums.UserRole.MINDLABS_ADMIN, Enums.OrgMemberRole.ADMIN);
+        when(users.findAll()).thenReturn(List.of(other));
         backfill.run();
         verify(rbac, never()).assignSystem(anyString(), eq("organization_root"), anyString(), anyString(), anyString());
     }
