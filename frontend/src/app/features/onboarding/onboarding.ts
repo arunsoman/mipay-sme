@@ -32,7 +32,6 @@ import { OnboardingService } from '../../core/services';
   styles: [`
     .wrap { max-width: 560px; margin: 4vh auto 0; padding: var(--sp-4); }
     .ok { font-size: var(--fs-md); font-weight: 600; font-family: ui-monospace, monospace; }
-    .mt { margin-top: var(--sp-3); }
     .alt { margin-top: var(--sp-4); }
   `],
 })
@@ -87,7 +86,6 @@ export class MerchantOnboard {
   styles: [`
     .wrap { max-width: 560px; margin: 4vh auto 0; padding: var(--sp-4); }
     .ok { font-size: var(--fs-md); font-weight: 600; font-family: ui-monospace, monospace; }
-    .mt { margin-top: var(--sp-3); }
     .alt { margin-top: var(--sp-4); }
   `],
 })

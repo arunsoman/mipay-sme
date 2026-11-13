@@ -74,11 +74,7 @@ export class AdminHome implements OnInit {
       }
     } @else { <mp-spinner label="Loading connectors..." /> }
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class AdminConnectors implements OnInit {
   private readonly api = inject(AdminService);
   readonly cols: MpColumn[] = [
@@ -148,9 +144,7 @@ export class AdminConnectors implements OnInit {
     </mp-card>
   `,
   styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; width: 220px; }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class AdminConfig implements OnInit {
@@ -322,9 +316,6 @@ function numOrNull(v: string): number | null { return v === '' || v == null ? nu
     .row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .sel { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; }
     .step { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: var(--fs-md); }
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class AdminSimulator implements OnInit {
@@ -430,11 +421,7 @@ export class AdminSimulator implements OnInit {
       </mp-card>
     }
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class AdminAccess implements OnInit {
   private readonly api = inject(AdminService);
   readonly cols: MpColumn[] = [
@@ -467,7 +454,7 @@ export class AdminAccess implements OnInit {
 @Component({
   selector: 'admin-compliance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpEntityForm, MpPerm],
+  imports: [MpCard, MpTable, MpButton, PageHeader, MpEntityForm, MpPerm],
   template: `
     <page-header title="Compliance" subtitle="Money-laundering alerts, suspicious activity reports and personal data requests" />
 
@@ -490,11 +477,7 @@ export class AdminAccess implements OnInit {
       <div class="dim mt">When a request is completed, the merchant gets a full copy of their data: balance, payments, invoices, consents and statements.</div>
     </mp-card>
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class AdminCompliance implements OnInit {
   private readonly api = inject(AdminService);
   readonly amlCols: MpColumn[] = [
@@ -594,9 +577,7 @@ export class AdminCompliance implements OnInit {
     </mp-card>
   `,
   styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; width: 220px; }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class AdminHygiene implements OnInit {

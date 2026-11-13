@@ -18,7 +18,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
     </div>
   `,
   styles: [`
-    .ph { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); margin-bottom: var(--sp-4); }
+    .ph { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); }
+    .acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .acts:empty { display: none; }
     h1 { font-size: var(--fs-lg); }
     .dim { color: var(--mp-text-dim); font-size: var(--fs-sm); margin-top: 2px; }
   `],

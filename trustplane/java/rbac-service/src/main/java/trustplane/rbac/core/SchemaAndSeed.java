@@ -309,9 +309,13 @@ public class SchemaAndSeed implements ApplicationRunner {
             db.update("UPDATE roles SET all_rows_verbs=?, seed_hash=? WHERE name=?", allRows, hash, name);
             db.update("DELETE FROM rbac_role_grid WHERE role=?", name);
             for (var g : map(r.get("grid")).entrySet()) {
+                // rows come from the code's registration at boot; on a fresh database the seed can run
+                // first, so hold a placeholder row (as entitlements do) rather than drop the tick: the
+                // seed hash is stored below, so a skipped tick would never come back
                 if (db.queryForList("SELECT 1 FROM rbac_resources WHERE id=?", g.getKey()).isEmpty()) {
-                    log.warn("[rbac] {}: row {} is not registered (yet) by any service: tick skipped", name, g.getKey());
-                    continue;
+                    log.info("[rbac] {}: row {} not registered yet: placeholder held until the code registers it", name, g.getKey());
+                    db.update("INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING",
+                            g.getKey(), "mipay", g.getKey().replace('.', ' '));
                 }
                 db.update("INSERT INTO rbac_role_grid (role, resource, verbs) VALUES (?,?,?)",
                         name, g.getKey(), Verbs.mask(strings(g.getValue())));

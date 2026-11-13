@@ -90,11 +90,15 @@ class RootRoleSeedTest {
     }
 
     @Test
-    void oneStandardRoleAndRowsFromTheCode() throws Exception {
+    void rootAndStarterRolesAndRowsFromTheCode() throws Exception {
         seed.apply();
-        assertEquals(List.of("organization_root"), db.queryForList("SELECT name FROM roles WHERE seeded ORDER BY name", String.class));
-        // the yml declares no rows: only the entitlement's placeholder exists before the code registers
-        assertEquals(List.of("org.onboarding"), db.queryForList("SELECT id FROM rbac_resources ORDER BY id", String.class));
+        assertEquals(List.of("admin_role", "manufacturer_role", "organization_root", "reseller_role", "supplier_role"),
+                db.queryForList("SELECT name FROM roles WHERE seeded ORDER BY name", String.class));
+        // the yml declares no rows: before the code registers, only placeholders for the rows the
+        // entitlement and the starter roles tick exist (so a fresh database keeps those ticks)
+        assertEquals(List.of("kyc.application", "kyc.form", "org.onboarding", "org.rights", "org.tree", "org.user",
+                        "rbac.assignment", "rbac.role"),
+                db.queryForList("SELECT id FROM rbac_resources ORDER BY id", String.class));
         registerCode();
         assertEquals("MERCHANT", db.queryForObject("SELECT tenant_types FROM rbac_resources WHERE id='merchant.withdrawal'", String.class));
         assertNull(db.queryForObject("SELECT tenant_types FROM rbac_resources WHERE id='org.user'", String.class));
@@ -125,6 +129,34 @@ class RootRoleSeedTest {
         assertTrue(decisions.listPermissions("selma", "oka", List.of()).operations().contains("merchant.withdrawal:read"));
     }
 
+    /** admin / manufacturer / supplier / reseller starter roles: onboarding and user management only. */
+    @Test
+    void starterRolesOnlyOnboardAndManageUsers() throws Exception {
+        seed.apply();
+        // ticked on a fresh database, before any service registered its rows
+        assertEquals(1 | 2 | 256, db.queryForObject(
+                "SELECT verbs FROM rbac_role_grid WHERE role='reseller_role' AND resource='org.user'", Integer.class));
+        registerCode();
+        tree();
+        access.request(AccessService.SYSTEM, new AccessService.AssignRequest("rita", "reseller_role", "namib", "own", null, "t"), "backfill");
+        // onboarding: the role allows it, the org's onboarding rights decide which types
+        Map<String, String> merchant = Map.of("child_type", "MERCHANT");
+        assertFalse(decisions.check(new Decisions.Request("rita", "namib", "org.onboarding:create", List.of(), merchant)).allowed(),
+                "no onboarding rights yet");
+        access.grant(AccessService.SYSTEM, new AccessService.GrantRequest("namib", "org.onboarding:create",
+                List.of("MERCHANT"), "own", true, null, null), true);
+        assertTrue(decisions.check(new Decisions.Request("rita", "namib", "org.onboarding:create", List.of(), merchant)).allowed(),
+                "onboard a type its org has the right to");
+        assertTrue(allowed("rita", "namib", "org.user:administer"), "manage its own org's users");
+        assertTrue(allowed("rita", "namib", "org.user:read"));
+        assertFalse(allowed("rita", "namib", "merchant.withdrawal:read"), "nothing beyond onboarding and users");
+        assertFalse(allowed("rita", "tpts", "org.user:administer"), "only in the org it was given on");
+        for (String r : List.of("admin_role", "manufacturer_role", "supplier_role")) {
+            assertEquals(db.queryForList("SELECT resource, verbs FROM rbac_role_grid WHERE role='reseller_role' ORDER BY resource"),
+                    db.queryForList("SELECT resource, verbs FROM rbac_role_grid WHERE role=? ORDER BY resource", r), r + " = same job");
+        }
+    }
+
     @Test
     void reseedingRemovesTheOldRolesAndTheirAssignments() throws Exception {
         Assumptions.assumeTrue(engineSeed != null && !engineSeed.isBlank());
@@ -138,7 +170,8 @@ class RootRoleSeedTest {
 
         wire(System.getenv("TEST_RBAC_PRODUCT_SEED"), ds);
         seed.apply();
-        assertEquals(List.of("organization_root"), db.queryForList("SELECT name FROM roles WHERE seeded", String.class));
+        assertEquals(List.of("admin_role", "manufacturer_role", "organization_root", "reseller_role", "supplier_role"),
+                db.queryForList("SELECT name FROM roles WHERE seeded ORDER BY name", String.class));
         assertEquals(0, db.queryForObject("SELECT count(*) FROM assignments WHERE role='platform_user_admin'", Integer.class));
         assertEquals(0, db.queryForObject("SELECT count(*) FROM ceiling_baseline", Integer.class));
     }

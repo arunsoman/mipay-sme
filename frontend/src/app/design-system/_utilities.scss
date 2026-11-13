@@ -1,0 +1,17 @@
+// Global layout helpers for every app (sme-ui via _index.scss, portals via portal-theme.scss).
+// Screens use these class names; never re-declare them in a component's styles.
+.mp-u-row { display: flex; align-items: center; gap: var(--sp-3); }
+.mp-u-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.mp-u-wrap { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.mp-u-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+.mp-u-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
+.mp-u-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+.mp-u-grow { flex: 1 1 auto; min-width: 0; }
+.mp-u-right { text-align: right; }
+.mp-u-dim { color: var(--mp-text-dim); font-size: var(--fs-sm); }
+.mp-u-mt { margin-top: var(--sp-4); }
+.mp-u-stack > * + * { margin-top: var(--sp-3); }
+.mt { margin-top: var(--sp-3); }
+.row { display: flex; align-items: center; gap: var(--sp-3); }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+@media (max-width: 900px) { .grid2, .mp-u-grid2 { grid-template-columns: minmax(0, 1fr); } }

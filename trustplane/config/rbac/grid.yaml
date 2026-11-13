@@ -44,6 +44,41 @@ roles:
     description: "Root organization administrator: every permission on every row"
     grid_all_rows: [read, create, modify, delete, submit, authorize, execute, export, administer, simulate]
 
+  # Starter roles (2026-11-13), one per kind of organization, all the same narrow job:
+  # ONBOARD organizations below their own (create the org, fill in and submit its KYC,
+  # within the org's onboarding rights) and MANAGE USERS of their own org (add people,
+  # send set-up links, build roles from permissions they hold, give roles).
+  # Nothing else: no approving onboarding or KYC, no money, no catalogue/orders.
+  # Assigned on an org; the org's role ceiling still decides whether it may use them.
+  admin_role:
+    kind: ORG
+    approval: none
+    description: "Admin: onboard organizations and manage users"
+    grid: &onboard_and_users
+      org.tree: [read]                       # see its own org and the orgs below it
+      org.onboarding: [read, create]         # onboard an organization, see onboarding requests
+      org.rights: [read]                     # see which types it may onboard
+      kyc.form: [read]                       # the KYC form of the org being onboarded
+      kyc.application: [read, modify, submit]  # fill in and submit that KYC (not approve it)
+      org.user: [read, create, administer]   # User management: people, add person, set-up links
+      rbac.role: [read, create]              # build a role from permissions it holds
+      rbac.assignment: [read, create]        # give a role to a person
+  manufacturer_role:
+    kind: ORG
+    approval: none
+    description: "Manufacturer: onboard organizations and manage users"
+    grid: *onboard_and_users
+  supplier_role:
+    kind: ORG
+    approval: none
+    description: "Supplier: onboard organizations and manage users"
+    grid: *onboard_and_users
+  reseller_role:
+    kind: ORG
+    approval: none
+    description: "Reseller (distributor): onboard organizations and manage users"
+    grid: *onboard_and_users
+
 # ---------------------------------------------------------------------------
 # Role ceilings (docs/plans/extended-rbac.md X3): ORG roles inside EVERY org's ceiling,
 # whatever the onboarder chose, so an org can always fill in its KYC and be administered.

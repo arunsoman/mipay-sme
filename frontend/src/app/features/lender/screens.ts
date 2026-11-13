@@ -15,13 +15,11 @@ import * as D from '../../core/dto';
 @Component({
   selector: 'lender-home',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, KpiRow, CurrencyAmount, PageHeader, MpPerm],
+  imports: [MpCard, MpTable, MpButton, StatusBadge, KpiRow, CurrencyAmount, PageHeader, MpPerm],
   template: `
     <page-header title="Consents & merchant records" subtitle="L01: consent queue; L02: records only AFTER consent (90d window, khata never shared - TC-ADV-02)" />
     <mp-card title="Data consents" class="mt">
-      @if (consents(); as c) {
-        <mp-table [cols]="consentCols" [rows]="c" [selectable]="true" (rowClick)="view($event)" empty="No consents yet" />
-      } @else { <mp-spinner label="Loading consents..." /> }
+      <mp-table [cols]="consentCols" [rows]="consents()" [selectable]="true" (rowClick)="view($event)" empty="No consents yet" loading="Loading consents..." />
     </mp-card>
 
     @if (records(); as r) {
@@ -184,7 +182,7 @@ export class LenderPortfolio implements OnInit {
 @Component({
   selector: 'lender-collections',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
+  imports: [MpCard, MpTable, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
     <page-header title="Collections" subtitle="L08: 10% of eligible daily receipts + arrears follow-ups (TC-ADV-04)" />
     <div class="row mt">
@@ -199,9 +197,7 @@ export class LenderPortfolio implements OnInit {
       </mp-card>
     }
     <mp-card title="Collections" class="mt">
-      @if (rows(); as r) {
-        <mp-table [cols]="cols" [rows]="r" empty="No collections yet - run the sweep" />
-      } @else { <mp-spinner label="Loading collections..." /> }
+      <mp-table [cols]="cols" [rows]="rows()" empty="No collections yet - run the sweep" loading="Loading collections..." />
     </mp-card>
   `,
   styles: [`.row { display: flex; gap: var(--sp-3); }`],
