@@ -39,6 +39,9 @@ public class AppProperties {
     private String authUrl = "https://idp:8443";
     private String authIssuer = "https://idp.fapi.local:8443";
 
+    /** Private, one-time portal installer credential. Empty disables creation. */
+    private String installerPassword = "";
+
     /** Core-to-comms mesh endpoint (blank = comms plane not wired; setup links stay undeliverable). */
     private String commsUrl = "";
 

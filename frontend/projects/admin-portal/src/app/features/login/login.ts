@@ -79,7 +79,7 @@ export class Login {
     this.identifier = this.identifier.trim();
     try {
       await this.auth.login(this.identifier, this.password);
-      await this.router.navigateByUrl('/onboarding');
+      await this.router.navigateByUrl(this.auth.me()?.username === 'installer' ? '/install' : '/onboarding');
     } catch (e) {
       if (e instanceof PortalRefusedError) {
         this.error.set('Signed in, but this portal is restricted to ADMIN and platform staff accounts.');

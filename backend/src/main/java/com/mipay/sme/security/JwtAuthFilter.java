@@ -65,6 +65,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     chain.doFilter(request, response);
                     return;
                 }
+                if ("installer".equals(user.getId())) {
+                    boolean valid = "bootstrap:installer".equals(user.getCreatedBy())
+                            && user.getCreatedAt() != null
+                            && user.getCreatedAt().plus(java.time.Duration.ofHours(72)).isAfter(java.time.Instant.now());
+                    String path = request.getRequestURI();
+                    boolean setupPath = ("POST".equals(request.getMethod())
+                            && "/api/admin/bootstrap/first-admin".equals(path))
+                            || ("GET".equals(request.getMethod()) && "/api/me".equals(path));
+                    if (!valid || !setupPath) {
+                        SecurityContextHolder.clearContext();
+                        response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                        return;
+                    }
+                }
                 // tokens issued before the org claims existed resolve from the DB ([M9])
                 if (orgId == null && user.getOrgId() != null) {
                     orgId = user.getOrgId();

@@ -150,6 +150,8 @@ public final class Dtos {
 
     public record TptsBootstrapRequest(String name, String username, String phone, String email) { }
 
+    public record FirstAdminResult(String userId, String username, String status, String setupLink) { }
+
     public record TptsBootstrapResult(String orgId, String firstAdminId, String firstAdminStatus,
                                       int staffMoved, java.util.List<String> movedUserIds) { }
 

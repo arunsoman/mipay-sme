@@ -37,6 +37,7 @@ import java.util.Map;
 public class AdminController {
 
     private final AdminService adminService;
+    private final com.mipay.sme.service.InstallerService installerService;
     private final ConnectorService connectorService;
     private final SimulationService simulationService;
     private final SimulationScenarioRepository scenarioRepo;
@@ -393,6 +394,13 @@ public class AdminController {
     }
 
     // ------------------------------------------------- OA1: one-time TPTS operating-root bootstrap
+
+    @Perm(resource = "admin.bootstrap", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
+          description = "Temporary installer creates the first administrator")
+    @PostMapping("/bootstrap/first-admin")
+    public Dtos.FirstAdminResult firstAdmin(@Valid @RequestBody Dtos.TptsBootstrapRequest req) {
+        return installerService.create(req, actor());
+    }
 
     /**
      * D-1: the MiNdLABS admin creates TPTS and its first admin (enrolled, one-time set-up

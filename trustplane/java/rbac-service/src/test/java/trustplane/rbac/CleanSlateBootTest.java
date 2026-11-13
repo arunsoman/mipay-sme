@@ -88,6 +88,8 @@ class CleanSlateBootTest {
         // A clean slate never authorizes an arbitrary person or a core business operation.
         assertFalse(decisions.check(new Decisions.Request("whoever", "tpts", "rbac.role:create")).allowed());
         assertFalse(decisions.check(new Decisions.Request("installer", "tpts", "org.user:administer")).allowed());
+        assertTrue(decisions.check(new Decisions.Request("installer", "", "admin.bootstrap:administer")).allowed());
+        assertFalse(decisions.check(new Decisions.Request("other", "", "admin.bootstrap:administer")).allowed());
         assertFalse(decisions.checkPlatform("whoever", "rbac.role:read"));
         assertFalse(decisions.checkPlatform("installer", "merchant.withdrawal:execute"));
         assertTrue(decisions.check(new Decisions.Request("installer", "tpts", "rbac.role:create")).allowed(),
@@ -97,17 +99,19 @@ class CleanSlateBootTest {
         assertTrue(decisions.checkPlatform("installer", "rbac.role:read"));
         // ... and it is recorded in the decision log (the flush is a @Scheduled batcher)
         decisions.flush();
-        assertEquals(2, db.queryForList("SELECT 1 FROM decision_log WHERE reason='bootstrap_clean_slate'").size());
+        assertEquals(3, db.queryForList("SELECT 1 FROM decision_log WHERE reason='bootstrap_clean_slate'").size());
 
         // the installer creates the first role and the first assignment through the APIs
         tree(); // syncOrgs so the tenants exist
         store.createRole("inst", "organization_root", "The root role: every permission", "PLATFORM", Map.of(), List.of());
+        assertTrue(decisions.check(new Decisions.Request("installer", "", "admin.bootstrap:administer")).allowed(),
+                "creating the role must not strand the installer before the first assignment");
         access.request(AccessService.SYSTEM,
                 new AccessService.AssignRequest("root1", "organization_root", "tpts", "all", null, "install"), "backfill");
         assertFalse(decisions.check(new Decisions.Request("other", "tpts", "org.user:administer")).allowed(),
                 "the first assignment closes the window");
         assertEquals("no_assignment", decisions.check(new Decisions.Request("other", "tpts", "org.user:administer")).reason());
-        assertFalse(db.queryForList("SELECT 1 FROM decision_log WHERE reason='bootstrap_clean_slate'").size() > 2,
+        assertFalse(db.queryForList("SELECT 1 FROM decision_log WHERE reason='bootstrap_clean_slate'").size() > 3,
                 "after closing, every decision is a normal grid decision");
     }
 

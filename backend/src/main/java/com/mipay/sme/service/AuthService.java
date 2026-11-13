@@ -79,6 +79,11 @@ public class AuthService {
 
     /** Platform-level block: suspended merchant/supplier cannot log in (TC-OPS-11). */
     private void assertLoginAllowed(User user) {
+        if ("installer".equals(user.getId()) && (!"bootstrap:installer".equals(user.getCreatedBy())
+                || user.getCreatedAt() == null
+                || !user.getCreatedAt().plus(java.time.Duration.ofHours(72)).isAfter(Instant.now()))) {
+            throw new ForbiddenException("Installer account expired");
+        }
         if (user.getStatus() == Enums.UserStatus.SUSPENDED) {
             throw new ForbiddenException("Account suspended");
         }

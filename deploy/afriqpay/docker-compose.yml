@@ -38,6 +38,7 @@ services:
       APP_SEED_DEMO_DATA: "false"        # this public sandbox contains real user records; never reseed demo credentials
       SPRING_FLYWAY_OUT_OF_ORDER: "true" # V15_1 (users.org_id NOT NULL) landed after V16 was applied here
       APP_JWT_SECRET: ${APP_JWT_SECRET:?set in .env}
+      APP_INSTALLER_PASSWORD: ${APP_INSTALLER_PASSWORD:-}
       APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
       APP_PUBLIC_BASE_URL: https://admin.afriqpay.com
       APP_CORS_ALLOWED_ORIGINS: https://admin.afriqpay.com,https://manufacturer.afriqpay.com,https://distributor.afriqpay.com,https://supplier.afriqpay.com

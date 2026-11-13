@@ -135,6 +135,10 @@ export class Shell implements OnInit {
    *  re-gains a right while sitting on it leaves it for the first allowed page. */
   private toAllowedPage() {
     const url = this.router.url.split('?')[0];
+    if (this.auth.me()?.username === 'installer') {
+      if (url !== '/install') void this.router.navigateByUrl('/install');
+      return;
+    }
     const here = this.pages.find(([path]) => url.startsWith(path));
     if (this.access.empty()) { void this.router.navigateByUrl('/no-access'); return; }
     if (url === '/no-access') {
@@ -153,6 +157,10 @@ export class Shell implements OnInit {
 
   async ngOnInit() {
     await this.auth.hydrate();
+    if (this.auth.me()?.username === 'installer') {
+      this.toAllowedPage();
+      return;
+    }
     await this.access.load();
     this.toAllowedPage();
   }

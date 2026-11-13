@@ -134,7 +134,7 @@ public class Decisions {
             log.warn("[rbac] bootstrap window probe failed (fail closed): {}", e.getMessage());
             return false;
         }
-        if ((roles != null && roles > 0) || (asg != null && asg > 0)) {
+        if (asg != null && asg > 0) {
             bootstrapClosed = true;
             log.info("[rbac] the bootstrap window is closed: the platform now holds roles/assignments");
             return false;
@@ -143,7 +143,8 @@ public class Decisions {
     }
 
     private static boolean installerSetup(String subject, String operation) {
-        return "installer".equals(subject) && operation != null && operation.startsWith("rbac.");
+        return "installer".equals(subject) && operation != null
+                && (operation.startsWith("rbac.") || operation.equals("admin.bootstrap:administer"));
     }
 
     public static String newDecisionId() {

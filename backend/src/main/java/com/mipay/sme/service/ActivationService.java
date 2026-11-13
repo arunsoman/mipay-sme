@@ -49,6 +49,7 @@ public class ActivationService {
     private final OrgAccess orgAccess;
     private final UsernamePolicy usernamePolicy;
     private final AuditService auditService;
+    private final org.springframework.beans.factory.ObjectProvider<InstallerService> installerService;
     private final PasswordEncoder passwordEncoder;
     private final com.mipay.sme.config.AppProperties properties;
     /** Comms-plane delivery of the set-up link (email, then SMS), when the comms plane is configured. */
@@ -210,6 +211,8 @@ public class ActivationService {
         user.setStatus(Enums.UserStatus.ACTIVE);
         user.setActivatedAt(now);
         userRepo.save(user);
+        InstallerService installer = installerService.getIfAvailable();
+        if (installer != null) installer.retireAfterActivation(user);
         notificationRepo.findByActivationTokenId(token.getId()).forEach(m -> {
             m.setStatus("SENT");
             notificationRepo.save(m);

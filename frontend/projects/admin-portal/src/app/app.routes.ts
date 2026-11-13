@@ -4,6 +4,7 @@ import { permGuard } from '../../../shared/web-core/perm';
 import { EmptyAccessShell } from '../../../shared/web-core/empty-shell';
 import { Login } from './features/login/login';
 import { Activate } from './features/activate/activate';
+import { Install } from './features/install/install';
 import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
 import { UserManagement } from '../../../shared/users/user-management';
@@ -38,6 +39,7 @@ export const routes: Routes = [
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'onboarding' },
       { path: 'no-access', component: EmptyAccessShell },
+      { path: 'install', component: Install },
       { path: 'onboarding', component: Onboarding, canActivate: [pg('/onboarding')] },
       { path: 'kyc', component: Kyc, canActivate: [pg('/kyc')] },
       { path: 'users', component: UserManagement, canActivate: [pg('/users')] },
