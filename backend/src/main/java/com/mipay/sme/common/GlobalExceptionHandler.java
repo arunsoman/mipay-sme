@@ -3,6 +3,8 @@ package com.mipay.sme.common;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -72,9 +74,26 @@ public class GlobalExceptionHandler {
         return pd;
     }
 
+    /**
+     * A {@code @Perm}/{@code @PreAuthorize} refusal is a missing permission, not a server fault:
+     * 403 NO_PERMISSION (it used to fall through to the generic handler as a 500 "Access Denied").
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ProblemDetail accessDenied(AccessDeniedException e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN,
+                "You do not have the permission this action needs");
+        pd.setProperty("code", "NO_PERMISSION");
+        return pd;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail generic(Exception e) {
+        // Spring MVC's own exceptions (unknown path, wrong method, unreadable body, missing or
+        // mistyped parameter, ...) carry their proper 4xx status: keep it rather than report a 500.
+        if (e instanceof ErrorResponse er && !er.getStatusCode().is5xxServerError()) {
+            return er.getBody();
+        }
         log.error("Unhandled error", e);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error");
     }
 }

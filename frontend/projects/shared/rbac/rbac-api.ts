@@ -31,6 +31,10 @@ export interface RbacRole {
   in_ceiling?: boolean;
   delegable?: boolean;
   baseline?: boolean;
+  /** shipped with the platform; not editable by an org */
+  seeded?: boolean;
+  /** frozen by policy; not editable */
+  locked?: boolean;
 }
 
 /** GET /api/orgs/{id}/roles */

@@ -109,22 +109,30 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     <mp-modal [open]="!!roleFor()" size="wide" eyebrow="Give a role" [title]="roleFor()?.name ?? ''"
               [dirty]="mode() === 'new' && (picked().size > 0 || !!newRole.name)"
               discardText="Discard this role? Nothing has been created yet." (closed)="roleFor.set(null)">
-      <mp-tabs [options]="modeOpts()" [value]="mode()" (valueChange)="mode.set($event)" label="Role" />
+      @if (editing()) {
+        <div class="edithead"><button type="button" class="ghost sm" (click)="cancelEdit()">‹ Back to roles</button>
+          <span class="sub">Editing a role changes it for everyone who holds it.</span></div>
+      } @else {
+        <mp-tabs [options]="modeOpts()" [value]="mode()" (valueChange)="mode.set($event)" label="Role" />
+      }
 
-      @if (mode() === 'existing') {
+      @if (mode() === 'existing' && !editing()) {
         <div class="roles">
           @for (r of orgRoles(); track r.name) {
             <label class="rolecard" [class.on]="existing === r.name">
               <input type="radio" name="er" [value]="r.name" [(ngModel)]="existing" />
-              <span><b>{{ label(r.name) }}</b>
+              <span class="grow"><b>{{ label(r.name) }}</b>
                 <span class="sub">{{ r.description || (r.permissions.length + ' permissions') }}</span></span>
+              @if (editable(r)) {
+                <button type="button" class="ghost sm" (click)="$event.preventDefault(); startEdit(r)">Edit</button>
+              }
             </label>
           }
         </div>
       } @else {
         <div class="two">
           <label class="fl"><span class="lb">Role name</span>
-            <input class="inp" [(ngModel)]="newRole.name" placeholder="e.g. Cashier" maxlength="40" /></label>
+            <input class="inp" [(ngModel)]="newRole.name" [readonly]="!!editing()" placeholder="e.g. Cashier" maxlength="40" /></label>
           <label class="fl"><span class="lb">What it is for <em>optional</em></span>
             <input class="inp" [(ngModel)]="newRole.description" placeholder="e.g. Takes payments at the till" /></label>
         </div>
@@ -147,12 +155,21 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
           } @empty {<div class="sub">No permission matches.</div>}
         </div>
       }
+      @if (!editing()) {
+        <label class="check"><input type="checkbox" [(ngModel)]="subtree" />
+          Also for the organizations below this one <span class="sub">(e.g. to review their KYC)</span></label>
+      }
       @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       <div modal-footer>
         <button type="button" class="ghost" (click)="roleFor.set(null)">Later</button>
-        <button type="button" class="primary" (click)="giveRole()"
-                [disabled]="busy() || (mode() === 'existing' ? !existing : (!newRole.name.trim() || !picked().size))">
-          {{ busy() ? 'Saving…' : mode() === 'existing' ? 'Give this role' : 'Create role and give it' }}</button>
+        @if (editing()) {
+          <button type="button" class="primary" (click)="saveEdit()" [disabled]="busy() || !picked().size">
+            {{ busy() ? 'Saving…' : 'Save role' }}</button>
+        } @else {
+          <button type="button" class="primary" (click)="giveRole()"
+                  [disabled]="busy() || (mode() === 'existing' ? !existing : (!newRole.name.trim() || !picked().size))">
+            {{ busy() ? 'Saving…' : mode() === 'existing' ? 'Give this role' : 'Create role and give it' }}</button>
+        }
       </div>
     </mp-modal>
   `,
@@ -189,6 +206,11 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     .rolecard { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid #262626; border-radius: 12px; cursor: pointer; }
     .rolecard.on { border-color: var(--a-teal); }
     .rolecard input { width: auto; margin-top: 3px; }
+    .rolecard .grow { flex: 1; min-width: 0; }
+    .edithead { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    label.check { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+    label.check input { width: auto; }
+    label.check .sub { display: inline; }
     .pickhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .filter { max-width: 220px; height: 36px; }
     .groups { display: grid; gap: 4px; max-height: 46vh; overflow: auto; padding-right: 4px; }
@@ -257,6 +279,10 @@ export class UserManagement implements OnInit {
     ];
   }
   existing = '';
+  /** give the role over this org and every org below it (RBAC scope "subtree") */
+  subtree = false;
+  /** the org-defined role being edited, or null */
+  readonly editing = signal<RbacRole | null>(null);
   newRole = { name: '', description: '' };
   filterText = '';
   readonly picked = signal<Set<string>>(new Set());
@@ -342,6 +368,8 @@ export class UserManagement implements OnInit {
     this.filterText = '';
     this.picked.set(new Set());
     this.existing = '';
+    this.subtree = false;
+    this.editing.set(null);
     // without rbac.role:create a manager can only give the org's existing roles
     this.mode.set(this.accessSvc.can('rbac.role:create') ? 'new' : 'existing');
     this.roleFor.set(p);
@@ -376,10 +404,54 @@ export class UserManagement implements OnInit {
         }));
         role = created.name;
       }
-      await firstValueFrom(this.http.post(`/api/orgs/${a.orgId}/role-assignments`, { userId: p.id, role, scope: 'own' }));
+      await firstValueFrom(this.http.post(`/api/orgs/${a.orgId}/role-assignments`,
+        { userId: p.id, role, scope: this.subtree ? 'subtree' : 'own' }));
       this.roleFor.set(null);
       await this.load();
       this.flash.set({ kind: 'ok', text: `${p.name} now has the role ${this.label(role)}.` });
+    } catch (e) {
+      this.modalError.set(this.refusal(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Only this org's own roles are editable here (not standard, seeded or locked ones). */
+  editable(r: RbacRole) {
+    return r.kind === 'ORG' && r.owner_tenant === this.access()?.orgId && !r.seeded && !r.locked
+      && this.accessSvc.can('rbac.role:modify');
+  }
+
+  startEdit(r: RbacRole) {
+    this.modalError.set('');
+    this.filterText = '';
+    this.newRole = { name: this.label(r.name), description: r.description ?? '' };
+    this.picked.set(new Set(r.permissions));
+    this.editing.set(r);
+  }
+
+  cancelEdit() {
+    this.editing.set(null);
+    this.newRole = { name: '', description: '' };
+    this.picked.set(new Set());
+    this.modalError.set('');
+  }
+
+  async saveEdit() {
+    const r = this.editing();
+    const a = this.access();
+    if (!r || !a) return;
+    this.busy.set(true);
+    this.modalError.set('');
+    try {
+      await firstValueFrom(this.http.put(`/api/orgs/${a.orgId}/roles/${encodeURIComponent(r.name)}`, {
+        name: this.newRole.name.trim(), description: this.newRole.description.trim(),
+        baseRoles: r.base_roles ?? [], permissions: [...this.picked()],
+      }));
+      await this.load();
+      this.cancelEdit();
+      this.existing = r.name;
+      this.flash.set({ kind: 'ok', text: `Role ${this.label(r.name)} saved.` });
     } catch (e) {
       this.modalError.set(this.refusal(e));
     } finally {
