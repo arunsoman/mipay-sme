@@ -33,6 +33,7 @@ public class InstallerService implements ApplicationRunner {
     private final AppProperties props;
     private final UserRepository users;
     private final DeviceSessionRepository sessions;
+    private final com.mipay.sme.repository.ActivationTokenRepository activationTokens;
     private final OrgProvisioningService orgs;
     private final UserLifecycleService lifecycle;
     private final RbacMeshClient rbac;
@@ -144,6 +145,17 @@ public class InstallerService implements ApplicationRunner {
             audit.record(activated.getId(), activated.getRole().name(), "installer_retired", "user", INSTALLER,
                     "ACTIVE", "ARCHIVED", "first admin activated", false, null);
         });
+        for (User stale : users.findByRole(Enums.UserRole.MINDLABS_ADMIN)) {
+            if (!"root-admin-bootstrap".equals(stale.getCreatedBy())
+                    || stale.getStatus() != Enums.UserStatus.PENDING) continue;
+            stale.setStatus(Enums.UserStatus.ARCHIVED);
+            stale.setPasswordHash(null);
+            users.save(stale);
+            activationTokens.invalidateAllForUser(stale.getId(), Instant.now());
+            sessions.deleteByUserId(stale.getId());
+            audit.record(activated.getId(), activated.getRole().name(), "stale_root_admin_retired", "user", stale.getId(),
+                    "PENDING", "ARCHIVED", "replaced by first administrator", false, null);
+        }
     }
 
     private static boolean blank(String s) { return s == null || s.isBlank(); }

@@ -31,6 +31,7 @@ class InstallerServiceTest {
     @Mock AppProperties props;
     @Mock UserRepository users;
     @Mock DeviceSessionRepository sessions;
+    @Mock com.mipay.sme.repository.ActivationTokenRepository activationTokens;
     @Mock OrgProvisioningService orgs;
     @Mock UserLifecycleService lifecycle;
     @Mock RbacMeshClient rbac;
@@ -81,12 +82,19 @@ class InstallerServiceTest {
         installer.setId("installer");
         installer.setStatus(Enums.UserStatus.ACTIVE);
         when(users.findById("installer")).thenReturn(Optional.of(installer));
+        User stale = new User();
+        stale.setId("old-root");
+        stale.setCreatedBy("root-admin-bootstrap");
+        stale.setStatus(Enums.UserStatus.PENDING);
+        when(users.findByRole(Enums.UserRole.MINDLABS_ADMIN)).thenReturn(List.of(stale));
 
         service.retireAfterActivation(realAdmin);
 
         assertEquals(Enums.UserStatus.ARCHIVED, installer.getStatus());
         assertNull(installer.getPasswordHash());
         verify(sessions).deleteByUserId("installer");
+        assertEquals(Enums.UserStatus.ARCHIVED, stale.getStatus());
+        verify(activationTokens).invalidateAllForUser(eq("old-root"), any());
     }
 
     @Test
