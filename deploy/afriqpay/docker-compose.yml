@@ -47,11 +47,6 @@ services:
       APP_RBAC_REGISTRY_URL: https://rbac:8443/rbac/internal/permissions/register
       APP_COMMS_URL: https://comms:8443/comms/v1   # set-up links are emailed through the comms plane
       APP_RBAC_MODE: enforce               # OA8: RBAC decides every @Perm call; rollback = shadow
-      # root admin recovery: created at boot when the root org (TPTS) has no administrator (values in .env)
-      APP_ROOT_ADMIN_NAME: ${APP_ROOT_ADMIN_NAME:-}
-      APP_ROOT_ADMIN_PHONE: ${APP_ROOT_ADMIN_PHONE:-}
-      APP_ROOT_ADMIN_EMAIL: ${APP_ROOT_ADMIN_EMAIL:-}
-      APP_ROOT_ADMIN_USERNAME: ${APP_ROOT_ADMIN_USERNAME:-}
     volumes:
       - trustplane-backend-pki:/pki:ro    # restricted export from trustplane pki-init
     ports: ["127.0.0.1:19110:8080"]      # loopback only, for health checks; traffic arrives via the gateway

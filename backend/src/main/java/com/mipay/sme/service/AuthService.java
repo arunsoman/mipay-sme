@@ -43,7 +43,6 @@ public class AuthService {
     private final com.mipay.sme.service.OrgAccess orgAccess;
     private final PasswordEncoder passwordEncoder;
     private final com.mipay.sme.config.AppProperties props;
-    private final AuditService auditService;
 
     private final Map<String, String> otpStore = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
@@ -116,7 +115,6 @@ public class AuthService {
      */
     @Transactional
     public Dtos.TokenView loginWithPassword(String phone, String password) {
-        firstRunBootstrap(phone);
         java.util.List<User> matched = userRepo.findAllByIdentifier(java.util.Objects
                 .requireNonNullElse(phone, ""));
         if (matched.size() > 1) {
@@ -134,42 +132,6 @@ public class AuthService {
         }
         assertLoginAllowed(user);
         return issueToken(user);
-    }
-
-    /**
-     * First-run bootstrap (2026-11-13 redesign: no seed, the database is the source of truth).
-     * A completely fresh platform has no users at all; the IdP mints the install account
-     * (installer/installer123) on ITS empty store, and this mirrors it here so the installer
-     * can sign in to the portal while the RBAC clean-slate window is open and create the first
-     * org, the first role (every permission) and its assignment. Runs ONLY while the users
-     * table is empty and ONLY for the identifier "installer": once any user exists the branch
-     * is dead forever and every login is a normal lookup. Rotate or disable the account once
-     * installation is complete.
-     */
-    private void firstRunBootstrap(String identifier) {
-        if (identifier == null || !"installer".equals(identifier.trim())) return;
-        if (userRepo.count() != 0) return; // not a clean slate: never again
-        try {
-            User installer = new User();
-            installer.setName("Installer");
-            installer.setPhone("0000000000"); // NOT NULL UNIQUE column: inert, synthetic, never an OTP route
-            installer.setUsername("installer");
-            installer.setPasswordHash(passwordEncoder.encode("installer123"));
-            installer.setRole(Enums.UserRole.MINDLABS_ADMIN);
-            installer.setOrgRole(Enums.OrgMemberRole.ADMIN);
-            installer.setStatus(Enums.UserStatus.ACTIVE);
-            installer.setCreatedBy("bootstrap:first-run");
-            installer.setActivatedAt(Instant.now());
-            userRepo.save(installer);
-            auditService.record("system", "SYSTEM", "bootstrap_installer_created", "user", installer.getId(),
-                    null, null, "clean slate: the platform had no users; the install account was minted "
-                            + "(username=installer); rotate or disable after installation", false, null);
-            log.warn("[bootstrap] clean slate: minted the installer account (username=installer, id={}) - "
-                    + "it exists only because there were no users; rotate or disable after installation", installer.getId());
-        } catch (org.springframework.dao.DataIntegrityViolationException race) {
-            // a concurrent first login created it first: the next attempt finds it in the lookup
-            log.info("[bootstrap] installer account already exists (concurrent first run)");
-        }
     }
 
     private Dtos.TokenView issueToken(User user) {
