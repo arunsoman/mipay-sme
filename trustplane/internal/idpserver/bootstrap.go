@@ -2,7 +2,10 @@ package idpserver
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -11,7 +14,7 @@ import (
 //
 // A fresh IdP store holds NO accounts at all, so nobody could sign in and the first org /
 // first role could never be created without a seed file. Instead, on startup with an EMPTY
-// accounts table the IdP mints exactly one account: installer/installer123 (with a stable,
+// accounts table the IdP mints exactly one installer account (with a stable,
 // predictable subject). The installer signs in, and while the RBAC clean-slate window is open
 // (see rbac-service Decisions.bootstrapWindow) creates the first org, the first role with every
 // permission, and that role's first assignment.
@@ -20,7 +23,7 @@ import (
 //   - The account is created ONLY while the accounts table is empty; the moment any account
 //     exists (including a previously created installer), booting creates nothing. A restart
 //     after installation therefore creates no user.
-//   - It is a bootstrap credential: the installer should rotate or disable it once installation
+//   - It is a bootstrap credential: the installer should disable it once installation
 //     is complete.
 func BootstrapInstaller(ctx context.Context, pool *pgxpool.Pool) error {
 	var n int
@@ -30,8 +33,12 @@ func BootstrapInstaller(ctx context.Context, pool *pgxpool.Pool) error {
 	if n > 0 {
 		return nil
 	}
+	password, err := bootstrapPassword(os.Getenv("IDP_BOOTSTRAP_PASSWORD"))
+	if err != nil {
+		return err
+	}
 	subject := seedSubject("installer") // stable: acc_seed_...
-	hash, err := hashPassword("installer123")
+	hash, err := hashPassword(password)
 	if err != nil {
 		return err
 	}
@@ -46,4 +53,11 @@ func BootstrapInstaller(ctx context.Context, pool *pgxpool.Pool) error {
 			"It exists only because the store was empty; rotate or disable it after installation.", subject)
 	}
 	return nil
+}
+
+func bootstrapPassword(value string) (string, error) {
+	if len(value) < 16 || strings.TrimSpace(value) != value {
+		return "", fmt.Errorf("IDP_BOOTSTRAP_PASSWORD must be set to a private value of at least 16 characters with no surrounding whitespace on a clean IdP store")
+	}
+	return value, nil
 }
