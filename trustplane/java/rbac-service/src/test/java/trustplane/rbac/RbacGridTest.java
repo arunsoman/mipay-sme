@@ -39,7 +39,7 @@ class RbacGridTest {
     static final String SYS = AccessService.SYSTEM;
 
     RbacConfig config(String env) {
-        return new RbacConfig("", ":0", ":0", "", "", "", "", System.getenv("TEST_RBAC_SEED"), 120, env, "", "sme-mipay-mesh", null);
+        return new RbacConfig("", ":0", ":0", "", "", "", "", 120, env, "", "sme-mipay-mesh", null);
     }
 
     void wire(String env) throws Exception {
@@ -72,7 +72,8 @@ class RbacGridTest {
         db.execute("CREATE TABLE suppliers (id TEXT PRIMARY KEY)");
         db.execute("CREATE TABLE role_permissions (role_name TEXT, permission_id TEXT)");
         seed.apply();
-        // the org tree, as the core's sync sends it
+        // the role fixture (ported from the retired engine seed yaml; TEST-ONLY data, never loaded at boot)
+        EngineFixture.load(db, policy);
         Map<String, String[]> orgs = new LinkedHashMap<>();
         orgs.put("plat", new String[]{"PLATFORM", null});
         orgs.put("namib", new String[]{"DISTRIBUTOR", "plat"});
@@ -341,7 +342,8 @@ class RbacGridTest {
         assertEquals(400, status(() -> store.createRole("ua1", "phantom", "", "ORG",
                 store.parseGrid(Map.of("merchant.account", List.of("delete")), null), List.of())), "a cell no endpoint uses can't be ticked");
         assertEquals(409, status(() -> store.updateRole("ua1", "org_viewer", null, null, List.of("org_admin"))), "hierarchy cycles refused");
-        // Seeded grids are locked in uat/production (reviewed seed change only); custom roles remain editable.
+        // The legacy `seeded` flag (rows created before the bootstrap redesign) keeps the uat
+        // write-lock; roles created through the APIs are database-owned and fully editable.
         RbacStore uatStore = new RbacStore(db, new WatchHub(), policy, config("uat"), ceilings);
         assertTrue(uatStore.seedLocked());
         assertFalse(store.seedLocked(), "dev keeps seeded grids editable");
@@ -354,7 +356,7 @@ class RbacGridTest {
         assign("vera2", "editable_viewer", "oka", "own");
         assertTrue(allowed("vera2", "oka", "merchant.account:read"));
         assertFalse(allowed("vera2", "oka", "kyc.application:read"), "removed by the edit");
-        assertEquals(409, status(() -> store.deleteRole("ua1", "org_viewer")), "seeded roles change through the seed");
+        assertEquals(409, status(() -> store.deleteRole("ua1", "org_viewer")), "a legacy-seeded (pre-redesign) role never changes through the API");
 
         // a created role that builds on others can be deleted again (its inheritance rows go too)
         store.createRole("ua1", "cashier_tmp", "", "ORG", store.parseGrid(Map.of(), List.of()), List.of("org_viewer"));
@@ -421,18 +423,6 @@ class RbacGridTest {
         assertTrue(md.contains("ssd-access-admin-not-reviewer"));
         assertTrue(db.queryForList("SELECT 1 FROM rbac_resources WHERE id='merchant.inventory'").isEmpty(),
                 "a row the code no longer registers is removed");
-    }
-
-    @Test
-    void seedIsIdempotentAndSeededRolesRequireReviewedChanges() throws Exception {
-        RbacStore uatStore = new RbacStore(db, new WatchHub(), policy, config("uat"), ceilings);
-        assertEquals(409, status(() -> uatStore.updateRole("ua1", "org_viewer", null,
-                store.parseGrid(Map.of("org.tree", List.of("read")), null), null)));
-        seed.apply();
-        assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "an unchanged seed remains authoritative");
-        db.update("UPDATE roles SET seed_hash='changed' WHERE name='org_viewer'");
-        seed.apply();
-        assertTrue(policy.get().roles().get("org_viewer").grid().size() > 10, "a changed seed is authoritative again");
     }
 
     // ------------------------------------------------------------------

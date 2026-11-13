@@ -21,7 +21,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Schema and seed of the MiPay RBAC grid (idp-rbac-cutover-plan.md P2, §4).
+ * Schema and bootstrap of the MiPay RBAC grid (idp-rbac-cutover-plan.md P2, §4), retuned 2026-11-13:
+ * there is NO seed file. The RBAC boots with an EMPTY grid - no roles, no assignments, no SoD
+ * rules - and everything is created through the reviewed admin APIs: on a fresh install the IdP
+ * mints the bootstrap installer (installer/installer123), who creates the first org and the first
+ * role (every permission) with its assignment, and from then on the live database is the only
+ * source of truth. Roles made through the APIs are never overwritten at boot.
  *
  * <ol>
  *   <li>P2.0: if the old supplier-delegation demo schema is present, it is dropped once
@@ -29,10 +34,8 @@ import java.util.Map;
  *       {@code permissions}, {@code role_permissions}, {@code org_tenant_mapping} and the old
  *       {@code roles}/{@code grants}/{@code assignments}/{@code tenants}). Nothing read it.</li>
  *   <li>The grid schema is created (idempotent).</li>
- *   <li>The seed (rows, roles, grids, hierarchy, SoD) is applied. A seeded role's grid is
- *       rewritten only when the seed for that role changed (content hash), so grid edits made
- *       through the API survive restarts until the next reviewed seed change.</li>
- *   <li>In dev/sandbox only, the e2e fixtures (demo orgs and assignments) are loaded.</li>
+ *   <li>Dev/sandbox only: the e2e fixtures (demo orgs and assignments) may be loaded for tests;
+ *       production never sees them.</li>
  * </ol>
  */
 @Component
@@ -214,13 +217,9 @@ public class SchemaAndSeed implements ApplicationRunner {
     public void apply() throws Exception {
         dropLegacyDemo();
         for (String ddl : DDL) db.execute(ddl);
-        tx.executeWithoutResult(s -> {
-            try {
-                seed(cfg.seedFile());
-            } catch (Exception e) {
-                throw new IllegalStateException("rbac seed: " + e.getMessage(), e);
-            }
-        });
+        log.warn("[rbac] the grid is NOT seeded: no roles, no assignments, no SoD rules. The installer "
+                + "creates the first org and the first role through the APIs while the clean-slate "
+                + "bootstrap window is open (see Decisions.bootstrapWindow).");
         if (cfg.isDev() && !cfg.fixturesFile().isBlank()) {
             tx.executeWithoutResult(s -> {
                 try {
@@ -245,136 +244,6 @@ public class SchemaAndSeed implements ApplicationRunner {
         log.warn("[rbac] P2.0: dropping the supplier-delegation demo schema ({})", LEGACY_TABLES);
         for (String t : LEGACY_TABLES) db.execute("DROP TABLE IF EXISTS " + t + " CASCADE");
         db.execute("DROP TABLE IF EXISTS audit_log CASCADE");
-    }
-
-    // ------------------------------------------------------------------
-    // Seed
-    // ------------------------------------------------------------------
-
-    @SuppressWarnings("unchecked")
-    void seed(String path) throws Exception {
-        if (!Files.exists(Path.of(path))) {
-            throw new IllegalStateException("seed file not found: " + path);
-        }
-        String text = Files.readString(Path.of(path), StandardCharsets.UTF_8);
-        Map<String, Object> raw = new Yaml().load(text);
-        int rows = 0;
-        Map<String, Object> resources = map(raw.get("resources"));
-        for (var e : resources.entrySet()) {
-            Map<String, Object> r = map(e.getValue());
-            String id = e.getKey();
-            if (Verbs.parse(id + ":read") == null) throw new IllegalArgumentException("bad row id " + id);
-            int declared = Verbs.mask(strings(r.get("used")));
-            List<String> types = strings(r.get("tenant_types"));
-            db.update("""
-                    INSERT INTO rbac_resources (id, service, description, declared_verbs, used_verbs, tenant_types)
-                    VALUES (?,?,?,?,?,?)
-                    ON CONFLICT (id) DO UPDATE SET service=EXCLUDED.service, description=EXCLUDED.description,
-                        declared_verbs=EXCLUDED.declared_verbs, tenant_types=EXCLUDED.tenant_types, updated_at=now(),
-                        used_verbs = CASE WHEN EXISTS (SELECT 1 FROM rbac_cell_endpoints ce WHERE ce.resource=EXCLUDED.id)
-                                          THEN rbac_resources.used_verbs ELSE EXCLUDED.declared_verbs END""",
-                    id, str(r.get("service"), "mipay"), str(r.get("description"), ""), declared, declared,
-                    types.isEmpty() ? null : String.join(",", types));
-            rows++;
-        }
-        db.update("UPDATE rbac_resources SET grant_verbs=0, grant_attribute=NULL");
-        for (Object o : list(raw.get("entitlements"))) {
-            Map<String, Object> en = map(o);
-            Verbs.Cell c = Verbs.parse(str(en.get("cell"), ""));
-            if (c == null) throw new IllegalArgumentException("bad entitlement cell " + en.get("cell"));
-            // rows come from the code's registration; until it arrives the entitlement holds a placeholder row
-            db.update("INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING",
-                    c.row(), "mipay", c.row().replace('.', ' '));
-            db.update("UPDATE rbac_resources SET grant_verbs = grant_verbs | ?, grant_attribute=? WHERE id=?",
-                    c.bit(), str(en.get("attribute"), null), c.row());
-        }
-
-        Map<String, Object> roles = map(raw.get("roles"));
-        int changed = 0;
-        for (var e : roles.entrySet()) {
-            String name = e.getKey();
-            Map<String, Object> r = map(e.getValue());
-            String hash = sha256(new Yaml().dump(r));
-            List<String> prev = db.queryForList("SELECT seed_hash FROM roles WHERE name=?", String.class, name);
-            String kind = str(r.get("kind"), "ORG");
-            int allRows = Verbs.mask(strings(r.get("grid_all_rows")));
-            Integer maxHours = r.get("max_hours") == null ? null : ((Number) r.get("max_hours")).intValue();
-            db.update("""
-                    INSERT INTO roles (name, description, kind, approval, max_hours, all_rows_verbs, seeded, seed_hash)
-                    VALUES (?,?,?,?,?,?,TRUE,?)
-                    ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description, kind=EXCLUDED.kind,
-                        approval=EXCLUDED.approval, max_hours=EXCLUDED.max_hours, seeded=TRUE, updated_at=now()""",
-                    name, str(r.get("description"), ""), kind, str(r.get("approval"), "platform"), maxHours, allRows, hash);
-            if (!prev.isEmpty() && hash.equals(prev.get(0))) continue; // unchanged seed: keep API edits
-            db.update("UPDATE roles SET all_rows_verbs=?, seed_hash=? WHERE name=?", allRows, hash, name);
-            db.update("DELETE FROM rbac_role_grid WHERE role=?", name);
-            for (var g : map(r.get("grid")).entrySet()) {
-                // rows come from the code's registration at boot; on a fresh database the seed can run
-                // first, so hold a placeholder row (as entitlements do) rather than drop the tick: the
-                // seed hash is stored below, so a skipped tick would never come back
-                if (db.queryForList("SELECT 1 FROM rbac_resources WHERE id=?", g.getKey()).isEmpty()) {
-                    log.info("[rbac] {}: row {} not registered yet: placeholder held until the code registers it", name, g.getKey());
-                    db.update("INSERT INTO rbac_resources (id, service, description) VALUES (?,?,?) ON CONFLICT (id) DO NOTHING",
-                            g.getKey(), "mipay", g.getKey().replace('.', ' '));
-                }
-                db.update("INSERT INTO rbac_role_grid (role, resource, verbs) VALUES (?,?,?)",
-                        name, g.getKey(), Verbs.mask(strings(g.getValue())));
-            }
-            changed++;
-        }
-        // seeded roles that left the seed are deleted with their assignments (2026-11-12: every
-        // standard role but organization_root was removed); ceilings naming them are cleared
-        List<String> gone = db.queryForList("SELECT name FROM roles WHERE seeded AND NOT (name = ANY(?::text[]))",
-                String.class, pgArray(new ArrayList<>(roles.keySet())));
-        if (!gone.isEmpty()) {
-            db.update("DELETE FROM review_items WHERE assignment_id IN (SELECT id FROM assignments WHERE role = ANY(?::text[]))", pgArray(gone));
-            int asg = db.update("DELETE FROM assignments WHERE role = ANY(?::text[])", pgArray(gone));
-            db.update("DELETE FROM roles WHERE name = ANY(?::text[])", pgArray(gone));
-            db.update("UPDATE roles SET base_roles = ARRAY(SELECT b FROM unnest(base_roles) b WHERE NOT (b = ANY(?::text[]))) "
-                    + "WHERE base_roles && ?::text[]", pgArray(gone), pgArray(gone));
-            db.update("UPDATE tenants SET role_ceiling = NULL, role_delegable = NULL WHERE role_ceiling && ?::text[] OR role_delegable && ?::text[]",
-                    pgArray(gone), pgArray(gone));
-            log.warn("[rbac] seed removed {} role(s) and {} assignment(s): {}", gone.size(), asg, gone);
-        }
-        // hierarchy (rewritten for seeded roles; cycles refused)
-        Map<String, List<String>> inherits = new LinkedHashMap<>();
-        for (var e : roles.entrySet()) inherits.put(e.getKey(), strings(map(e.getValue()).get("inherits")));
-        Policy.assertAcyclic(inherits);
-        for (var e : inherits.entrySet()) {
-            db.update("DELETE FROM role_inheritance WHERE senior=?", e.getKey());
-            for (String j : e.getValue()) {
-                if (!roles.containsKey(j)) throw new IllegalArgumentException(e.getKey() + " inherits unknown role " + j);
-                db.update("INSERT INTO role_inheritance (senior, junior) VALUES (?,?)", e.getKey(), j);
-            }
-        }
-        // separation of duty and exemptions: the seed is authoritative
-        db.update("DELETE FROM sod_rules");
-        for (Object o : list(raw.get("sod"))) {
-            Map<String, Object> s = map(o);
-            String kind = str(s.get("kind"), "");
-            List<String> a = strings(s.get("a")), b = strings(s.get("b"));
-            for (String rn : concat(a, b)) {
-                if (!roles.containsKey(rn)) throw new IllegalArgumentException("sod " + s.get("id") + ": unknown role " + rn);
-            }
-            db.update("INSERT INTO sod_rules (id, kind, roles_a, roles_b, cell_a, cell_b, reason) VALUES (?,?,?::text[],?::text[],?,?,?)",
-                    s.get("id"), kind, pgArray(a), pgArray(b), s.get("cell_a"), s.get("cell_b"), str(s.get("reason"), ""));
-        }
-        db.update("DELETE FROM same_row_exemptions");
-        for (var e : map(raw.get("same_row_exemptions")).entrySet()) {
-            db.update("INSERT INTO same_row_exemptions (resource, reason) VALUES (?,?)", e.getKey(), String.valueOf(e.getValue()));
-        }
-        // roles inside every org's ceiling (extended-rbac X3): the seed is authoritative
-        db.update("DELETE FROM ceiling_baseline");
-        for (String rn : strings(raw.get("ceiling_baseline"))) {
-            Map<String, Object> r = map(roles.get(rn));
-            if (!roles.containsKey(rn) || !"ORG".equals(str(r.get("kind"), "ORG"))) {
-                throw new IllegalArgumentException("ceiling_baseline: " + rn + " is not a seeded ORG role");
-            }
-            db.update("INSERT INTO ceiling_baseline (role) VALUES (?)", rn);
-        }
-        log.info("[rbac] seed applied: {} rows, {} roles ({} rewritten from a changed seed)", rows, roles.size(), changed);
-        db.update("INSERT INTO audit_log (actor, action, details) VALUES ('system','seed_applied',?::jsonb)",
-                "{\"rows\":" + rows + ",\"roles\":" + roles.size() + ",\"rewritten\":" + changed + "}");
     }
 
     // ------------------------------------------------------------------

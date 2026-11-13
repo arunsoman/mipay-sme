@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class RbacConfigTest {
 
     private static RbacConfig config(String environment, Instant deadline) {
-        return new RbacConfig("", "", "", "", "", "", "", "", 120,
+        return new RbacConfig("", "", "", "", "", "", "", 120,
                 environment, "", "sme-mipay-mesh", deadline);
     }
 

@@ -109,6 +109,40 @@ public class Decisions {
     private final Ceilings ceilings;
     private final BlockingQueue<Object[]> logQueue = new ArrayBlockingQueue<>(20_000);
 
+    /**
+     * Sticky negative memo for {@link #bootstrapWindow}: once the platform holds a role or an
+     * assignment the window is closed for the process's lifetime (a fresh role can never make the
+     * grid clean again). Only the OPEN window is re-probed, and only until it closes.
+     */
+    private volatile boolean bootstrapClosed;
+
+    /**
+     * The clean-slate bootstrap window: while the platform holds NO roles and NO assignments,
+     * every check is allowed. This is how a fresh install breaks the chicken-and-egg — the IdP
+     * mints the bootstrap installer (installer/installer123) on an empty store, and the installer
+     * uses it, in this window, to create the first org, the first role (every permission) and that
+     * role's first assignment. The window closes the moment the first assignment exists; from then on
+     * every decision is a normal grid decision and this rule never opens again. Each allow is
+     * logged and recorded in the decision log, so the whole bootstrap is auditable.
+     */
+    private boolean bootstrapWindow() {
+        if (bootstrapClosed) return false;
+        Integer roles = null, asg = null;
+        try {
+            roles = db.queryForObject("SELECT count(*) FROM roles", Integer.class);
+            asg = db.queryForObject("SELECT count(*) FROM assignments", Integer.class);
+        } catch (Exception e) {
+            log.warn("[rbac] bootstrap window probe failed (fail closed): {}", e.getMessage());
+            return false;
+        }
+        if ((roles != null && roles > 0) || (asg != null && asg > 0)) {
+            bootstrapClosed = true;
+            log.info("[rbac] the bootstrap window is closed: the platform now holds roles/assignments");
+            return false;
+        }
+        return true;
+    }
+
     public static String newDecisionId() {
         byte[] b = new byte[10];
         RNG.nextBytes(b);
@@ -299,6 +333,13 @@ public class Decisions {
     // ------------------------------------------------------------------
 
     public Decision check(Request q) {
+        if (bootstrapWindow()) {
+            log.warn("[rbac] clean-slate bootstrap: allowing subject {} for {} on {} (no roles/assignments exist)",
+                    q.subject(), q.operation(), q.tenant());
+            Decision d = new Decision(true, "bootstrap_clean_slate", 0, newDecisionId(), List.of());
+            record(d, q);
+            return d;
+        }
         Decision d = decide(q);
         record(d, q);
         return d;
@@ -365,6 +406,11 @@ public class Decisions {
 
     /** Holds the cell through a platform-wide (scope all) assignment: cross-org admin reads. */
     public boolean checkPlatform(String subject, String operation) {
+        if (bootstrapWindow()) {
+            log.warn("[rbac] clean-slate bootstrap: platform-check allowing {} for {} (no roles/assignments exist)",
+                    subject, operation);
+            return true;
+        }
         Policy.Snapshot s = policy.get();
         Verbs.Cell cell = Verbs.parse(operation);
         if (cell == null || subject == null) return false;

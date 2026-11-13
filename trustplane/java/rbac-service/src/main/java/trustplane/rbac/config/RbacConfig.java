@@ -19,7 +19,6 @@ public record RbacConfig(
         String adminListen,       // admin REST over TLS+mTLS
         String tlsCert, String tlsKey, String internalCA,
         String ctxSecretPath,
-        String seedFile,
         long ctxSkewSeconds,
         String environment,       // dev | sandbox | uat | production (RBAC_ENVIRONMENT)
         String fixturesFile,      // e2e demo orgs + assignments; dev/sandbox only
@@ -35,7 +34,6 @@ public record RbacConfig(
                 Env.get("RBAC_TLS_KEY", "/pki/rbac-server-key.pem"),
                 Env.get("RBAC_INTERNAL_CA", "/pki/platform-ca.pem"),
                 Env.get("RBAC_CTX_SECRET", "/pki/ctx-secret"),
-                Env.get("RBAC_SEED_FILE", "/config/rbac/grid.yaml"),
                 Env.getInt("RBAC_CTX_SKEW_SECONDS", 120),
                 Env.get("RBAC_ENVIRONMENT", "dev"),
                 Env.get("RBAC_FIXTURES_FILE", ""),

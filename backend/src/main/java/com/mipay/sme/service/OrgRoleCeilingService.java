@@ -58,7 +58,7 @@ public class OrgRoleCeilingService {
     private final ApplicationEventPublisher events;
     private final RbacMeshClient rbac;
 
-    /** Inside every ceiling (grid.yaml ceiling_baseline); RBAC enforces its own copy. */
+    /** Inside every ceiling (grid seed v1 ceiling_baseline, now database-owned); RBAC enforces its own copy. */
     @Value("${app.rbac.ceiling-baseline:kyc_applicant,org_admin}")
     private List<String> baseline;
 

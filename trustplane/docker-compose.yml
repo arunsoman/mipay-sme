@@ -152,7 +152,6 @@ services:
       RBAC_TLS_KEY: /pki/rbac-server-key.pem
       RBAC_INTERNAL_CA: /pki/platform-ca.pem
       RBAC_CTX_SECRET: /pki/ctx-secret
-      RBAC_SEED_FILE: /config/rbac/grid.yaml
       RBAC_ENVIRONMENT: ${RBAC_ENVIRONMENT:-dev}
       RBAC_FIXTURES_FILE: /config/rbac/fixtures.e2e.yaml     # loaded only in dev/sandbox
       RBAC_CORE_CN: sme-mipay-mesh

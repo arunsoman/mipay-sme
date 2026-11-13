@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Gives a newly live organization's administrator the starter role for its kind
- * (trustplane/config/rbac/grid.yaml: onboard organizations below it and manage its users,
+ * (grid seed v1, now database-owned: onboard organizations below it and manage its users,
  * nothing else). Without it the administrator logs in to an empty portal and cannot even
  * open User management to build roles for their people.
  *
@@ -22,7 +22,7 @@ public class StarterRoleService {
 
     private final RbacMeshClient rbac;
 
-    /** The grid.yaml starter role for an org type, or null when the type has none (PLATFORM). */
+    /** The starter role (grid seed v1, now database-owned) for an org type, or null when the type has none (PLATFORM). */
     public static String starterRole(Enums.OrgType type) {
         if (type == null) return null;
         return switch (type) {

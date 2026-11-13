@@ -56,8 +56,6 @@ tasks.withType<Test>().configureEach {
     // CI must exercise the Postgres-backed policy tests instead of accepting JUnit skips.
     environment("REQUIRE_RBAC_DSN", System.getenv("REQUIRE_RBAC_DSN") ?: if (System.getenv("CI") == "true") "true" else "")
     // the engine tests keep the pre-2026-11-12 grid; the product seed is tested by RootRoleSeedTest
-    environment("TEST_RBAC_SEED", file("src/test/resources/grid.engine-test.yaml").absolutePath)
-    environment("TEST_RBAC_PRODUCT_SEED", rootProject.file("../config/rbac/grid.yaml").absolutePath)
     // role pack export (RolePackExport): skipped unless both are set
     environment("ROLE_PACK_DSN", System.getenv("ROLE_PACK_DSN") ?: "")
     environment("ROLE_PACK_OUT", System.getenv("ROLE_PACK_OUT") ?: "")

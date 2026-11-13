@@ -46,7 +46,7 @@ public class RolePack {
         StringBuilder b = new StringBuilder();
         b.append("# RBAC role pack for compliance sign-off\n\n");
         b.append("Generated ").append(LocalDate.now()).append(" from the live RBAC service (environment `").append(environment)
-                .append("`). Source of truth: `trustplane/config/rbac/grid.yaml`; the endpoints come from the code's own registration.\n\n");
+                .append("`). Source of truth: the live database (roles are created through the reviewed role APIs; no seed file). The endpoints come from the code's own registration.\n\n");
         b.append("Version 1 of the grid reproduces today's access one-to-one (decision D9), so shadow mode can prove the two agree. ")
                 .append("Tightening happens afterwards through the quarterly access review.\n\n");
         b.append("**Verbs:** read · create · modify · delete · submit · authorize · execute · export · administer · simulate. ")

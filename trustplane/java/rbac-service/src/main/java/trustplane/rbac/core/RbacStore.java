@@ -276,9 +276,10 @@ public class RbacStore {
     // ------------------------------------------------------------------
 
     /**
-     * Seeded grids are locked in uat and production (a reviewed grid.yaml change is the only
-     * path there). In dev and sandbox they stay editable so the matrix can be tried out; the
-     * edit lasts until the next seed change.
+     * Seeded grids used to be locked in uat and production; since the seed was retired the
+     * database is the source of truth in every environment: roles made through the admin APIs
+     * are live data and stay editable. {@code seed_locked} is kept for the {@code seeded} flag
+     * any pre-retirement database may still carry (edit those to migrate them to API-roles).
      */
     public boolean seedLocked() {
         return !Set.of("dev", "sandbox").contains(cfg.environment());
@@ -396,7 +397,8 @@ public class RbacStore {
         Policy.Role r = policy.get().roles().get(name);
         if (r == null) throw ApiException.notFound();
         if (r.seeded() && seedLocked()) throw new ApiException(409, "REVIEWED_SEED_REQUIRED",
-                "seeded roles are read-only in " + cfg.environment() + " until a multi-approver matrix workflow is available; change the reviewed grid.yaml seed");
+                "this role predates the bootstrap redesign (created by the retired yaml seed) and is read-only in "
+                        + cfg.environment() + "; recreate it through the role APIs as a normal (database-owned) role");
         if (description != null && !description.isBlank()) db.update("UPDATE roles SET description=?, updated_at=now() WHERE name=?", description, name);
         Map<String, Object> diff = new LinkedHashMap<>();
         if (grid != null) {

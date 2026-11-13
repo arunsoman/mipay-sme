@@ -27,6 +27,9 @@ func main() {
 	if err := dbx.Migrate(ctx, pool, idpserver.DDL); err != nil {
 		log.Fatalf("idp migrate: %v", err)
 	}
+	if err := idpserver.BootstrapInstaller(ctx, pool); err != nil {
+		log.Fatalf("idp bootstrap installer: %v", err)
+	}
 	reg, err := clients.Load(cfg.ClientsFile)
 	if err != nil {
 		log.Fatalf("idp clients: %v", err)

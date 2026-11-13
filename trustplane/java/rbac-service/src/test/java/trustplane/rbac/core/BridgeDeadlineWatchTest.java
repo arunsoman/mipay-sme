@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class BridgeDeadlineWatchTest {
 
     private static RbacConfig config(String environment, Instant deadline) {
-        return new RbacConfig("", "", "", "", "", "", "", "", 120, environment, "", "sme-mipay-mesh", deadline);
+        return new RbacConfig("", "", "", "", "", "", "", 120, environment, "", "sme-mipay-mesh", deadline);
     }
 
     @Test
