@@ -75,7 +75,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                             || ("GET".equals(request.getMethod()) && "/api/me".equals(path));
                     if (!valid || !setupPath) {
                         SecurityContextHolder.clearContext();
-                        response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                         return;
                     }
                 }
