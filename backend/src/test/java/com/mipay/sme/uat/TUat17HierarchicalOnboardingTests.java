@@ -74,7 +74,7 @@ class TUat17HierarchicalOnboardingTests extends UatSupport {
         Dtos.OutboxRow out = activation.outbox(platformAdminPrincipal()).stream()
                 .filter(r -> r.activationLink() != null && r.activationLink().endsWith(rawTokenFor(admin.getId())))
                 .findFirst().orElseThrow();
-        assertThat(out.activationLink()).contains("/api/auth/activate");
+        assertThat(out.activationLink()).contains("/activate?token=");
 
         // 5) weak passwords are refused at activation ([H8])
         String raw = rawTokenFor(admin.getId());

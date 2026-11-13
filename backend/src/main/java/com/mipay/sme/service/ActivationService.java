@@ -254,7 +254,7 @@ public class ActivationService {
                         link = simOutboxRepo.findAll().stream()
                                 .filter(o -> m.getActivationTokenId().equals(o.getActivationTokenId()))
                                 .findFirst()
-                                .map(o -> publicBaseUrl + "/api/auth/activate?token=" + o.getRawToken())
+                                .map(o -> linkFor(o.getRawToken()))
                                 .orElse(null);
                     }
                     return new Dtos.OutboxRow(m.getId(), m.getEventCode(), m.getChannel(), m.getRecipient(),
