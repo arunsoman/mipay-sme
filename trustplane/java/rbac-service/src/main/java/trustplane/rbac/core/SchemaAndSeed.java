@@ -24,8 +24,8 @@ import java.util.Map;
  * Schema and bootstrap of the MiPay RBAC grid (idp-rbac-cutover-plan.md P2, §4), retuned 2026-11-13:
  * there is NO seed file. The RBAC boots with an EMPTY grid - no roles, no assignments, no SoD
  * rules - and everything is created through the reviewed admin APIs: on a fresh install the IdP
- * mints the bootstrap installer (installer/installer123), who creates the first org and the first
- * role (every permission) with its assignment, and from then on the live database is the only
+ * mints the installer with a privately configured password. That identity can create the first
+ * RBAC role and assignment; from then on the live database is the only
  * source of truth. Roles made through the APIs are never overwritten at boot.
  *
  * <ol>

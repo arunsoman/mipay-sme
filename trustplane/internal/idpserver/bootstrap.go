@@ -12,11 +12,11 @@ import (
 
 // The clean-slate bootstrap installer (2026-11-13 redesign: no yaml seed anywhere).
 //
-// A fresh IdP store holds NO accounts at all, so nobody could sign in and the first org /
-// first role could never be created without a seed file. Instead, on startup with an EMPTY
+// A fresh IdP store holds NO accounts at all, so nobody could sign in to set up
+// the first RBAC role. Instead, on startup with an EMPTY
 // accounts table the IdP mints exactly one installer account (with a stable,
 // predictable subject). The installer signs in, and while the RBAC clean-slate window is open
-// (see rbac-service Decisions.bootstrapWindow) creates the first org, the first role with every
+// (see rbac-service Decisions.bootstrapWindow) creates the first role with every
 // permission, and that role's first assignment.
 //
 // Rules:

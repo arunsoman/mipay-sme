@@ -118,9 +118,8 @@ public class Decisions {
 
     /**
      * The clean-slate bootstrap window: while the platform holds NO roles and NO assignments,
-     * every check is allowed. This is how a fresh install breaks the chicken-and-egg — the IdP
-     * mints the bootstrap installer (installer/installer123) on an empty store, and the installer
-     * uses it, in this window, to create the first org, the first role (every permission) and that
+     * only the IdP installer may use RBAC setup operations. This breaks the chicken-and-egg —
+     * the IdP mints the installer on an empty store, and the installer uses this window to create the first role and
      * role's first assignment. The window closes the moment the first assignment exists; from then on
      * every decision is a normal grid decision and this rule never opens again. Each allow is
      * logged and recorded in the decision log, so the whole bootstrap is auditable.
@@ -141,6 +140,10 @@ public class Decisions {
             return false;
         }
         return true;
+    }
+
+    private static boolean installerSetup(String subject, String operation) {
+        return "installer".equals(subject) && operation != null && operation.startsWith("rbac.");
     }
 
     public static String newDecisionId() {
@@ -333,7 +336,7 @@ public class Decisions {
     // ------------------------------------------------------------------
 
     public Decision check(Request q) {
-        if (bootstrapWindow()) {
+        if (installerSetup(q.subject(), q.operation()) && bootstrapWindow()) {
             log.warn("[rbac] clean-slate bootstrap: allowing subject {} for {} on {} (no roles/assignments exist)",
                     q.subject(), q.operation(), q.tenant());
             Decision d = new Decision(true, "bootstrap_clean_slate", 0, newDecisionId(), List.of());
@@ -406,7 +409,7 @@ public class Decisions {
 
     /** Holds the cell through a platform-wide (scope all) assignment: cross-org admin reads. */
     public boolean checkPlatform(String subject, String operation) {
-        if (bootstrapWindow()) {
+        if (installerSetup(subject, operation) && bootstrapWindow()) {
             log.warn("[rbac] clean-slate bootstrap: platform-check allowing {} for {} (no roles/assignments exist)",
                     subject, operation);
             return true;

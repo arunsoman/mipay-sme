@@ -18,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * The boot contract since 2026-11-13 (the yaml seed is retired): {@code apply()} leaves the grid
  * EMPTY - no roles, no assignments, no SoD rules - and the code's own registration is the only
- * source of permission rows. On a clean slate the bootstrap window allows every check (the
- * installer needs this to create the first org, the first role and its assignment), and the
+ * source of permission rows. On a clean slate the bootstrap window allows only the IdP installer
+ * to perform RBAC setup operations (the first role and its assignment), and the
  * window closes with the first assignment.
  */
 class CleanSlateBootTest {
@@ -82,15 +82,19 @@ class CleanSlateBootTest {
     }
 
     @Test
-    void bootstrapWindowAllowsEverythingThenCloses() throws Exception {
+    void bootstrapWindowAllowsOnlyInstallerSetupThenCloses() throws Exception {
         seed.apply();
         registerCode();
-        // the clean-slate window: every check is allowed, whatever the subject, tenant or cell
-        assertTrue(decisions.check(new Decisions.Request("whoever", "tpts", "org.user:administer")).allowed(),
-                "empty grid + no assignments: the window is open");
+        // A clean slate never authorizes an arbitrary person or a core business operation.
+        assertFalse(decisions.check(new Decisions.Request("whoever", "tpts", "rbac.role:create")).allowed());
+        assertFalse(decisions.check(new Decisions.Request("installer", "tpts", "org.user:administer")).allowed());
+        assertFalse(decisions.checkPlatform("whoever", "rbac.role:read"));
+        assertFalse(decisions.checkPlatform("installer", "merchant.withdrawal:execute"));
+        assertTrue(decisions.check(new Decisions.Request("installer", "tpts", "rbac.role:create")).allowed(),
+                "the IdP installer may set up RBAC while the grid is empty");
         assertEquals("bootstrap_clean_slate",
-                decisions.check(new Decisions.Request("whoever", "tpts", "org.user:administer")).reason());
-        assertTrue(decisions.checkPlatform("whoever", "rbac.role:read"));
+                decisions.check(new Decisions.Request("installer", "tpts", "rbac.role:create")).reason());
+        assertTrue(decisions.checkPlatform("installer", "rbac.role:read"));
         // ... and it is recorded in the decision log (the flush is a @Scheduled batcher)
         decisions.flush();
         assertEquals(2, db.queryForList("SELECT 1 FROM decision_log WHERE reason='bootstrap_clean_slate'").size());
