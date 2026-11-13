@@ -189,10 +189,10 @@ export function readProblem(err: unknown): ApiProblem {
   return { title: 'Error', detail: String(err), status: 0 };
 }
 
-/** Bearer token from the admin-portal session into every /api call. */
+/** Bearer token for protected calls; public login and activation use their own credentials. */
 export const adminAuthInterceptor: HttpInterceptorFn = (req, next) => {
   const raw = localStorage.getItem('mp.admin.token');
-  if (raw && req.url.startsWith('/api/')) {
+  if (raw && req.url.startsWith('/api/') && !req.url.startsWith('/api/auth/')) {
     req = req.clone({ setHeaders: { Authorization: `Bearer ${raw}` } });
   }
   return next(req);

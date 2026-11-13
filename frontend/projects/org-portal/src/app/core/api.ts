@@ -184,7 +184,7 @@ export function refusal(e: unknown, hints: Record<string, string> = {}): string 
 export const portalAuthInterceptor: HttpInterceptorFn = (req, next) => {
   let raw: string | null = null;
   try { raw = localStorage.getItem(PORTAL.storageKey); } catch { /* storage blocked */ }
-  if (raw && req.url.startsWith('/api/')) {
+  if (raw && req.url.startsWith('/api/') && !req.url.startsWith('/api/auth/')) {
     req = req.clone({ setHeaders: { Authorization: `Bearer ${raw}` } });
   }
   return next(req);

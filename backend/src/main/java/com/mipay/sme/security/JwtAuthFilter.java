@@ -46,6 +46,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        // Login and activation are public self-service operations. A browser can still hold
+        // a previous account's bearer token while opening someone else's setup link.
+        if (request.getRequestURI().startsWith("/api/auth/")) {
+            chain.doFilter(request, response);
+            return;
+        }
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith("Bearer ")) {
             try {
