@@ -1,5 +1,9 @@
+import { PageHeader } from '../../../../../../src/app/design-system/organisms/page-header';
+import { MpSpinner } from '../../../../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { MpPerm } from '../../../../../shared/web-core/perm-directive';
-import { Modal } from '../../../../../shared/ui/modal';
+import { Modal } from '../../../../../../src/app/design-system/organisms/modal';
+import { DataCol, DATA_TABLE } from '../../../../../../src/app/design-system/organisms/data-table';
 import { RoleCeiling } from '../../../../../shared/rbac/role-ceiling';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
@@ -26,18 +30,16 @@ const HINTS: Record<string, string> = {
 @Component({
   selector: 'mpo-network',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpPerm, Modal, FormsModule, DatePipe, RoleCeiling],
+  imports: [PageHeader, MpSpinner, MpAlert, MpPerm, Modal, FormsModule, DatePipe, RoleCeiling, ...DATA_TABLE],
   template: `
-    <div class="head">
-      <h2>My network</h2>
-      @if (tree(); as t) {
-        <span class="muted small">{{ t.subtree?.descendants ?? 0 }} organizations below you ·
-          {{ t.subtree?.activeDescendants ?? 0 }} active</span>
-      }
-      <button class="ghost" (click)="load()">Refresh</button>
-    </div>
-    @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
-    @if (problem(); as p) {<div class="err">{{ p }}</div>}
+    <page-header title="My network">
+      <div lead>@if (tree(); as t) {<span class="muted small">{{ t.subtree?.descendants ?? 0 }} organizations below you · {{ t.subtree?.activeDescendants ?? 0 }} active</span>}</div>
+      <div actions>
+        <button class="ghost" (click)="load()">Refresh</button>
+      </div>
+    </page-header>
+    @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
+    @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
 
     <div class="cols">
       <div class="panel tree">
@@ -51,7 +53,7 @@ const HINTS: Record<string, string> = {
             <span class="chip {{ cls(n.effectiveStatus) }}">{{ n.effectiveStatus }}</span>
           </div>
         } @empty {
-          <div class="muted">{{ loading() ? 'Loading…' : 'Nothing matches.' }}</div>
+          @if (loading()) {<mp-spinner label="Loading…" />} @else {<div class="muted">Nothing matches.</div>}
         }
       </div>
 
@@ -96,7 +98,7 @@ const HINTS: Record<string, string> = {
                   below it and all {{ o.subtree?.users ?? o.userCount }} users in its sub-network, and signs them out immediately.</div>
                 <label class="fl">Reason for suspension *
                   <input name="reason" [(ngModel)]="reason" placeholder="e.g. compliance hold pending review" /></label>
-                @if (modalError(); as e) {<div class="err">{{ e }}</div>}
+                @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
                 <div modal-footer>
                   <button class="ghost" type="button" (click)="suspending.set(false)">Cancel</button>
                   <button class="danger" (click)="suspend(o)" [disabled]="busy() || !reason.trim()">Suspend {{ o.name }}</button>
@@ -113,45 +115,23 @@ const HINTS: Record<string, string> = {
             <div class="block">
               <div class="btitle">Onboarding rights</div>
               @if (rights(); as r) {
-                <table class="grid">
-                  <thead><tr><th>Type</th><th>Directly</th><th>Anywhere below it</th><th>In effect now</th></tr></thead>
-                  <tbody>
-                    @for (t of rightTypes(); track t) {
-                      <tr>
-                        <td>{{ t }}</td>
-                        <td><input type="checkbox" [checked]="savedHas('direct', t)" disabled /></td>
-                        <td><input type="checkbox" [checked]="savedHas('ceiling', t)" disabled /></td>
-                        <td>{{ splitList(r.effDirect).includes(t) ? 'can onboard' : '—' }}</td>
-                      </tr>
-                    } @empty {
-                      <tr><td colspan="4" class="muted">No onboarding rights.</td></tr>
-                    }
-                  </tbody>
-                </table>
+                <mp-data-table [cols]="rightCols" [rows]="rightTypes()" placeholder="Search types" empty="No onboarding rights." [trackBy]="self">
+                  <ng-template mpCell="direct" let-t><input type="checkbox" [checked]="savedHas('direct', t)" disabled /></ng-template>
+                  <ng-template mpCell="ceiling" let-t><input type="checkbox" [checked]="savedHas('ceiling', t)" disabled /></ng-template>
+                  <ng-template mpCell="eff" let-t>{{ splitList(r.effDirect).includes(t) ? 'can onboard' : '—' }}</ng-template>
+                </mp-data-table>
                 @if (!isOwn() && rightTypes().length) {
                   <div class="row" *mpPerm="'org.rights:administer'"><button class="primary" (click)="openRights()">Edit rights</button></div>
                   <mp-modal [open]="editingRights()" eyebrow="Onboarding rights" [title]="o.name"
                             subtitle="Untick to take a right away; it applies to the whole sub-network at once. Rights cannot be added back here."
                             [dirty]="dirty()" discardText="Discard the narrowing? Nothing has been saved."
                             (closed)="closeRights()">
-                    <table class="grid">
-                      <thead><tr><th>Type</th><th>Directly</th><th>Anywhere below it</th><th>In effect now</th></tr></thead>
-                      <tbody>
-                        @for (t of rightTypes(); track t) {
-                          <tr>
-                            <td>{{ t }}</td>
-                            <td><input type="checkbox" [checked]="wDirect().has(t)" [disabled]="!wDirect().has(t)"
-                                       (change)="drop('direct', t)" /></td>
-                            <td><input type="checkbox" [checked]="wCeiling().has(t)" [disabled]="!wCeiling().has(t)"
-                                       (change)="drop('ceiling', t)" /></td>
-                            <td>{{ splitList(r.effDirect).includes(t) ? 'can onboard' : '—' }}</td>
-                          </tr>
-                        } @empty {
-                          <tr><td colspan="4" class="muted">No onboarding rights.</td></tr>
-                        }
-                      </tbody>
-                    </table>
-                    @if (modalError(); as e) {<div class="err">{{ e }}</div>}
+                    <mp-data-table [cols]="rightCols" [rows]="rightTypes()" placeholder="Search types" empty="No onboarding rights." [trackBy]="self">
+                      <ng-template mpCell="direct" let-t><input type="checkbox" [checked]="wDirect().has(t)" [disabled]="!wDirect().has(t)" (change)="drop('direct', t)" /></ng-template>
+                      <ng-template mpCell="ceiling" let-t><input type="checkbox" [checked]="wCeiling().has(t)" [disabled]="!wCeiling().has(t)" (change)="drop('ceiling', t)" /></ng-template>
+                      <ng-template mpCell="eff" let-t>{{ splitList(r.effDirect).includes(t) ? 'can onboard' : '—' }}</ng-template>
+                    </mp-data-table>
+                    @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
                     <div modal-footer>
                       <button class="ghost" type="button" (click)="closeRights()">Cancel</button>
                       <button class="primary" (click)="saveRights()" [disabled]="busy() || !dirty()">Save</button>
@@ -159,7 +139,7 @@ const HINTS: Record<string, string> = {
                   </mp-modal>
                 }
               } @else {
-                <div class="muted small">Loading…</div>
+                <mp-spinner label="Loading…" />
               }
             </div>
           }
@@ -173,9 +153,7 @@ const HINTS: Record<string, string> = {
     .warnbox { font-size: var(--fs-sm); padding: 10px 12px; border-radius: 10px; color: var(--a-red);
                background: color-mix(in srgb, var(--a-red) 10%, transparent); }
     .fl { display: grid; gap: 5px; font-size: var(--fs-sm); color: var(--a-dim); }
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; }
-    .head button { margin-left: auto; }
     .cols { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 14px; align-items: start; }
     @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
     .panel { padding: 12px; }
@@ -188,21 +166,14 @@ const HINTS: Record<string, string> = {
     .nm { font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .nm.me { font-weight: 700; }
     .details { display: grid; gap: 14px; }
-    .ptitle { font-size: 15px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
     .stats div { background: var(--a-panel-2); border-radius: 8px; padding: 8px 10px; display: grid; }
     .stats span { color: var(--a-dim); font-size: var(--fs-xs); }
     .block { border: 1px solid var(--a-border); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
-    .btitle { font-weight: 600; font-size: 13px; }
     .hold { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .suspend { display: flex; gap: 8px; }
     .grid input { width: auto; }
     .row { display: flex; gap: 8px; }
-    .hint { color: var(--a-dim); font-size: var(--fs-xs); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 6px 0; }
-    .flash { font-size: var(--fs-sm); margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
   `],
 })
 export class Network implements OnInit {
@@ -246,6 +217,13 @@ export class Network implements OnInit {
   readonly wDirect = signal<Set<string>>(new Set());
   readonly wCeiling = signal<Set<string>>(new Set());
   readonly rightTypes = computed(() => splitList(this.rights()?.ceiling));
+  readonly rightCols: DataCol<string>[] = [
+    { key: 'type', label: 'Type', text: (t) => t },
+    { key: 'direct', label: 'Directly' },
+    { key: 'ceiling', label: 'Anywhere below it' },
+    { key: 'eff', label: 'In effect now' },
+  ];
+  readonly self = (t: string) => t;
   readonly dirty = computed(() => {
     const r = this.rights();
     return !!r && (splitList(r.direct).length !== this.wDirect().size

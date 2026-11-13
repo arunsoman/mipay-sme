@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { KycPayload } from '../../core/api';
+import { DataCol, DATA_TABLE } from '../../../../../../src/app/design-system/organisms/data-table';
 
 /** Read-only rendering of a KYC application document for reviewers. */
 @Component({
   selector: 'mpa-kyc-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [...DATA_TABLE],
   template: `
     @let d = doc();
     <div class="kv">
@@ -25,17 +27,11 @@ import { KycPayload } from '../../core/api';
       </section>
       <section class="wide">
         <h4>Ultimate Beneficial Owners (UBO) &amp; Key Management</h4>
-        <table class="grid">
-          <thead><tr><th>Name</th><th>Born</th><th>Nationality</th><th>Residential address</th><th>ID</th><th>Expires</th><th>Owns</th><th>PEP</th></tr></thead>
-          <tbody>
-            @for (u of d.ubos ?? []; track $index) {
-              <tr><td>{{ u['fullLegalName'] }}</td><td>{{ u['dateOfBirth'] ?? '—' }}</td><td>{{ u['nationality'] }}</td><td>{{ u['residentialAddress'] ?? '—' }}</td>
-                <td class="mono">{{ u['identificationType'] }} {{ u['identificationNumber'] }}</td>
-                <td>{{ u['identificationExpiryDate'] }}</td><td>{{ u['ownershipPercentage'] }}%</td>
-                <td>@if (u['politicallyExposedPerson']) {<span class="chip warn small">PEP</span>} @else {no}</td></tr>
-            }
-          </tbody>
-        </table>
+        <mp-data-table [cols]="uboCols" [rows]="d.ubos ?? []" placeholder="Search owners" empty="No owners listed.">
+          <ng-template mpCell="dash" let-v="value">{{ v ?? '—' }}</ng-template>
+                  <ng-template mpCell="ownershipPercentage" let-v="value">{{ v }}%</ng-template>
+          <ng-template mpCell="politicallyExposedPerson" let-v="value">@if (v) {<span class="chip warn small">PEP</span>} @else {no}</ng-template>
+        </mp-data-table>
       </section>
       <section class="wide">
         <h4>Settlement &amp; Payout Bank Account Details</h4>
@@ -60,6 +56,16 @@ import { KycPayload } from '../../core/api';
 })
 export class KycView {
   readonly doc = input.required<KycPayload>();
+  readonly uboCols: DataCol<Record<string, unknown>>[] = [
+    { key: 'fullLegalName', label: 'Name' },
+    { key: 'dateOfBirth', label: 'Born', type: 'dash' },
+    { key: 'nationality', label: 'Nationality' },
+    { key: 'residentialAddress', label: 'Residential address', type: 'dash' },
+    { key: 'id', label: 'ID', cls: 'mono', text: (u) => `${u['identificationType'] ?? ''} ${u['identificationNumber'] ?? ''}` },
+    { key: 'identificationExpiryDate', label: 'Expires' },
+    { key: 'ownershipPercentage', label: 'Owns' },
+    { key: 'politicallyExposedPerson', label: 'PEP', search: (u) => (u['politicallyExposedPerson'] ? 'PEP' : '') },
+  ];
 
   addressText(a: Record<string, string | null>) {
     return ['streetLine', 'town', 'region', 'postalCode', 'country'].map((k) => a[k]).filter((x) => !!x).join(', ');

@@ -1,3 +1,4 @@
+import { MpAlert } from '../../design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
@@ -71,13 +72,11 @@ export class SupplierHome implements OnInit {
 @Component({
   selector: 'supplier-catalogue',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm, MpPerm],
+  imports: [PageHeader, MpCard, MpTable, MpEntityForm, MpPerm],
   template: `
     <page-header title="Catalogue" subtitle="New items go live once MiPay approves them" />
     <mp-card title="My catalogue" class="mt">
-      @if (rows(); as r) {
-        <mp-table [cols]="cols" [rows]="r" empty="No items yet - add your first product below" />
-      } @else { <mp-spinner label="Loading catalogue..." /> }
+      <mp-table [cols]="cols" [rows]="rows()" empty="No items yet - add your first product below" loading="Loading catalogue..." />
     </mp-card>
     <mp-entity-form #cf class="mt" [schema]="addSchema" submitLabel="Add catalogue item" *mpPerm="'supplier.catalogue:create'" (submitted)="add($event)" />
   `,
@@ -115,13 +114,11 @@ export class SupplierCatalogue implements OnInit {
 @Component({
   selector: 'supplier-orders',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpCard, MpButton, CurrencyAmount, StatusBadge, MpPerm],
+  imports: [MpAlert, PageHeader, MpTable, MpCard, MpButton, CurrencyAmount, StatusBadge, MpPerm],
   template: `
     <page-header title="Orders & invoices" subtitle="Accept orders and send invoices" />
     <mp-card title="Orders" class="mt">
-      @if (orders(); as o) {
-        <mp-table [cols]="orderCols" [rows]="o" [selectable]="true" (rowClick)="select($event)" empty="No orders yet" />
-      } @else { <mp-spinner label="Loading orders..." /> }
+      <mp-table [cols]="orderCols" [rows]="orders()" [selectable]="true" (rowClick)="select($event)" empty="No orders yet" loading="Loading orders..." />
     </mp-card>
     @if (sel(); as order) {
       <mp-card [title]="'Order ' + order.id?.slice(0, 8)" class="mt">
@@ -137,17 +134,15 @@ export class SupplierCatalogue implements OnInit {
           <mp-button *mpPerm="'supplier.invoice:create'" (onClick)="issue(order.id!)">Send invoice</mp-button>
         </div>
         @if (issued(); as inv) {
-          <div class="ok mt">Invoice issued: <b>{{ inv.uniqueReference }}</b> for <currency-amount [amount]="inv.amount" /></div>
+          <mp-alert kind="ok">Invoice issued: <b>{{ inv.uniqueReference }}</b> for <currency-amount [amount]="inv.amount" /></mp-alert>
         }
       </mp-card>
     }
     <mp-card title="Invoices issued" class="mt">
-      @if (invoices(); as i) {
-        <mp-table [cols]="invCols" [rows]="i" empty="No invoices yet - accept an order and issue one" />
-      } @else { <mp-spinner label="Loading invoices..." /> }
+      <mp-table [cols]="invCols" [rows]="invoices()" empty="No invoices yet - accept an order and issue one" loading="Loading invoices..." />
     </mp-card>
   `,
-  styles: [`.row { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; } .ok { color: #16a34a; }`],
+  styles: [`.row { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }`],
 })
 export class SupplierOrders implements OnInit {
   private readonly api = inject(SupplierService);
@@ -203,7 +198,7 @@ export class SupplierOrders implements OnInit {
 @Component({
   selector: 'supplier-invoice-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, PageHeader, MpCard, KpiRow, MpTable, MpSpinner, CurrencyAmount],
+  imports: [CommonModule, PageHeader, MpCard, KpiRow, MpTable, MpSpinner],
   template: `
     @if (inv(); as i) {
       <page-header [title]="'Invoice ' + i.uniqueReference" subtitle="Payments received against this invoice" />
@@ -240,13 +235,11 @@ export class SupplierInvoiceDetail implements OnInit {
 @Component({
   selector: 'supplier-accounts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpCard, MpTable, MpSpinner, MpEntityForm, MpPerm],
+  imports: [PageHeader, MpCard, MpTable, MpEntityForm, MpPerm],
   template: `
     <page-header title="Receiving accounts" subtitle="Where your payments are paid. A change is approved by someone other than the person who asks for it" />
     <mp-card title="My bank accounts" class="mt">
-      @if (rows(); as r) {
-        <mp-table [cols]="cols" [rows]="r" empty="No accounts yet - submit one below" />
-      } @else { <mp-spinner label="Loading accounts..." /> }
+      <mp-table [cols]="cols" [rows]="rows()" empty="No accounts yet - submit one below" loading="Loading accounts..." />
     </mp-card>
     <mp-entity-form #bf class="mt" [schema]="addSchema" submitLabel="Submit account change" *mpPerm="'supplier.bank_account:modify'" (submitted)="change($event)" />
   `,
@@ -292,13 +285,11 @@ export class SupplierAccounts implements OnInit {
 @Component({
   selector: 'supplier-statements',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpCard],
+  imports: [PageHeader, MpTable, MpCard],
   template: `
     <page-header title="Statements" subtitle="Your statements, ready to download" />
     <mp-card title="Available statements" class="mt">
-      @if (rows(); as r) {
-        <mp-table [cols]="cols" [rows]="r" empty="No statements yet" />
-      } @else { <mp-spinner label="Loading statements..." /> }
+      <mp-table [cols]="cols" [rows]="rows()" empty="No statements yet" loading="Loading statements..." />
     </mp-card>
   `,
 })

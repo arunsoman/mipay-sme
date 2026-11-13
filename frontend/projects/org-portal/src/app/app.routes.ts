@@ -8,6 +8,7 @@ import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
 import { Network } from './features/network/network';
 import { UserManagement } from '../../../shared/users/user-management';
+import { menuPerms } from '../../../shared/web-core/menu';
 import { Kyc } from './features/kyc/kyc';
 // The shared commerce screens (sme-ui feature set). Visible in whichever org
 // portal holds the matching supplier.* rows - a manufacturer or distributor
@@ -19,7 +20,9 @@ import {
 
 /**
  * Org portal (manufacturer / distributor / reseller / supplier): permission-driven
- * from /api/orgs/me/access. Pages and the permissions that unlock them:
+ * from /api/orgs/me/access. The route → permission rows come from THE menu registry
+ * (shared/web-core/menu.ts) - the sidebar and these guards read one truth, with the
+ * same labels and permission sets as every other portal:
  *   onboarding      org.onboarding
  *   network         org.tree
  *   users           org.user:administer
@@ -27,21 +30,15 @@ import {
  *   supplier/*      supplier.* rows (commerce, shared with sme-ui)
  * A user with no rights at all lands on the shared empty shell (/no-access).
  */
-const PERMS: Record<string, string[]> = {
-  '/onboarding': ['org.onboarding'],
-  '/network': ['org.tree'],
-  '/users': ['org.user:administer'],
-  '/kyc': ['kyc.application', 'kyc.task'],
-  // commerce routes unlock at ROW level (any held verb); the exact cells gate
-  // the individual buttons inside (e.g. supplier.catalogue:create -> "Add item").
+// commerce routes unlock at ROW level (any held verb); the exact cells gate
+// the individual buttons inside (e.g. supplier.catalogue:create -> "Add item").
+// These two carry no sidebar item of their own (deep links only).
+const NON_MENU: Record<string, string[]> = {
   '/supplier': ['supplier.account'],
-  '/supplier/catalogue': ['supplier.catalogue'],
-  '/supplier/orders': ['supplier.order', 'supplier.invoice'],
   '/supplier/invoices/:id': ['supplier.invoice'],
-  '/supplier/accounts': ['supplier.bank_account'],
-  '/supplier/statements': ['supplier.statement'],
 };
-const pg = (path: string) => permGuard(PERMS[path] ?? []);
+const pg = (path: string) =>
+  permGuard(menuPerms('org').find(([link]) => link === path)?.[1] ?? NON_MENU[path] ?? ['__no_menu_point__']);
 
 export const routes: Routes = [
   { path: 'login', component: Login },

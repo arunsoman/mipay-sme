@@ -7,6 +7,7 @@ import { Activate } from './features/activate/activate';
 import { Shell } from './features/shell/shell';
 import { Onboarding } from './features/onboarding/onboarding';
 import { UserManagement } from '../../../shared/users/user-management';
+import { menuPerms } from '../../../shared/web-core/menu';
 import { Permissions } from './features/permissions/permissions';
 import { Kyc } from './features/kyc/kyc';
 import { PermissionMatrix } from './features/permission-matrix/permission-matrix';
@@ -20,28 +21,12 @@ import { OpsApprovals, OpsRecon, OpsIncidents, OpsDesk, OpsReports, OpsAudit, Ad
  * permGuard (held RBAC cells from /api/orgs/me/access). Users with no
  * granted rows land on the shared empty shell (/no-access).
  *
- *   onboarding    org.onboarding
- *   kyc           kyc.application | kyc.task
- *   users         org.user:administer
- *   permissions   org.rights
- *   rbac          rbac.role
+ * The route → permission rows come from THE menu registry (shared/web-core/menu.ts):
+ * the sidebar and these guards read one truth - one label and one permission set
+ * per menu point, identical to every other portal. An unmapped path denies (fail-closed).
  */
-const PERMS: Record<string, string[]> = {
-  '/onboarding': ['org.onboarding'],
-  '/kyc': ['kyc.application', 'kyc.task'],
-  '/users': ['org.user:administer'],
-  '/permissions': ['org.rights'],
-  '/rbac': ['rbac.role'],
-  '/inventory': ['admin.access:read'],
-  '/ops/approvals': ['ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval'],
-  '/ops/recon': ['ops.recon'],
-  '/ops/incidents': ['ops.incident'],
-  '/ops/desk': ['ops.complaint', 'ops.dispute', 'ops.suspension'],
-  '/ops/reports': ['ops.report'],
-  '/ops/audit': ['ops.audit'],
-  '/compliance': ['admin.aml_alert', 'admin.sar', 'admin.dsar'],
-};
-const pg = (path: string) => permGuard(PERMS[path] ?? []);
+const pg = (path: string) =>
+  permGuard(menuPerms('admin').find(([link]) => link === path)?.[1] ?? ['__no_menu_point__']);
 
 export const routes: Routes = [
   { path: 'login', component: Login },

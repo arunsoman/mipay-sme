@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AccessService } from '../../../../../shared/web-core/access';
+import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../shared/web-core/menu';
 import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
@@ -23,27 +24,14 @@ import { MeView } from '../../core/api';
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
         <div class="brand">MiPay <span>Admin</span></div>
         <nav>
-          @if (can('org.onboarding')) {<a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>}
-          @if (can('kyc.application', 'kyc.task')) {<a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>}
-          @if (can('org.user:administer')) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
-          @if (can('org.rights')) {<a routerLink="/permissions" routerLinkActive="active" (click)="closeNav()">Onboarding rights</a>}
-          @if (can('rbac.role')) {<a routerLink="/rbac" routerLinkActive="active" (click)="closeNav()">Roles and permissions</a>}
-          @if (can('admin.access')) {<a routerLink="/inventory" routerLinkActive="active" (click)="closeNav()">All permissions</a>}
-          @if (can('ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval', 'ops.recon', 'ops.incident', 'ops.complaint', 'ops.dispute', 'ops.suspension', 'ops.report', 'ops.audit')) {
-            <div class="navgroup">Operations</div>
-          }
-          @if (can('ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval')) {<a routerLink="/ops/approvals" routerLinkActive="active" (click)="closeNav()">Approvals</a>}
-          @if (can('ops.recon')) {<a routerLink="/ops/recon" routerLinkActive="active" (click)="closeNav()">Reconciliation</a>}
-          @if (can('ops.incident')) {<a routerLink="/ops/incidents" routerLinkActive="active" (click)="closeNav()">Incidents</a>}
-          @if (can('ops.complaint', 'ops.dispute', 'ops.suspension')) {<a routerLink="/ops/desk" routerLinkActive="active" (click)="closeNav()">Complaints &amp; disputes</a>}
-          @if (can('ops.report')) {<a routerLink="/ops/reports" routerLinkActive="active" (click)="closeNav()">Reports</a>}
-          @if (can('ops.audit')) {<a routerLink="/ops/audit" routerLinkActive="active" (click)="closeNav()">Audit trail</a>}
-          @if (can('admin.aml_alert', 'admin.sar', 'admin.dsar')) {
-            <div class="navgroup">Compliance</div>
-            <a routerLink="/compliance" routerLinkActive="active" (click)="closeNav()">AML, SAR and data requests</a>
+          @for (entry of nav(); track $index) {
+            @if (entry.kind === 'group') {
+              <div class="navgroup">{{ entry.label }}</div>
+            } @else {
+              <a [routerLink]="entry.link" routerLinkActive="active" (click)="closeNav()">{{ entry.label }}</a>
+            }
           }
         </nav>
-        <div class="spacer"></div>
         <div class="navfoot">
           <div class="who">
             <div class="name">{{ who().name }}</div>
@@ -74,11 +62,10 @@ import { MeView } from '../../core/api';
 
     .side { position: fixed; left: 0; top: 0; width: 260px; z-index: 50;
             height: 100vh; display: flex; flex-direction: column; transform: translateX(-100%); box-shadow: 0 0 24px rgba(0,0,0,.35);
-            gap: 20px; padding: 18px 14px; background: #0b0b0b;
+            gap: 20px; padding: 18px 14px; background: #0b0b0b; overflow: hidden;
             border-right: 1px solid var(--a-border); transition: transform .22s ease; }
     .brand { font-weight: 900; font-size: 22px; letter-spacing: -0.045em; white-space: nowrap; padding: 2px 10px 6px; color: var(--a-teal); }
     .brand span { color: var(--a-teal); font-weight: 700; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin-left: 6px; }
-    .spacer { flex: 1; }
     .navfoot { display: grid; gap: 10px; border-top: 1px solid var(--a-border); padding-top: 12px; }
     .who { padding: 0 2px; }
     .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -86,6 +73,16 @@ import { MeView } from '../../core/api';
     button.wide { width: 100%; }
 
     nav { display: flex; flex-direction: column; gap: 4px; }
+    /* the link list scrolls on its own (footer stays pinned) with a slim themed bar */
+    nav { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+          margin-right: -8px; padding-right: 6px;
+          scrollbar-width: thin; scrollbar-color: #2e2e2e transparent; }
+    nav:hover { scrollbar-color: color-mix(in srgb, var(--a-teal) 55%, #2e2e2e) transparent; }
+    nav::-webkit-scrollbar { width: 6px; }
+    nav::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+    nav::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 999px; border: 0; }
+    nav:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--a-teal) 55%, #2e2e2e); }
+    nav::-webkit-scrollbar-thumb:active { background: var(--a-teal); }
     nav a { color: var(--a-dim); text-decoration: none; padding: 10px 14px; border-radius: 999px; font-weight: 600;
             font-size: 13.5px; border: 1px solid transparent; white-space: nowrap; }
     nav a:hover { color: var(--a-text); background: var(--a-panel-2); }
@@ -122,8 +119,16 @@ export class Shell implements OnInit {
   private readonly http = inject(HttpClient);
   /** The one shared access engine; nav + pages key off the held RBAC cells. */
   readonly access = inject(AccessService);
-  /** Pages and the permissions that show them, in menu order. */
-  private readonly pages: [string, string[]][] = [['/onboarding', ['org.onboarding']], ['/kyc', ['kyc.application', 'kyc.task']], ['/users', ['org.user:administer']], ['/permissions', ['org.rights']], ['/rbac', ['rbac.role']], ['/inventory', ['admin.access']], ['/ops/approvals', ['ops.merchant_approval', 'ops.supplier_approval', 'ops.bank_account_approval']], ['/ops/recon', ['ops.recon']], ['/ops/incidents', ['ops.incident']], ['/ops/desk', ['ops.complaint', 'ops.dispute', 'ops.suspension']], ['/ops/reports', ['ops.report']], ['/ops/audit', ['ops.audit']], ['/compliance', ['admin.aml_alert', 'admin.sar', 'admin.dsar']]];
+  /** Sidebar from THE menu registry: every point declares its own permission rows
+   *  (no ungated items), so nav and the route guards below read one truth. */
+  readonly nav = computed<MenuNavEntry[]>(() =>
+    navEntries('admin', (item) => this.access.can(...item.perm)),
+  );
+  /** Pages and the permission rows that show them (registry order) - the redirect
+   *  logic below pairs with the sidebar and the route guards by construction. */
+  private readonly pages: [string, string[]][] = menuFor('admin').map(
+    (i) => [linkFor(i, 'admin'), i.perm] as [string, string[]],
+  );
 
   /** A user who may not use the page they landed on goes to the first page they may
    *  use; a user with no rights at all lands on the shared empty shell - and one who

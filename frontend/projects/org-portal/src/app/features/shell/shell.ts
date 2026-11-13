@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
@@ -6,6 +6,7 @@ import { PortalAuthService } from '../../core/auth';
 import { OrgView, statusClass } from '../../core/api';
 import { PORTAL } from '../../portal.config';
 import { AccessService } from '../../../../../shared/web-core/access';
+import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../shared/web-core/menu';
 
 /**
  * Portal shell ([layout]/C11): a left navigation sidebar. On screens wider
@@ -23,16 +24,14 @@ import { AccessService } from '../../../../../shared/web-core/access';
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
         <div class="brand">MiPay <span>{{ portal.label }}</span></div>
         <nav>
-          @if (can('org.onboarding')) {<a routerLink="/onboarding" routerLinkActive="active" (click)="closeNav()">Onboarding</a>}
-          @if (can('org.tree')) {<a routerLink="/network" routerLinkActive="active" (click)="closeNav()">My network</a>}
-          @if (can('org.user:administer')) {<a routerLink="/users" routerLinkActive="active" (click)="closeNav()">User management</a>}
-          @if (can('kyc.application', 'kyc.task')) {<a routerLink="/kyc" routerLinkActive="active" (click)="closeNav()">Organizations</a>}
-          @if (can('supplier.catalogue')) {<a routerLink="/supplier/catalogue" routerLinkActive="active" (click)="closeNav()">Catalogue</a>}
-          @if (can('supplier.order', 'supplier.invoice')) {<a routerLink="/supplier/orders" routerLinkActive="active" (click)="closeNav()">Orders & invoices</a>}
-          @if (can('supplier.bank_account')) {<a routerLink="/supplier/accounts" routerLinkActive="active" (click)="closeNav()">Receiving accounts</a>}
-          @if (can('supplier.statement')) {<a routerLink="/supplier/statements" routerLinkActive="active" (click)="closeNav()">Statements</a>}
+          @for (entry of nav(); track $index) {
+            @if (entry.kind === 'group') {
+              <div class="navgroup">{{ entry.label }}</div>
+            } @else {
+              <a [routerLink]="entry.link" routerLinkActive="active" (click)="closeNav()">{{ entry.label }}</a>
+            }
+          }
         </nav>
-        <div class="spacer"></div>
         <div class="navfoot">
           <div class="who">
             <div class="name">{{ auth.name() }}</div>
@@ -66,11 +65,10 @@ import { AccessService } from '../../../../../shared/web-core/access';
 
     .side { position: sticky; top: 0; align-self: flex-start; width: 232px; flex: none; z-index: 50;
             height: calc(100vh - 34px); display: flex; flex-direction: column;
-            gap: 20px; padding: 18px 14px; background: #0b0b0b;
+            gap: 20px; padding: 18px 14px; background: #0b0b0b; overflow: hidden;
             border-right: 1px solid var(--a-border); transition: transform .22s ease; }
     .brand { font-weight: 900; font-size: 22px; letter-spacing: -0.045em; white-space: nowrap; padding: 2px 10px 6px; color: var(--a-teal); }
     .brand span { color: var(--portal-accent, var(--a-teal)); font-weight: 700; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin-left: 6px; }
-    .spacer { flex: 1; }
     .navfoot { display: grid; gap: 10px; border-top: 1px solid var(--a-border); padding-top: 12px; }
     .who { padding: 0 2px; }
     .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -78,6 +76,16 @@ import { AccessService } from '../../../../../shared/web-core/access';
     button.wide { width: 100%; }
 
     nav { display: flex; flex-direction: column; gap: 4px; }
+    /* the link list scrolls on its own (footer stays pinned) with a slim themed bar */
+    nav { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+          margin-right: -8px; padding-right: 6px;
+          scrollbar-width: thin; scrollbar-color: #2e2e2e transparent; }
+    nav:hover { scrollbar-color: color-mix(in srgb, var(--a-teal) 55%, #2e2e2e) transparent; }
+    nav::-webkit-scrollbar { width: 6px; }
+    nav::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+    nav::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 999px; border: 0; }
+    nav:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--a-teal) 55%, #2e2e2e); }
+    nav::-webkit-scrollbar-thumb:active { background: var(--a-teal); }
     nav a { color: var(--a-dim); text-decoration: none; padding: 10px 14px; border-radius: 999px; font-weight: 600;
             font-size: 13.5px; border: 1px solid transparent; white-space: nowrap; }
     nav a:hover { color: var(--a-text); background: var(--a-panel-2); }
@@ -114,16 +122,12 @@ export class Shell implements OnInit {
     this.navOpen.set(false);
   }
 
-  /** Pages and the permissions that show them, in menu order. */
+  /** Pages and the permission rows that show them, from THE menu registry (same
+   *  source as the route guards), plus the /supplier landing page, which carries
+   *  no sidebar item of its own. */
   private readonly pages: [string, string[]][] = [
-    ['/onboarding', ['org.onboarding']],
-    ['/network', ['org.tree']],
-    ['/users', ['org.user:administer']],
-    ['/kyc', ['kyc.application', 'kyc.task']],
-    ['/supplier/catalogue', ['supplier.catalogue']],
-    ['/supplier/orders', ['supplier.order', 'supplier.invoice']],
-    ['/supplier/accounts', ['supplier.bank_account']],
-    ['/supplier/statements', ['supplier.statement']],
+    ...menuFor('org').map((i) => [linkFor(i, 'org'), i.perm] as [string, string[]]),
+    ['/supplier', ['supplier.account']],
   ];
 
   /** A user who may not use the page they landed on goes to the first page they may
@@ -145,6 +149,12 @@ export class Shell implements OnInit {
 
   /** The one shared access engine; nav + pages key off the held RBAC cells. */
   readonly access = inject(AccessService);
+  /** Sidebar from THE menu registry (shared/web-core/menu.ts): every point
+   *  declares its own permission rows - no ungated items, one label per menu
+   *  point across all portals. */
+  readonly nav = computed<MenuNavEntry[]>(() =>
+    navEntries('org', (item) => this.access.can(...item.perm)),
+  );
 
   can(...rows: string[]) {
     return this.access.can(...rows);

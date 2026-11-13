@@ -1,3 +1,4 @@
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -8,7 +9,7 @@ import { PORTAL } from '../../portal.config';
 @Component({
   selector: 'mpo-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink],
+  imports: [MpAlert, FormsModule, RouterLink],
   template: `
     <div class="stage">
       <div class="head">
@@ -27,7 +28,7 @@ import { PORTAL } from '../../portal.config';
         <button class="primary" type="submit" [disabled]="busy()">
           {{ busy() ? 'Signing in…' : 'Sign in' }}
         </button>
-        @if (error()) {<div class="err">{{ error() }}</div>}
+        @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
       </form>
       <div class="foot">Got an activation link? <a routerLink="/activate">Set your password</a></div>
     </div>
@@ -41,7 +42,6 @@ import { PORTAL } from '../../portal.config';
     .card { display: grid; gap: 12px; background: var(--a-panel); border: 1px solid var(--a-border);
             border-radius: var(--radius); padding: 18px; }
     label { display: grid; gap: 5px; font-size: var(--fs-sm); color: var(--a-dim); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
     .foot { color: var(--a-dim); font-size: var(--fs-sm); text-align: center; margin-top: 14px; }
   `],
 })

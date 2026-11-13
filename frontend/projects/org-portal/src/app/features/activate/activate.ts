@@ -1,3 +1,4 @@
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -14,7 +15,7 @@ import { PORTAL } from '../../portal.config';
 @Component({
   selector: 'mpo-activate',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink],
+  imports: [MpAlert, FormsModule, RouterLink],
   template: `
     <div class="stage">
       <div class="head">
@@ -23,7 +24,7 @@ import { PORTAL } from '../../portal.config';
       </div>
       @if (done(); as d) {
         <div class="card">
-          <div class="ok">Account activated. Your username is <b class="mono">{{ d }}</b>.</div>
+          <mp-alert kind="ok">Account activated. Your username is <b class="mono">{{ d }}</b>.</mp-alert>
           <a routerLink="/login">Go to sign in</a>
         </div>
       } @else {
@@ -38,7 +39,7 @@ import { PORTAL } from '../../portal.config';
             <input name="pw2" [(ngModel)]="password2" type="password" autocomplete="new-password" required />
           </label>
           <button class="primary" type="submit" [disabled]="busy()">Activate</button>
-          @if (error()) {<div class="err">{{ error() }}</div>}
+          @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
         </form>
         <div class="foot"><a routerLink="/login">Back to sign in</a></div>
       }
@@ -53,8 +54,6 @@ import { PORTAL } from '../../portal.config';
     .card { display: grid; gap: 12px; background: var(--a-panel); border: 1px solid var(--a-border);
             border-radius: var(--radius); padding: 18px; }
     label { display: grid; gap: 5px; font-size: var(--fs-sm); color: var(--a-dim); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
-    .ok { color: var(--a-green); }
     .foot { text-align: center; margin-top: 14px; font-size: var(--fs-sm); }
   `],
 })

@@ -8,7 +8,7 @@ import { SimulatedBanner } from '../molecules/simulated-banner';
 import { EnvironmentService } from '../../core/env.service';
 import { ThemeService } from '../../core/theme.service';
 import { AccessService } from '../../../../projects/shared/web-core/access';
-import { ROUTE_PERMS } from '../../access-map';
+import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../projects/shared/web-core/menu';
 
 /**
  * Organism: application shell - sidebar nav (role-aware), topbar (user +
@@ -25,12 +25,18 @@ import { ROUTE_PERMS } from '../../access-map';
         <div class="brand">
           <span class="logo">MiPay</span><span class="dim">SME</span>
         </div>
-        @for (item of nav(); track item.label) {
-          <a [routerLink]="item.link" class="item"
-             [class.on]="current().split('?')[0].startsWith(item.link)">
-            <span>{{ item.icon }}</span><span>{{ item.label }}</span>
-          </a>
-        }
+        <nav class="links">
+          @for (entry of nav(); track $index) {
+            @if (entry.kind === 'group') {
+              <div class="navgroup">{{ entry.label }}</div>
+            } @else {
+              <a [routerLink]="entry.link" class="item"
+                 [class.on]="current().split('?')[0].startsWith(entry.link)">
+                <span>{{ entry.icon }}</span><span>{{ entry.label }}</span>
+              </a>
+            }
+          }
+        </nav>
         <div class="foot dim">{{ env().environment }} - {{ me()?.role }}</div>
       </aside>
       <div class="main">
@@ -53,6 +59,16 @@ import { ROUTE_PERMS } from '../../access-map';
       display: flex; flex-direction: column; padding: var(--sp-4) var(--sp-2); gap: 2px;
       position: sticky; top: 0; height: 100vh;
     }
+    /* the link list scrolls on its own (brand + footer stay put) with a slim themed bar */
+    .links { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+             display: flex; flex-direction: column; gap: 2px; margin-right: -6px; padding-right: 4px;
+             scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.16) transparent; }
+    .links:hover { scrollbar-color: color-mix(in srgb, var(--mp-accent) 60%, transparent) transparent; }
+    .links::-webkit-scrollbar { width: 6px; }
+    .links::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+    .links::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.16); border-radius: 999px; }
+    .links:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--mp-accent) 60%, transparent); }
+    .links::-webkit-scrollbar-thumb:active { background: var(--mp-accent); }
     .brand { display: flex; align-items: baseline; gap: 6px; padding: 0 var(--sp-2) var(--sp-3); }
     .logo { font-weight: 800; font-size: var(--fs-lg); color: #fff; }
     .item {
@@ -61,7 +77,7 @@ import { ROUTE_PERMS } from '../../access-map';
     }
     .item:hover { background: rgb(255 255 255 / 0.08); }
     .item.on { background: rgb(255 255 255 / 0.14); color: #fff; font-weight: 600; }
-    .foot { margin-top: auto; padding: var(--sp-2); }
+    .foot { padding: var(--sp-2); }
     .main { display: flex; flex-direction: column; min-width: 0; }
     .top {
       height: var(--topbar-h); display: flex; align-items: center; justify-content: flex-end;
@@ -99,54 +115,16 @@ export class NavShell {
 
   readonly current = () => this.routerEvents() ?? '';
 
-  // role selects the persona group; held permissions select the items inside it
-  // (rbac grid: an item appears the moment its row is granted, and every route
-  // re-guards itself, so deep links without the right land on /no-access).
-  readonly nav = computed(() => {
+  // One menu registry (shared/web-core/menu.ts): the persona selects the group,
+  // a HELD PERMISSION selects the item - there is no fallback for ungated items.
+  // Labels and permission rows come from the registry, the same source the route
+  // guards (access-map.ts) derive from, so nav and guards can never drift apart.
+  readonly nav = computed<MenuNavEntry[]>(() => {
     const r = this.auth.role();
-    const groups: { label: string; icon: string; link: string; roles: string[] }[] = [
-      // merchant
-      { label: 'Dashboard', icon: '◫', link: '/merchant', roles: ['MERCHANT'] },
-      { label: 'Accept payment', icon: '＋', link: '/merchant/accept', roles: ['MERCHANT'] },
-      { label: 'Payments', icon: '≡', link: '/merchant/payments', roles: ['MERCHANT'] },
-      { label: 'Stock & orders', icon: '⇄', link: '/merchant/orders', roles: ['MERCHANT'] },
-      { label: 'Inventory', icon: '▥', link: '/merchant/inventory', roles: ['MERCHANT'] },
-      { label: 'Khata & tabs', icon: '✎', link: '/merchant/khata', roles: ['MERCHANT'] },
-      { label: 'Cash advance', icon: '⇪', link: '/merchant/advance', roles: ['MERCHANT'] },
-      { label: 'Balance & withdrawal', icon: 'N$', link: '/merchant/balance', roles: ['MERCHANT'] },
-      { label: 'Statements', icon: '☰', link: '/merchant/statements', roles: ['MERCHANT'] },
-      // supplier
-      { label: 'Supplier home', icon: '⌂', link: '/supplier', roles: ['SUPPLIER'] },
-      { label: 'Catalogue', icon: '▤', link: '/supplier/catalogue', roles: ['SUPPLIER'] },
-      { label: 'Orders & invoices', icon: '⇄', link: '/supplier/orders', roles: ['SUPPLIER'] },
-      { label: 'Receiving accounts', icon: '▣', link: '/supplier/accounts', roles: ['SUPPLIER'] },
-      // lender
-      { label: 'Consents & records', icon: '☰', link: '/lender', roles: ['LENDER'] },
-      { label: 'Portfolio', icon: '◫', link: '/lender/portfolio', roles: ['LENDER'] },
-      { label: 'Collections', icon: '⇩', link: '/lender/collections', roles: ['LENDER'] },
-      // ops
-      { label: 'Approvals', icon: '✓', link: '/ops/approvals', roles: ['TPTS_OPS'] },
-      { label: 'Reconciliation', icon: '⚖', link: '/ops/recon', roles: ['TPTS_OPS'] },
-      { label: 'Incidents', icon: '⚑', link: '/ops/incidents', roles: ['TPTS_OPS'] },
-      { label: 'Service desk', icon: '☎', link: '/ops/desk', roles: ['TPTS_OPS'] },
-      { label: 'Reports', icon: '▦', link: '/ops/reports', roles: ['TPTS_OPS'] },
-      { label: 'Audit', icon: '☰', link: '/ops/audit', roles: ['TPTS_OPS'] },
-      // admin
-      { label: 'Overview', icon: '◫', link: '/admin', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Connectors', icon: '⑂', link: '/admin/connectors', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Config', icon: '⚙', link: '/admin/config', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Simulator', icon: '⌁', link: '/admin/simulator', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Access', icon: '⚿', link: '/admin/access', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Compliance', icon: '⛨', link: '/admin/compliance', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Ops hygiene', icon: '◷', link: '/admin/hygiene', roles: ['MINDLABS_ADMIN'] },
-      { label: 'Perms inventory', icon: '⌗', link: '/inventory', roles: ['MINDLABS_ADMIN'] },
-    ];
-    return groups
-      .filter((g) => g.roles.includes(r))
-      .filter((g) => {
-        const perm = ROUTE_PERMS[g.link];
-        return perm ? this.access.can(perm) : true;
-      });
+    return navEntries('sme', (item) => {
+      if (item.roles && !item.roles.includes(r)) return false;
+      return this.access.can(...item.perm);
+    });
   });
 
   logout() {

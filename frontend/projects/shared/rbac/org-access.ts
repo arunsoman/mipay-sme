@@ -1,9 +1,12 @@
+import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { refusal } from '../kyc/kyc-api';
-import { Modal } from '../ui/modal';
+import { Modal } from '../../../src/app/design-system/organisms/modal';
+import { DataCol, DATA_TABLE } from '../../../src/app/design-system/organisms/data-table';
 import { RoleCeiling } from './role-ceiling';
 import {
   OrgMember, OrgRolesView, RBAC_HINTS, RbacRole, RoleAssignment, groupCells, roleLabel,
@@ -26,7 +29,7 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
 @Component({
   selector: 'mp-org-access',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, Modal, RoleCeiling],
+  imports: [MpSpinner, MpAlert, FormsModule, Modal, RoleCeiling, ...DATA_TABLE],
   template: `
     @if (roles(); as rv) {
       @if (rv.rbac_mode && rv.rbac_mode !== 'enforce') {
@@ -35,7 +38,7 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
         </div>
       }
     }
-    @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+    @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
 
     <section class="panel pad">
       <mp-role-ceiling [orgId]="orgId()" [editable]="canEditCeiling()" (changed)="reload()" />
@@ -43,45 +46,30 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
 
     <section class="panel pad">
       <div class="ptitle">Roles in this organization</div>
-      @if (error(); as e) {<div class="err">{{ e }}</div>}
+      @if (error(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       @if (roles(); as v) {
-        <table class="grid">
-          <thead><tr><th>Role</th><th>Built on</th><th>Permissions</th><th>Granting needs</th><th></th></tr></thead>
-          <tbody>
-            @for (r of usable(); track r.name) {
-              <tr>
-                <td><b>{{ r.name }}</b>@if (r.description) {<div class="muted small">{{ r.description }}</div>}</td>
-                <td class="muted small">standard role</td>
-                <td>{{ r.permissions.length }}</td>
-                <td class="small">{{ approvalText(r.approval) }}</td>
-                <td></td>
-              </tr>
+        <mp-data-table [cols]="roleCols" [rows]="roleRows()" placeholder="Search roles" empty="No roles."
+                       [trackBy]="roleKey" [rowClass]="roleClass">
+          <ng-template mpCell="name" let-x>
+            @if (!x.own) {<b>{{ x.r.name }}</b>}
+            @else {<b>{{ label(x.r.name) }}</b> <span class="chip teal">own</span>
+              @if (!x.r.in_ceiling) {<span class="chip red">outside ceiling · inactive</span>}}
+            @if (x.r.description) {<div class="muted small">{{ x.r.description }}</div>}
+          </ng-template>
+          <ng-template mpCell="act" let-x>
+            @if (x.own && manage()) {
+              <button class="ghost" (click)="editRole(x.r)">Edit</button>
+              <button class="ghost" (click)="deleteRole(x.r)" [disabled]="busy()">Delete</button>
             }
-            @for (r of v.org_roles; track r.name) {
-              <tr [class.off]="!r.in_ceiling">
-                <td><b>{{ label(r.name) }}</b> <span class="chip teal">own</span>
-                  @if (!r.in_ceiling) {<span class="chip red">outside ceiling · inactive</span>}
-                  @if (r.description) {<div class="muted small">{{ r.description }}</div>}</td>
-                <td class="small">{{ r.base_roles.join(', ') }}</td>
-                <td>{{ r.permissions.length }}</td>
-                <td class="small">{{ approvalText(r.approval) }}</td>
-                <td class="actions">
-                  @if (manage()) {
-                    <button class="ghost" (click)="editRole(r)">Edit</button>
-                    <button class="ghost" (click)="deleteRole(r)" [disabled]="busy()">Delete</button>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+          </ng-template>
+        </mp-data-table>
         @if (manage()) {
           <div class="row"><button class="primary" (click)="newRole()">＋ New role for this organization</button></div>
           <div class="hint">An organization's own role is carved out of standard roles it may use: it can only contain their
             permissions, and it stops working if one of them leaves the ceiling.</div>
         }
       } @else if (!error()) {
-        <div class="muted small">Loading…</div>
+        <mp-spinner label="Loading…" />
       }
     </section>
 
@@ -103,41 +91,21 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
           <button class="primary" type="submit" [disabled]="busy() || !aUser || !aRole">Give role</button>
         </form>
       }
-      <table class="grid">
-        <thead><tr><th>Person</th><th>Role</th><th>Status</th><th>Since</th><th></th></tr></thead>
-        <tbody>
-          @for (a of current(); track a.id) {
-            <tr>
-              <td>{{ a.userName ?? a.subject }} @if (a.username) {<span class="muted small">({{ a.username }})</span>}</td>
-              <td>{{ label(a.role) }} @if (a.scope === 'subtree') {<span class="chip">and orgs below</span>}</td>
-              <td><span class="chip {{ a.status === 'ACTIVE' ? 'green' : 'amber' }}">{{ a.status === 'PENDING_APPROVAL' ? 'waiting for approval' : a.status }}</span></td>
-              <td class="small">{{ (a.requested_at || '').slice(0, 10) }}</td>
-              <td>@if (manage()) {<button class="ghost" (click)="revoke(a)" [disabled]="busy()">{{ a.status === 'ACTIVE' ? 'Take away' : 'Cancel' }}</button>}</td>
-            </tr>
-          } @empty {
-            <tr><td colspan="5" class="muted">No roles given yet.</td></tr>
-          }
-        </tbody>
-      </table>
+      <mp-data-table [cols]="currentCols" [rows]="current()" placeholder="Search people and roles" empty="No roles given yet.">
+        <ng-template mpCell="person" let-a>{{ a.userName ?? a.subject }} @if (a.username) {<span class="muted small">({{ a.username }})</span>}</ng-template>
+        <ng-template mpCell="role" let-a>{{ label(a.role) }} @if (a.scope === 'subtree') {<span class="chip">and orgs below</span>}</ng-template>
+        <ng-template mpCell="status" let-a let-v="value"><span class="chip {{ a.status === 'ACTIVE' ? 'green' : 'amber' }}">{{ v }}</span></ng-template>
+        <ng-template mpCell="act" let-a>@if (manage()) {<button class="ghost" (click)="revoke(a)" [disabled]="busy()">{{ a.status === 'ACTIVE' ? 'Take away' : 'Cancel' }}</button>}</ng-template>
+      </mp-data-table>
 
       @if (approvals().length) {
         <div class="btitle">Waiting for your approval</div>
-        <table class="grid">
-          <thead><tr><th>Person</th><th>Role</th><th>Asked by</th><th></th></tr></thead>
-          <tbody>
-            @for (a of approvals(); track a.id) {
-              <tr>
-                <td>{{ nameOf(a.subject) }}</td>
-                <td>{{ label(a.role) }}</td>
-                <td class="small">{{ nameOf(a.requested_by) }}</td>
-                <td class="actions">
-                  <button class="primary" (click)="decide(a, true)" [disabled]="busy()">Approve</button>
-                  <button class="ghost" (click)="decide(a, false)" [disabled]="busy()">Reject</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <mp-data-table [cols]="approvalCols" [rows]="approvals()" placeholder="Search requests">
+          <ng-template mpCell="act" let-a>
+            <button class="primary" (click)="decide(a, true)" [disabled]="busy()">Approve</button>
+            <button class="ghost" (click)="decide(a, false)" [disabled]="busy()">Reject</button>
+          </ng-template>
+        </mp-data-table>
       }
     </section>
 
@@ -172,7 +140,7 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
             <div class="muted small">Pick at least one role to build on.</div>
           }
         </fieldset>
-        @if (modalError(); as e) {<div class="err">{{ e }}</div>}
+        @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       </form>
       <div modal-footer>
         <button class="ghost" type="button" (click)="draftOpen.set(false)">Cancel</button>
@@ -184,13 +152,9 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
     .rbac-status { margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d6a43a; border-radius: 6px; color: #f4d58d; background: #302713; font-size: 13px; }
     :host { display: grid; gap: 14px; }
     .pad { padding: 16px; display: grid; gap: 10px; }
-    .ptitle { font-size: 14px; font-weight: 600; }
-    .btitle { font-weight: 600; margin-top: 8px; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; }
     .actions { display: flex; gap: 6px; justify-content: flex-end; }
-    .hint { color: var(--a-dim); font-size: var(--fs-xs); }
     .small { font-size: var(--fs-xs); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
     tr.off td { opacity: .6; }
     .assign { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end; }
     .form { display: grid; gap: 12px; }
@@ -204,9 +168,6 @@ const emptyDraft = (): RoleDraft => ({ editing: null, name: '', description: '',
     .cellrow { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding: 4px 0;
                border-bottom: 1px solid var(--a-border); }
     .rowname { min-width: 200px; font-family: var(--font-mono, monospace); font-size: var(--fs-xs); }
-    .flash { font-size: var(--fs-sm); padding: 8px 12px; border-radius: 8px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
   `],
 })
 export class OrgAccess {
@@ -242,6 +203,33 @@ export class OrgAccess {
     ...(this.roles()?.org_roles ?? []).filter((r) => r.in_ceiling).map((r) => r.name),
   ]);
   readonly current = computed(() => this.assignments().filter((a) => a.status === 'ACTIVE' || a.status === 'PENDING_APPROVAL'));
+  readonly currentCols: DataCol<RoleAssignment>[] = [
+    { key: 'person', label: 'Person', search: (a) => [a.userName, a.subject, a.username] },
+    { key: 'role', label: 'Role', search: (a) => this.label(a.role) },
+    { key: 'status', label: 'Status', text: (a) => (a.status === 'PENDING_APPROVAL' ? 'waiting for approval' : a.status) },
+    { key: 'since', label: 'Since', cls: 'small', text: (a) => (a.requested_at || '').slice(0, 10) },
+    { key: 'act', label: '' },
+  ];
+  readonly approvalCols: DataCol<RoleAssignment>[] = [
+    { key: 'person', label: 'Person', text: (a) => this.nameOf(a.subject) },
+    { key: 'role', label: 'Role', text: (a) => this.label(a.role) },
+    { key: 'by', label: 'Asked by', cls: 'small', text: (a) => this.nameOf(a.requested_by) },
+    { key: 'act', label: '', cls: 'actions' },
+  ];
+  /** standard roles it may use, then its own roles: one searchable, paged list */
+  readonly roleRows = computed(() => [
+    ...this.usable().map((r) => ({ own: false, r })),
+    ...(this.roles()?.org_roles ?? []).map((r) => ({ own: true, r })),
+  ]);
+  readonly roleCols: DataCol<{ own: boolean; r: RbacRole }>[] = [
+    { key: 'name', label: 'Role', search: (x) => [x.r.name, this.label(x.r.name), x.r.description, x.own ? 'own' : ''] },
+    { key: 'base', label: 'Built on', cls: 'small', text: (x) => (x.own ? x.r.base_roles.join(', ') : 'standard role') },
+    { key: 'perms', label: 'Permissions', text: (x) => x.r.permissions.length },
+    { key: 'appr', label: 'Granting needs', cls: 'small', text: (x) => this.approvalText(x.r.approval) },
+    { key: 'act', label: '', cls: 'actions' },
+  ];
+  readonly roleKey = (x: { own: boolean; r: RbacRole }) => (x.own ? 'own:' : 'std:') + x.r.name;
+  readonly roleClass = (x: { own: boolean; r: RbacRole }) => (x.own && !x.r.in_ceiling ? 'off' : '');
   /** The cells the draft may tick: the union of its base roles' effective cells. */
   readonly offeredCells = computed(() => {
     this.draftTick();

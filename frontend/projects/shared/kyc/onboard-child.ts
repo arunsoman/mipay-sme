@@ -1,3 +1,5 @@
+import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, output, signal, viewChildren } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -6,7 +8,7 @@ import { GrantableChild, GrantableView, KYC_HINTS, OrgDecisionResult, readProble
 import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
 import { KycProgress } from './kyc-progress';
 import { Doc } from './kyc-conditions';
-import { Modal } from '../ui/modal';
+import { Modal } from '../../../src/app/design-system/organisms/modal';
 
 interface Onboarded { orgId: string; requestId: string; status: string; adminUsername: string; }
 
@@ -22,7 +24,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
 @Component({
   selector: 'mp-onboard-child',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, KycSchemaEditor, KycProgress, Modal],
+  imports: [MpSpinner, MpAlert, FormsModule, KycSchemaEditor, KycProgress, Modal],
   template: `
     @if (compact()) {
       <button class="primary" type="button" (click)="openForm()" [disabled]="!grantable()?.children?.length"
@@ -30,7 +32,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
     } @else {
     <section class="panel pad">
       <div class="ptitle">Onboard an organization</div>
-      @if (grantError(); as e) {<div class="err">{{ e }}</div>}
+      @if (grantError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       @if (grantable(); as g) {
         @if (g.children.length === 0) {
           <div class="muted">Your organization has no onboarding rights. Ask your parent organization or MiPay to grant them.</div>
@@ -41,7 +43,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
           </div>
         }
       } @else if (!grantError()) {
-        <div class="muted">Loading your onboarding rights…</div>
+        <mp-spinner label="Loading your onboarding rights…" />
       }
     </section>
     }
@@ -75,17 +77,17 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
             }
           </div>
         }
-        @if (schemaError(); as e) {<div class="flash bad">{{ e }}</div>}
+        @if (schemaError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         @if (schema(); as sch) {
           @for (k of [schemaKey()]; track k) {
             <mp-kyc-schema-editor #wiz [schema]="sch" [doc]="doc" [context]="context()" [problems]="problems()"
                                   [wizard]="true" [hideProgress]="true" [blurbs]="blurbs" />
           }
         } @else if (!schemaError()) {
-          <div class="muted">Loading the KYC form…</div>
+          <mp-spinner label="Loading the KYC form…" />
         }
 
-        @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+        @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
         <div class="wfoot">
           @if ((wiz()?.stepIdx() ?? 0) === 0) {
             <button type="button" class="ghost" (click)="closeForm()">Cancel</button>
@@ -104,12 +106,9 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
     </mp-modal>
   `,
   styles: [`
-    .pad { padding: 16px; }
-    .ptitle { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .small { font-size: var(--fs-xs); }
     .muted { color: var(--a-dim); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 6px 0; }
     .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--a-text); }
 
     .typerow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
@@ -124,8 +123,6 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
              border-top: 1px solid var(--a-border); display: flex; gap: 10px; align-items: center; }
     .wfoot .grow { flex: 1; }
     .wfoot button { min-height: 42px; padding: 0 22px; }
-    .flash { font-size: 13px; padding: 10px 12px; border-radius: 10px; white-space: pre-line; }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 10%, transparent); color: var(--a-red); }
     .done { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 48px 16px 40px; }
     .done .mark { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-size: 26px;
                   background: var(--a-green-bg, #173a29); color: var(--a-green); }

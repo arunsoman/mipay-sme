@@ -35,7 +35,7 @@ export class StatusBadge {
 }
 
 /** shared helpers (imported by status-badge only) */
-import { statusColor, statusLabel } from '../../core/status-maps';
+import { statusColor, statusLabel } from '../status-maps';
 function pretty(s: string) {
   return statusLabel(s) ?? s.replace(/_/g, ' ').toLowerCase();
 }

@@ -1,3 +1,4 @@
+import { MpAlert } from '../../design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { StatusBadge } from '../../design-system/atoms/status-badge';
@@ -23,7 +24,7 @@ function wireMsg(e: unknown): string {
 @Component({
   selector: 'ops-approvals',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, ApprovalActions, EmptyState, MpPerm],
+  imports: [MpCard, MpTable, MpSpinner, PageHeader, ApprovalActions, EmptyState],
   template: `
     <page-header title="Approvals" subtitle="New merchants, suppliers and bank account changes waiting for a decision. Pick a row to see its KYC checks." />
     <mp-card title="Merchants" subtitle="Pending merchants can be approved or rejected" class="mt">
@@ -72,8 +73,7 @@ function wireMsg(e: unknown): string {
       </mp-card>
     }
   `,
-  styles: [`.mt { margin-top: var(--sp-3); }`],
-})
+  })
 export class OpsApprovals implements OnInit {
   private readonly api = inject(OpsService);
   readonly merchCols: MpColumn[] = [
@@ -164,7 +164,7 @@ export class OpsApprovals implements OnInit {
 @Component({
   selector: 'ops-recon',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
+  imports: [MpAlert, MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpPerm],
   template: `
     <page-header title="Reconciliation" subtitle="Checks that the bank, MiPay and the credit ledger agree. While a mismatch is open, withdrawals are paused." />
     <div class="row mt">
@@ -184,23 +184,16 @@ export class OpsApprovals implements OnInit {
       </mp-card>
     }
     <mp-card title="Past checks" class="mt">
-      @if (runs(); as runs) {
-        <mp-table [cols]="runCols" [rows]="runs" [selectable]="true" (rowClick)="selectRun($event)" empty="No runs yet" />
-      } @else { <mp-spinner label="Loading runs..." /> }
+      <mp-table [cols]="runCols" [rows]="runs()" [selectable]="true" (rowClick)="selectRun($event)" empty="No runs yet" loading="Loading runs..." />
     </mp-card>
     <mp-card [title]="selRun() ? 'Mismatches in this check' : 'Pick a check to see its mismatches'" class="mt">
       @if (breaks(); as b) {
         <mp-table [cols]="breakCols" [rows]="b" empty="Everything matched" />
       } @else if (selRun()) { <mp-spinner label="Loading…" /> }
     </mp-card>
-    @if (doneMsg(); as m) { <div class="ok">{{ m }}</div> }
+    @if (doneMsg(); as m) { <mp-alert kind="ok">{{ m }}</mp-alert> }
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .ok { color: #16a34a; margin-top: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class OpsRecon implements OnInit {
   private readonly api = inject(OpsService);
   readonly runCols: MpColumn[] = [
@@ -281,7 +274,7 @@ export class OpsRecon implements OnInit {
 @Component({
   selector: 'ops-incidents',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm, MpPerm],
+  imports: [MpAlert, MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm, MpPerm],
   template: `
     <page-header title="Incidents" subtitle="Log a problem, acknowledge it within 15 minutes, then resolve it" />
     <mp-card title="All incidents" class="mt">
@@ -293,16 +286,11 @@ export class OpsRecon implements OnInit {
           <span class="dim">Selected: {{ selSig()?.slice(0, 8) }}</span>
         </div>
       } @else { <mp-spinner label="Loading incidents..." /> }
-      @if (done(); as m) { <div class="ok">{{ m }}</div> }
+      @if (done(); as m) { <mp-alert kind="ok">{{ m }}</mp-alert> }
     </mp-card>
     <mp-entity-form #cf class="mt" [schema]="schema" submitLabel="Log incident" *mpPerm="'ops.incident:create'" (submitted)="create($event)" />
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .ok { color: #16a34a; margin-top: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class OpsIncidents implements OnInit {
   private readonly api = inject(OpsService);
   readonly cols: MpColumn[] = [
@@ -348,7 +336,7 @@ export class OpsIncidents implements OnInit {
 @Component({
   selector: 'ops-desk',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpCard, MpTable, MpSpinner, MpButton, StatusBadge, PageHeader, MpEntityForm, FormsModule, MpPerm],
+  imports: [MpCard, MpTable, MpSpinner, MpButton, PageHeader, MpEntityForm, FormsModule, MpPerm],
   template: `
     <page-header title="Complaints & disputes" subtitle="Customer complaints, payment disputes and account suspensions" />
     <div class="grid2">
@@ -385,11 +373,8 @@ export class OpsIncidents implements OnInit {
     </div>
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .row { display: flex; gap: var(--sp-3); }
     .colgap { display: grid; gap: var(--sp-3); }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class OpsDesk implements OnInit {
@@ -505,9 +490,7 @@ export class OpsDesk implements OnInit {
     </mp-card>
   `,
   styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class OpsReports implements OnInit {
@@ -537,7 +520,7 @@ export class OpsReports implements OnInit {
 @Component({
   selector: 'ops-audit',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpTable, MpButton, PageHeader, MpSpinner, FormsModule],
+  imports: [MpTable, MpButton, PageHeader, FormsModule],
   template: `
     <page-header title="Audit trail" subtitle="Who did what, and when" />
     <div class="row mt">
@@ -545,9 +528,7 @@ export class OpsReports implements OnInit {
       <mp-button variant="ghost" (onClick)="nextPage()">Next page</mp-button>
       <span class="dim">page {{ page() + 1 }} / total {{ total() }}</span>
     </div>
-    @if (rows(); as r) {
-      <mp-table [cols]="cols" [rows]="r" empty="No audit entries" />
-    } @else { <mp-spinner label="Loading…" /> }
+    <mp-table [cols]="cols" [rows]="rows()" empty="No audit entries" loading="Loading…" />
   `,
   styles: [`
     .row { display: flex; align-items: center; gap: var(--sp-4); }

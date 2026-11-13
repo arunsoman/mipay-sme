@@ -1,3 +1,5 @@
+import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -16,9 +18,9 @@ import { MpPerm } from '../web-core/perm-directive';
 @Component({
   selector: 'mp-kyc-application',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, FormsModule, KycSchemaEditor, MpPerm],
+  imports: [MpSpinner, MpAlert, DatePipe, FormsModule, KycSchemaEditor, MpPerm],
   template: `
-    @if (loadError(); as e) {<div class="err">{{ e }}</div>}
+    @if (loadError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
     @if (view(); as v) {
       @if (wizard()) {
         @if (v.status === 'DRAFT' && v.decisionNote) {<div class="note warn">Returned for correction: {{ v.decisionNote }}</div>}
@@ -58,7 +60,7 @@ import { MpPerm } from '../web-core/perm-directive';
                                   [problems]="problems()" [wizard]="wizard()" [startStep]="reopenStep() ?? startStep()" />
           }
         } @else {
-          <div class="muted">Loading the KYC form…</div>
+          <mp-spinner label="Loading the KYC form…" />
         }
       } @else if (v.canEdit) {
         <div class="muted">No KYC application yet.</div>
@@ -68,7 +70,7 @@ import { MpPerm } from '../web-core/perm-directive';
 
       @if (wizard() && v.canEdit && doc()) {
         <div class="wfoot">
-          @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+          @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
           <div class="wrow">
             <button type="button" class="ghost" (click)="back()" [disabled]="busy() || (editor()?.stepIdx() ?? 0) === 0">Back</button>
             <span class="grow"></span>
@@ -81,7 +83,7 @@ import { MpPerm } from '../web-core/perm-directive';
           </div>
         </div>
       } @else if (readOnly()) {
-        @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+        @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
       } @else if (v.canEdit && v.orgType !== 'PLATFORM') {
         <div class="actions" [class.stuck]="!!doc()">
           @if (!doc()) {
@@ -95,16 +97,15 @@ import { MpPerm } from '../web-core/perm-directive';
               @if (v.id) {<button *mpPerm="'kyc.application:delete'" class="ghost wd" (click)="withdraw()" [disabled]="busy()">Withdraw</button>}
             }
           }
-          @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+          @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
         </div>
-      } @else if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+      } @else if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
     } @else if (!loadError()) {
-      <div class="muted">Loading…</div>
+      <mp-spinner label="Loading…" />
     }
   `,
   styles: [`
     :host { display: grid; gap: 12px; min-width: 0; }
-    .ptitle { font-size: 15px; font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .note { font-size: var(--fs-sm); padding: 8px 10px; border-radius: 8px; background: var(--a-panel-2); }
     .note.ok { color: var(--a-green); } .note.bad { color: var(--a-red); } .note.warn { color: var(--a-amber); }
     .editbtn { margin-left: auto; }
@@ -119,10 +120,6 @@ import { MpPerm } from '../web-core/perm-directive';
     .chk { display: flex; align-items: center; gap: 6px; color: var(--a-dim); }
     .chk input { width: auto; }
     .small { font-size: var(--fs-xs); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
-    .flash { font-size: var(--fs-sm); padding: 8px 12px; border-radius: 8px; white-space: pre-line; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
     .wfoot { position: sticky; bottom: -18px; z-index: 2; margin: 8px -22px -18px; padding: 14px 22px;
              background: color-mix(in srgb, #111 94%, transparent); backdrop-filter: blur(6px);
              border-top: 1px solid var(--a-border); display: grid; gap: 10px; }

@@ -1,8 +1,13 @@
+import { PageHeader } from '../../../../../../src/app/design-system/organisms/page-header';
+import { MpSpinner } from '../../../../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { MpPerm } from '../../../../../shared/web-core/perm-directive';
+import { MpTabs, TabOption } from '../../../../../../src/app/design-system/molecules/tabs';
+import { TableView, TABLE_TOOLS } from '../../../../../../src/app/design-system/molecules/table-view';
 import { AccessService } from '../../../../../shared/web-core/access';
 import {
   RbacResourceView, RbacRoleUpdate, RbacRoleView, RBAC_VERBS, RbacVerb, readProblem,
@@ -79,7 +84,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 @Component({
   selector: 'mpa-permission-matrix',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, MpPerm],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, MpPerm, ...TABLE_TOOLS],
   template: `
     @if (rbacMode() && rbacMode() !== 'enforce') {
       <div class="rbac-status" role="status">
@@ -87,14 +92,15 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       </div>
     }
 
-    <div class="head">
-      <h2>Roles and permissions</h2>
-      <button *mpPerm="'rbac.role:create'" class="primary" (click)="startCreate()" [disabled]="busy() || loading()">+ New role</button>
-      <button class="ghost" (click)="reload()" [disabled]="loading()">Refresh</button>
-    </div>
+    <page-header title="Roles and permissions">
+      <div actions>
+        <button *mpPerm="'rbac.role:create'" class="primary" (click)="startCreate()" [disabled]="busy() || loading()">+ New role</button>
+        <button class="ghost" (click)="reload()" [disabled]="loading()">Refresh</button>
+      </div>
+    </page-header>
 
     <div class="toolbar">
-      <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event)" placeholder="Filter rows (e.g. withdrawal)" />
+      <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event); ctlView.go(0); rowView.go(0)" placeholder="Filter rows (e.g. withdrawal)" />
       <label class="small check"><input type="checkbox" [ngModel]="showAll()" (ngModelChange)="showAll.set($event)" /> show unused rows</label>
       <span class="legend small">
         <span><b class="chip-v own">view</b> on the role</span>
@@ -103,8 +109,8 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       </span>
     </div>
 
-    @if (problem(); as p) {<div class="err">{{ p }}</div>}
-    @if (loading() && !roles().length) {<div class="muted pad">Loading…</div>}
+    @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
+    @if (loading() && !roles().length) {<mp-spinner label="Loading…" />}
 
     @if (creating()) {
       <!-- ============ create a role ============ -->
@@ -138,7 +144,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             </select>
           </label>
         </div>
-        @if (createError(); as e) {<div class="err">{{ e }}</div>}
+        @if (createError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         <div class="actions">
           <button class="ghost" (click)="creating.set(false)" [disabled]="busy()">Cancel</button>
           <button class="primary" (click)="create()" [disabled]="busy() || !validName()">Create role</button>
@@ -203,8 +209,8 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           <div class="muted pad">No rows match.</div>
         }
 
-        @if (saveError(); as e) {<div class="err">{{ e }}</div>}
-        @if (saved()) {<div class="ok small">Saved.</div>}
+        @if (saveError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
+        @if (saved()) {<mp-alert kind="ok">Saved.</mp-alert>}
         @if (dirtyCount()) {
           <div class="actions">
             <span class="muted small">{{ dirtyCount() }} change(s)</span>
@@ -218,10 +224,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       <div class="panel">
         @if (scopeNote(); as n) {<div class="muted small note">{{ n }}</div>}
         <div class="viewbar">
-          <div class="seg" role="tablist" aria-label="View">
-            <button type="button" role="tab" [class.on]="view() === 'controller'" (click)="view.set('controller')">By controller</button>
-            <button type="button" role="tab" [class.on]="view() === 'permission'" (click)="view.set('permission')">By permission</button>
-          </div>
+          <mp-tabs [options]="viewOpts" [value]="view()" (valueChange)="view.set($event)" label="View" />
           @if (view() === 'controller') {
             <span class="muted small">{{ controllers().length }} controllers · {{ endpointCount() }} endpoints × {{ scopeRoles().length }} roles</span>
             <span class="grow"></span>
@@ -246,7 +249,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
               </tr>
             </thead>
             <tbody>
-              @for (c of controllers(); track c.name) {
+              @for (c of ctlView.rows(); track c.name) {
                 @let open = openCtl().has(c.name) || !!q().trim();
                 <tr class="ctlhead" (click)="toggleCtl(c.name)" [attr.aria-expanded]="open">
                   <td [attr.colspan]="scopeRoles().length + 2">
@@ -276,6 +279,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             </tbody>
           </table>
         </div>
+        <mp-pager class="pg" [view]="ctlView" />
         } @else {
         <div class="overview-wrap">
           <table class="overview">
@@ -293,9 +297,11 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
               </tr>
             </thead>
             <tbody>
-              @for (g of groups(); track g.area) {
-                <tr class="grow"><td [attr.colspan]="scopeRoles().length + 1">{{ g.label }}</td></tr>
-                @for (row of g.rows; track row.id) {
+              @for (x of rowView.rows(); track x.row.id; let i = $index) {
+                @let row = x.row;
+                @if (x.first || i === 0) {
+                  <tr class="grow"><td [attr.colspan]="scopeRoles().length + 1">{{ x.label }}@if (!x.first) {<span class="muted small"> (continued)</span>}</td></tr>
+                }
                   <tr>
                     <td class="resource-cell">
                       <span class="rdesc">{{ row.description || row.id }}</span>
@@ -309,13 +315,13 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
                       </td>
                     }
                   </tr>
-                }
               } @empty {
                 <tr><td class="muted pad" [attr.colspan]="scopeRoles().length + 1">No rows match.</td></tr>
               }
             </tbody>
           </table>
         </div>
+        <mp-pager class="pg" [view]="rowView" />
         }
       </div>
     }
@@ -323,9 +329,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
   styles: [`
     .viewbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
     .viewbar .grow { flex: 1; }
-    .seg { display: inline-flex; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; }
-    .seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 7px; font-size: 13.5px; color: var(--a-dim); }
-    .seg button.on { background: #262626; color: var(--a-text); font-weight: 600; }
     button.sm { padding: 5px 12px; font-size: 12.5px; }
     .ctlhead td { cursor: pointer; padding: 10px 12px; background: #141414; border-top: 1px solid #222; font-size: 14px; }
     .ctlhead:hover td { background: #1a1a1a; }
@@ -339,7 +342,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .tick { color: var(--a-green); font-weight: 700; }
     .rbac-status { margin-bottom: 12px; padding: 10px 12px; border: 1px solid #d6a43a; border-radius: 6px; color: #f4d58d; background: #302713; font-size: 13px; }
     .seeded-warning { margin: 8px 0; padding: 8px 10px; border-left: 3px solid #d6a43a; color: #f4d58d; background: #302713; font-size: 12px; }
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
     h2 { margin: 0; font-size: 24px; line-height: 1.1; flex: 1; }
     .scopes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
     .scopes button { border: 1px solid var(--a-border); border-radius: 999px; background: transparent; padding: 7px 16px; color: var(--a-dim); font-size: 14px; }
@@ -352,6 +354,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .panel { padding: 12px; border: 1px solid var(--a-border); border-radius: 8px; min-width: 0; }
     .note { margin-bottom: 6px; }
     .overview-wrap { overflow: auto; max-height: calc(100vh - 240px); }
+    .pg { padding: 0 12px 12px; }
     .overview { border-collapse: separate; border-spacing: 0; font-size: 14px; }
     .overview th, .overview td { padding: 7px 10px; border-bottom: 1px solid var(--a-border); vertical-align: top; }
     .overview thead th { position: sticky; top: 0; background: var(--a-bg, #0b0b0b); z-index: 2; vertical-align: bottom; }
@@ -388,7 +391,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .role-pick { max-width: 220px; }
     .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--a-dim); margin-bottom: 8px; align-items: center; font-size: 13px; }
     .tag { padding: 1px 8px; border-radius: 999px; border: 1px solid #d6a43a; color: #f4d58d; }
-    .hint { margin: 4px 0 6px; }
     .group { font-weight: 700; color: var(--a-teal); margin: 16px 0 4px; font-size: 16px; }
     .erow { display: grid; grid-template-columns: minmax(240px, 360px) 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--a-border); align-items: start; }
     @media (max-width: 700px) { .erow { grid-template-columns: 1fr; gap: 4px; } }
@@ -396,8 +398,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .chips { display: flex; flex-wrap: wrap; }
     .mono { font-family: var(--font-mono, monospace); }
     .actions { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 10px; padding: 8px 0; background: var(--a-bg, #0b0b0b); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 6px 0; }
-    .ok { color: var(--a-green); margin-top: 6px; }
     .muted { color: var(--a-dim); }
     .create .ptitle { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
     .form { display: grid; gap: 12px; max-width: 720px; margin: 10px 0; }
@@ -407,7 +407,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .pick input { width: auto; margin: 0; }
     .danger-row { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
     .small { font-size: 12.5px; }
-    .pad { padding: 16px; }
   `],
 })
 export class PermissionMatrix implements OnInit {
@@ -424,6 +423,8 @@ export class PermissionMatrix implements OnInit {
   readonly showAll = signal(false);
   /** Overview: grouped by controller (each expandable) or the permission grid. */
   readonly view = signal<'controller' | 'permission'>('controller');
+  readonly viewOpts: TabOption<'controller' | 'permission'>[] = [
+    { value: 'controller', label: 'By controller' }, { value: 'permission', label: 'By permission' }];
   readonly openCtl = signal<Set<string>>(new Set());
   readonly controllers = computed(() => {
     const q = this.q().trim().toLowerCase();
@@ -543,6 +544,10 @@ export class PermissionMatrix implements OnInit {
     return [...m.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0]))
       .map(([area, rows]) => ({ area, label: AREA_LABEL[area] ?? area, rows: rows.sort((x, y) => x.id.localeCompare(y.id)) }));
   });
+  /** the overviews page through their own filtered lists (the filter box above does the searching) */
+  readonly ctlView = new TableView(() => this.controllers(), undefined, 25);
+  readonly rowView = new TableView(
+    () => this.groups().flatMap((g) => g.rows.map((row, k) => ({ label: g.label, row, first: k === 0 }))), undefined, 25);
 
   readonly rowCount = computed(() => this.visibleRows().length);
 

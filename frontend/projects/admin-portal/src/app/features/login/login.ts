@@ -1,3 +1,4 @@
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -14,7 +15,7 @@ import { readProblem } from '../../core/api';
 @Component({
   selector: 'mpa-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink],
+  imports: [MpAlert, FormsModule, RouterLink],
   template: `
     <div class="stage">
       <div class="head">
@@ -33,7 +34,7 @@ import { readProblem } from '../../core/api';
         <button class="primary" type="submit" [disabled]="busy()">
           {{ busy() ? 'Signing in…' : 'Sign in' }}
         </button>
-        @if (error()) {<div class="err">{{ error() }}</div>}
+        @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
         @if (devHint()) {<div class="hint">
           Sandbox seed accounts —
           <button type="button" class="use" (click)="useSeed('ops-admin-ops', 'ops123')">use ops-admin-ops</button>
@@ -53,8 +54,6 @@ import { readProblem } from '../../core/api';
     .card { display: grid; gap: 12px; background: var(--a-panel); border: 1px solid var(--a-border);
             border-radius: var(--radius); padding: 18px; }
     label { display: grid; gap: 5px; font-size: var(--fs-sm); color: var(--a-dim); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
-    .hint { color: var(--a-dim); font-size: var(--fs-xs); }
     .use { padding: 2px 10px; font-size: var(--fs-xs); margin: 4px 4px 0 0; font-family: ui-monospace, Menlo, monospace; }
     .simtag { background: var(--a-amber); color: #3b2f00; border-radius: 999px;
               padding: 1px 6px; font-size: 10px; margin-left: 4px; }

@@ -1,3 +1,5 @@
+import { PageHeader } from '../../../src/app/design-system/organisms/page-header';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -7,7 +9,7 @@ import {
   flattenTree, kycStatusClass, refusal,
 } from './kyc-api';
 import { KycApplication } from './kyc-application';
-import { Modal } from '../ui/modal';
+import { Modal } from '../../../src/app/design-system/organisms/modal';
 import { MpPerm } from '../web-core/perm-directive';
 import { AccessService } from '../web-core/access';
 
@@ -29,13 +31,14 @@ const LABELS: Record<string, string> = {
 @Component({
   selector: 'mp-kyc-workspace',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, KycApplication, Modal, MpPerm],
+  imports: [PageHeader, MpAlert, FormsModule, KycApplication, Modal, MpPerm],
   template: `
-    <div class="head">
-      <h2>Organizations</h2>
-      <button class="ghost" (click)="reload()">Refresh</button>
-    </div>
-    @if (problem(); as p) {<div class="err">{{ p }}</div>}
+    <page-header title="Organizations">
+      <div actions>
+        <button class="ghost" (click)="reload()">Refresh</button>
+      </div>
+    </page-header>
+    @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
 
     <section class="panel tasks" [class.quiet]="!tasks().length">
       <div class="thead">
@@ -45,7 +48,7 @@ const LABELS: Record<string, string> = {
           <button class="ghost tog" (click)="tasksOpen.set(!tasksOpen())">{{ tasksOpen() ? 'Hide' : 'Show' }}</button>
         }
       </div>
-      @if (taskFlash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+      @if (taskFlash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
       @if (tasksOpen()) {
       @for (t of tasks(); track t.id) {
         <div class="taskrow">
@@ -107,7 +110,7 @@ const LABELS: Record<string, string> = {
         <label class="reason"><span>Reason <em>required to reject; sent to the organization</em></span>
           <textarea rows="2" [(ngModel)]="reviewReason" [ngModelOptions]="o"
                     placeholder="e.g. The registration certificate does not match the legal name"></textarea></label>
-        @if (reviewError(); as e) {<div class="flash bad">{{ e }}</div>}
+        @if (reviewError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       }
       <div modal-footer>
         <button type="button" class="danger" [disabled]="busy() || !reviewReason.trim()" (click)="decideReview(false)">Reject</button>
@@ -120,8 +123,6 @@ const LABELS: Record<string, string> = {
     .reason em { font-style: normal; font-weight: 400; color: var(--a-dim); font-size: 12px; margin-left: 6px; }
     .reason textarea { width: 100%; box-sizing: border-box; border-radius: 10px; background: #0d0d0d; border: 1px solid #2a2a2a;
                        color: var(--a-text); padding: 10px 12px; font: inherit; font-weight: 400; resize: vertical; }
-    .grow { flex: 1; }
-    .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; flex: 1; }
     h3 { margin: 0; font-size: 14px; display: flex; gap: 8px; align-items: center; }
     .cols { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -156,10 +157,6 @@ const LABELS: Record<string, string> = {
     .link { background: none; border: none; padding: 0; color: var(--a-teal); cursor: pointer; }
     .dec { padding: 6px 14px; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
     .small { font-size: var(--fs-xs); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 6px 0; }
-    .flash { font-size: var(--fs-sm); margin: 4px 0 8px; padding: 8px 12px; border-radius: 8px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
   `],
 })
 export class KycWorkspace implements OnInit {

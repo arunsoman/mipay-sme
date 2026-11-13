@@ -1,3 +1,4 @@
+import { MpAlert } from '../../design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -32,7 +33,7 @@ function wireMsg(e: unknown): string {
 @Component({
   selector: 'merchant-dashboard',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, KpiRow, MpCard, MpButton, StatusBadge, CurrencyAmount, MpSpinner, PageHeader],
+  imports: [CommonModule, KpiRow, MpCard, StatusBadge, CurrencyAmount, MpSpinner, PageHeader],
   template: `
     @if (view(); as d) {
       <page-header [title]="'Dashboard'" subtitle="M04 - balance, today's movement, recent payments (NAD)" />
@@ -79,7 +80,7 @@ export class MerchantDashboard implements OnInit {
 @Component({
   selector: 'merchant-accept',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, MpCard, PageHeader, MpButton, CurrencyAmount, StatusBadge, MpSpinner, MpPerm],
+  imports: [MpAlert, FormsModule, MpCard, PageHeader, MpButton, StatusBadge, MpPerm],
   template: `
     <page-header title="Accept payment" subtitle="M06: QR / short code / card. Card posts PENDING until the issuer confirms (TC-ACC-01)" />
     <div class="grid2">
@@ -103,7 +104,7 @@ export class MerchantDashboard implements OnInit {
             now pay it as a customer from the <a href="/customer">customer simulator</a>, or replay the callback here.
           </div>
         }
-        @if (acceptErr()) {<div class="err">{{ acceptErr() }}</div>}
+        @if (acceptErr()) {<mp-alert kind="bad">{{ acceptErr() }}</mp-alert>}
       </mp-card>
       <mp-card title="Issuer / acquirer callback simulator" subtitle="Exactly one confirmation per payment (E31, idempotency-key)">
         @if (lastId(); as id) {
@@ -135,8 +136,6 @@ export class MerchantDashboard implements OnInit {
     .stack { display: grid; gap: 6px; }
     label { font-size: var(--fs-sm); color: var(--mp-text-dim); font-weight: 600; margin-top: 4px; }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; width: 100%; }
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .simbtns { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .payinfo { margin-top: var(--sp-4); font-size: var(--fs-sm); display: grid; gap: 3px; }
     .mono { font-family: monospace; }
@@ -188,12 +187,10 @@ export class MerchantAccept implements OnInit {
 @Component({
   selector: 'merchant-payments',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner],
+  imports: [PageHeader, MpTable],
   template: `
     <page-header title="Payments" subtitle="Every payment with channel and status (M11)" />
-    @if (rows(); as r) {
-      <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="open($event)" empty="No payments yet - accept one first" />
-    } @else { <mp-spinner label="Loading payments..." /> }
+    <mp-table [cols]="cols" [rows]="rows()" [selectable]="true" (rowClick)="open($event)" empty="No payments yet - accept one first" loading="Loading payments..." />
   `,
 })
 export class MerchantPayments implements OnInit {
@@ -216,7 +213,7 @@ export class MerchantPayments implements OnInit {
 @Component({
   selector: 'merchant-payment-detail',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MpCard, PageHeader, KpiRow, EventTimeline, MpSpinner, CurrencyAmount, StatusBadge, MpButton, FormsModule, MpPerm],
+  imports: [CommonModule, MpCard, PageHeader, KpiRow, EventTimeline, MpSpinner, MpButton, FormsModule, MpPerm],
   template: `
     @if (p(); as pay) {
       <page-header [title]="'Payment ' + pay.id.slice(0, 8)" subtitle="M10 - full trail with issuer events and idempotency keys (TC-ACC-05)" />
@@ -240,7 +237,6 @@ export class MerchantPayments implements OnInit {
   styles: [`
     .row { display: flex; gap: var(--sp-3); align-items: center; }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; flex: 1; }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class MerchantPaymentDetail implements OnInit {
@@ -290,15 +286,11 @@ export class MerchantPaymentDetail implements OnInit {
         </mp-card>
       </div>
       <mp-card title="Wallet movement" class="mt">
-        @if (ledger(); as rows) {
-          <mp-table [cols]="ledgerCols" [rows]="rows" empty="No movement yet" />
-        } @else { <mp-spinner label="Loading ledger (paged projection)..." /> }
+        <mp-table [cols]="ledgerCols" [rows]="ledger()" empty="No movement yet" loading="Loading ledger (paged projection)..." />
       </mp-card>
     } @else { <mp-spinner label="Loading balance..." /> }
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mt { margin-top: var(--sp-4); }
   `],
 })
@@ -355,7 +347,7 @@ export class MerchantBalance implements OnInit {
 @Component({
   selector: 'merchant-orders',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpCard, MpButton, MpSpinner, CurrencyAmount, StatusBadge, FormsModule, MpPerm],
+  imports: [MpAlert, PageHeader, MpTable, MpCard, MpButton, MpSpinner, CurrencyAmount, FormsModule, MpPerm],
   template: `
     <page-header title="Stock orders & supplier invoices" subtitle="M13 order from catalogue, M16 pay invoice from balance (funds held, then settled atomically)" />
     <div class="grid2 mt">
@@ -383,15 +375,13 @@ export class MerchantBalance implements OnInit {
               <mp-button *mpPerm="'merchant.invoice:execute'" variant="ghost" (onClick)="payInvoice('BOOK_TRANSFER')">Pay via book transfer</mp-button>
             </div>
             <p class="dim">Native IPP is NOT routed for B2B at go-live (BOOK_TRANSFER/EFT only).</p>
-            @if (payMsg(); as m) {<div class="ok">{{ m }}</div>}
+            @if (payMsg(); as m) {<mp-alert kind="ok">{{ m }}</mp-alert>}
           } @else { <p class="dim">Select an invoice to pay (from your balance; funds held until the supplier bank transfer clears).</p> }
         } @else { <mp-spinner label="Loading invoices..." /> }
       </mp-card>
     </div>
     <mp-card title="Orders" class="mt">
-      @if (orders(); as o) {
-        <mp-table [cols]="orderCols" [rows]="o" empty="No orders placed yet" />
-      } @else { <mp-spinner label="Loading orders..." /> }
+      <mp-table [cols]="orderCols" [rows]="orders()" empty="No orders placed yet" loading="Loading orders..." />
     </mp-card>
   `,
   styles: [`
@@ -399,8 +389,6 @@ export class MerchantBalance implements OnInit {
     .row { display: flex; align-items: center; gap: var(--sp-2); }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; min-width: 190px; }
     .kvrow { display: flex; gap: var(--sp-3); padding: 2px 0; }
-    .ok { color: #16a34a; margin-top: var(--sp-2); }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class MerchantOrders implements OnInit {
@@ -471,13 +459,11 @@ export class MerchantOrders implements OnInit {
 @Component({
   selector: 'merchant-inventory',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard, MpPerm],
+  imports: [PageHeader, MpTable, MpEntityForm, MpCard, MpPerm],
   template: `
     <page-header title="Inventory" subtitle="K05: stock movement ledger + K06 low-stock warnings" />
     <mp-card title="Stock items" class="mt">
-      @if (items(); as rows) {
-        <mp-table [cols]="cols" [rows]="rows" empty="No stock items - add the first one below" />
-      } @else { <mp-spinner label="Loading inventory..." /> }
+      <mp-table [cols]="cols" [rows]="items()" empty="No stock items - add the first one below" loading="Loading inventory..." />
     </mp-card>
     <div class="grid2 mt">
       <mp-entity-form #af [schema]="addItemSchema" submitLabel="Add item" *mpPerm="'merchant.inventory:create'" (submitted)="addItem($event)" />
@@ -485,8 +471,6 @@ export class MerchantOrders implements OnInit {
     </div>
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mt { margin-top: var(--sp-4); }
   `],
 })
@@ -548,7 +532,7 @@ export class MerchantInventory implements OnInit {
 @Component({
   selector: 'merchant-khata',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, CurrencyAmount, StatusBadge, MpPerm],
+  imports: [MpAlert, PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, CurrencyAmount, StatusBadge, MpPerm],
   template: `
     <page-header title="Khata (credit book)" subtitle="M30: customer credit notes - NEVER in lender feeds (business rule: khata excluded)" />
     <mp-card title="Customer accounts" class="mt">
@@ -567,12 +551,10 @@ export class MerchantInventory implements OnInit {
     @if (sel()) {
       <mp-entity-form #ef class="mt" [schema]="entrySchema" submitLabel="Add entry" *mpPerm="'merchant.khata:create'" (submitted)="addEntry($event)" />
     }
-    @if (msg(); as m) {<div class="ok">{{ m }}</div>}
+    @if (msg(); as m) {<mp-alert kind="ok">{{ m }}</mp-alert>}
   `,
   styles: [`
     .row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-    .ok { color: #16a34a; margin-top: var(--sp-2); }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class MerchantKhata implements OnInit {
@@ -657,7 +639,7 @@ export class MerchantKhata implements OnInit {
 @Component({
   selector: 'merchant-tabs',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, FormsModule, MpPerm],
+  imports: [MpAlert, PageHeader, MpTable, MpSpinner, MpEntityForm, MpButton, MpCard, FormsModule, MpPerm],
   template: `
     <page-header title="Tabs" subtitle="M36: open a customer tab in two taps; M37: one tap to settle or remind (M37)" />
     <mp-card title="Open tabs" class="mt">
@@ -675,14 +657,9 @@ export class MerchantKhata implements OnInit {
       } @else { <mp-spinner label="Loading tabs..." /> }
     </mp-card>
     <mp-entity-form #tf class="mt" [schema]="createSchema" submitLabel="Create tab" *mpPerm="'merchant.tab:create'" (submitted)="create($event)" />
-    @if (msg(); as m) {<div class="ok">{{ m }}</div>}
+    @if (msg(); as m) {<mp-alert kind="ok">{{ m }}</mp-alert>}
   `,
-  styles: [`
-    .row { display: flex; align-items: center; gap: var(--sp-3); }
-    .ok { color: #16a34a; margin-top: var(--sp-2); }
-    .mt { margin-top: var(--sp-3); }
-  `],
-})
+  })
 export class MerchantTabs implements OnInit {
   private readonly api = inject(MerchantService);
   readonly cols: MpColumn[] = [
@@ -752,7 +729,7 @@ export class MerchantTabs implements OnInit {
 @Component({
   selector: 'merchant-advance',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpButton, MpCard, CurrencyAmount, StatusBadge, FormsModule, KpiRow, SimulatedBanner, MpPerm],
+  imports: [MpAlert, PageHeader, MpTable, MpSpinner, MpButton, MpCard, CurrencyAmount, StatusBadge, FormsModule, KpiRow, SimulatedBanner, MpPerm],
   template: `
     <page-header title="Cash advance" subtitle="M21-M25: cap = lesser of N$25 000 / 20% of avg monthly net receipts / lender limit; repayment 10% of eligible daily receipts (TC-ADV)" />
     <simulated-banner class="mt-block" />
@@ -770,7 +747,7 @@ export class MerchantTabs implements OnInit {
       @if (consents(); as cs) {
         <mp-table [cols]="consentCols" [rows]="cs" class="mt" empty="No consents yet" />
       }
-      @if (msg(); as m) {<div class="ok">{{ m }}</div>}
+      @if (msg(); as m) {<mp-alert kind="ok">{{ m }}</mp-alert>}
     </mp-card>
 
     <mp-card title="2. Eligibility & request assessment" class="mt">
@@ -816,8 +793,6 @@ export class MerchantTabs implements OnInit {
     .row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
     .in { padding: 8px; border: 1px solid var(--mp-border); border-radius: var(--radius-1); font: inherit; min-width: 240px; }
     .offer { display: grid; gap: 4px; justify-items: start; }
-    .ok { color: #16a34a; margin-top: var(--sp-2); }
-    .mt { margin-top: var(--sp-3); }
   `],
 })
 export class MerchantAdvance implements OnInit {
@@ -911,8 +886,6 @@ export class MerchantAdvance implements OnInit {
     } @else { <mp-spinner label="Loading settings..." /> }
   `,
   styles: [`
-    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
-    @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
     .mono { font-family: monospace; font-size: var(--fs-sm); }
     .mt { margin-top: var(--sp-4); }
   `],
@@ -932,14 +905,12 @@ export class MerchantSettings implements OnInit {
 @Component({
   selector: 'merchant-statements',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpTable, MpSpinner, MpEntityForm, MpCard, MpPerm],
+  imports: [PageHeader, MpTable, MpEntityForm, MpCard, MpPerm],
   template: `
     <page-header title="Statements" subtitle="M28: generate for a period; downloads valid 60 minutes (C04)" />
     <mp-entity-form #gf [schema]="genSchema" submitLabel="Generate statement" *mpPerm="'merchant.statement:execute'" (submitted)="generate($event)" class="mt" />
     <mp-card title="Available statements" class="mt">
-      @if (rows(); as r) {
-        <mp-table [cols]="cols" [rows]="r" [selectable]="true" (rowClick)="download($event)" empty="No statements yet" />
-      } @else { <mp-spinner label="Loading statements..." /> }
+      <mp-table [cols]="cols" [rows]="rows()" [selectable]="true" (rowClick)="download($event)" empty="No statements yet" loading="Loading statements..." />
       @if (dl(); as t) { <pre class="wire">{{ t }}</pre> }
     </mp-card>
   `,

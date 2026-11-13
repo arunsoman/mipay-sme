@@ -1,8 +1,11 @@
+import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { refusal } from '../kyc/kyc-api';
 import { RBAC_HINTS, RoleCeilingView } from './rbac-api';
+import { DataCol, DATA_TABLE } from '../../../src/app/design-system/organisms/data-table';
 
 /**
  * An org's role ceiling (docs/plans/extended-rbac.md X1-X5): the roles its users may hold
@@ -12,37 +15,30 @@ import { RBAC_HINTS, RoleCeilingView } from './rbac-api';
 @Component({
   selector: 'mp-role-ceiling',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MpSpinner, MpAlert, ...DATA_TABLE],
   template: `
     <div class="block">
       <div class="btitle">Roles it may use</div>
-      @if (error(); as e) {<div class="err">{{ e }}</div>}
+      @if (error(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       @if (view(); as v) {
         <div class="muted small">
           @if (v.explicit) { Set by the organization above it. }
           @else if (v.unrestricted) { No ceiling anywhere above it: every organization role is available. }
           @else { Inherited from an organization above it ({{ v.inheritedFrom }}). }
         </div>
-        <table class="grid">
-          <thead><tr><th>Role</th><th>May use</th><th>May hand down</th></tr></thead>
-          <tbody>
-            @for (r of rows(); track r.name) {
-              <tr>
-                <td><b>{{ r.name }}</b>
-                  @if (isBaseline(r.name)) {<span class="chip">always</span>}
-                  @if (r.description) {<div class="muted small">{{ r.description }}</div>}</td>
-                @if (editing()) {
-                  <td><input type="checkbox" [checked]="wRoles().has(r.name)" [disabled]="isBaseline(r.name) || !offered(r.name)"
-                             (change)="toggleRole(r.name)" /></td>
-                  <td><input type="checkbox" [checked]="wHand().has(r.name)" [disabled]="!wRoles().has(r.name)"
-                             (change)="toggleHand(r.name)" /></td>
-                } @else {
-                  <td>{{ v.roles.includes(r.name) ? '✓' : '—' }}</td>
-                  <td>{{ v.delegableRoles.includes(r.name) ? '✓' : '—' }}</td>
-                }
-              </tr>
-            }
-          </tbody>
-        </table>
+        <mp-data-table [cols]="cols" [rows]="rows()" placeholder="Search roles" empty="No roles." noMatch="No role matches your search.">
+          <ng-template mpCell="name" let-r><b>{{ r.name }}</b>
+            @if (isBaseline(r.name)) {<span class="chip">always</span>}
+            @if (r.description) {<div class="muted small">{{ r.description }}</div>}</ng-template>
+          <ng-template mpCell="use" let-r>
+            @if (editing()) {<input type="checkbox" [checked]="wRoles().has(r.name)" [disabled]="isBaseline(r.name) || !offered(r.name)" (change)="toggleRole(r.name)" />}
+            @else {{{ v.roles.includes(r.name) ? '✓' : '—' }}}
+          </ng-template>
+          <ng-template mpCell="hand" let-r>
+            @if (editing()) {<input type="checkbox" [checked]="wHand().has(r.name)" [disabled]="!wRoles().has(r.name)" (change)="toggleHand(r.name)" />}
+            @else {{{ v.delegableRoles.includes(r.name) ? '✓' : '—' }}}
+          </ng-template>
+        </mp-data-table>
         @if (editable()) {
           <div class="row">
             @if (editing()) {
@@ -57,18 +53,15 @@ import { RBAC_HINTS, RoleCeilingView } from './rbac-api';
             next request, and organizations below are narrowed too. The administrator and KYC roles are always kept.</div>
         }
       } @else if (!error()) {
-        <div class="muted small">Loading…</div>
+        <mp-spinner label="Loading…" />
       }
     </div>
   `,
   styles: [`
     .block { display: grid; gap: 8px; }
-    .btitle { font-weight: 600; }
     .grid input { width: auto; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .hint { color: var(--a-dim); font-size: var(--fs-xs); }
     .small { font-size: var(--fs-xs); }
-    .err { color: var(--a-red); font-size: var(--fs-sm); }
     .chip { margin-left: 6px; }
   `],
 })
@@ -94,6 +87,11 @@ export class RoleCeiling {
     const names = new Set([...v.catalogue.map((c) => c.name), ...v.roles]);
     return [...names].sort().map((name) => ({ name, description: desc.get(name) ?? '' }));
   });
+  readonly cols: DataCol<{ name: string; description: string }>[] = [
+    { key: 'name', label: 'Role', search: (r) => [r.name, r.description] },
+    { key: 'use', label: 'May use' },
+    { key: 'hand', label: 'May hand down' },
+  ];
 
   constructor() {
     effect(() => { const id = this.orgId(); if (id) void this.load(id); });

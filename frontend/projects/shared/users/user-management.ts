@@ -1,8 +1,13 @@
+import { PageHeader } from '../../../src/app/design-system/organisms/page-header';
+import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Modal } from '../ui/modal';
+import { Modal } from '../../../src/app/design-system/organisms/modal';
+import { MpTabs, TabOption } from '../../../src/app/design-system/molecules/tabs';
+import { DataCol, DATA_TABLE } from '../../../src/app/design-system/organisms/data-table';
 import { MpPerm } from '../web-core/perm-directive';
 import { AccessService } from '../web-core/access';
 import { readProblem } from '../kyc/kyc-api';
@@ -33,47 +38,40 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
 @Component({
   selector: 'mp-user-management',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, Modal, MpPerm],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, Modal, MpPerm, ...DATA_TABLE],
   template: `
-    <div class="head">
-      <h2>User management</h2>
-      @if (access(); as a) {<span class="org">{{ a.orgName }}</span>}
-      <span class="grow"></span>
-      @if (canManage()) {<button *mpPerm="'org.user:create'" class="primary" type="button" (click)="startAdd()">＋ Add person</button>}
-    </div>
+    <page-header title="User management">
+      <div lead>@if (access(); as a) {<span class="org">{{ a.orgName }}</span>}</div>
+      <div actions>
+        @if (canManage()) {<button *mpPerm="'org.user:create'" class="primary" type="button" (click)="startAdd()">＋ Add person</button>}
+      </div>
+    </page-header>
 
-    @if (loadError(); as e) {<div class="flash bad">{{ e }}</div>}
+    @if (loadError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
     @if (access() && !canManage()) {
       <div class="panel pad muted">User management needs the permission to manage users ({{ cell }}) in your organization.</div>
     } @else if (access()) {
-      @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
-      <section class="panel">
-        <table class="people">
-          <thead><tr><th>Person</th><th>Contact</th><th>Roles</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            @for (p of people(); track p.id) {
-              <tr>
-                <td><div class="nm">{{ p.name }}</div><div class="sub mono">{{ p.username }}</div></td>
-                <td><div>{{ p.phone }}</div><div class="sub">{{ p.email }}</div></td>
-                <td>
-                  @for (r of rolesOf(p.id); track r.id) {<span class="chip" [class.pend]="r.status !== 'ACTIVE'">{{ label(r.role) }}</span>}
-                  @empty {<span class="sub">no role</span>}
-                </td>
-                <td><span class="st {{ p.status.toLowerCase() }}">{{ p.status.toLowerCase() }}</span></td>
-                <td class="act">
-                  @if (p.status === 'PENDING') {
-                    <button *mpPerm="'org.user:administer'" type="button" class="ghost sm" (click)="setupLink(p)" [disabled]="busy()">Set-up link</button>
-                  }
-                  <button *mpPerm="'rbac.assignment:create'" type="button" class="ghost sm" (click)="startRole(p)">Give a role</button></td>
-              </tr>
-            } @empty {
-              <tr><td colspan="5" class="sub pad">No people in this organization yet.</td></tr>
+      @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
+      <section class="panel tblpanel">
+        <mp-data-table [cols]="peopleCols" [rows]="people()" placeholder="Search people, contacts, roles"
+                       empty="No people in this organization yet." noMatch="Nobody matches your search.">
+          <ng-template mpCell="name" let-p><div class="nm">{{ p.name }}</div><div class="sub mono">{{ p.username }}</div></ng-template>
+          <ng-template mpCell="contact" let-p><div>{{ p.phone }}</div><div class="sub">{{ p.email }}</div></ng-template>
+          <ng-template mpCell="roles" let-p>
+            @for (r of rolesOf(p.id); track r.id) {<span class="chip" [class.pend]="r.status !== 'ACTIVE'">{{ label(r.role) }}</span>}
+            @empty {<span class="sub">no role</span>}
+          </ng-template>
+          <ng-template mpCell="status" let-p><span class="st {{ p.status.toLowerCase() }}">{{ p.status.toLowerCase() }}</span></ng-template>
+          <ng-template mpCell="act" let-p>
+            @if (p.status === 'PENDING') {
+              <button *mpPerm="'org.user:administer'" type="button" class="ghost sm" (click)="setupLink(p)" [disabled]="busy()">Set-up link</button>
             }
-          </tbody>
-        </table>
+            <button *mpPerm="'rbac.assignment:create'" type="button" class="ghost sm" (click)="startRole(p)">Give a role</button>
+          </ng-template>
+        </mp-data-table>
       </section>
     } @else if (!loadError()) {
-      <div class="muted">Loading…</div>
+      <mp-spinner label="Loading…" />
     }
 
     <!-- a pending person's set-up link: emailed, and shown here to copy -->
@@ -98,7 +96,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
             <input class="inp" name="email" type="email" [(ngModel)]="np.email" required email /></label>
         </div>
         <p class="hint">They get their username and a set-up link by email. Next you give them a role.</p>
-        @if (modalError(); as e) {<div class="flash bad">{{ e }}</div>}
+        @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         <div class="foot">
           <button type="button" class="ghost" (click)="adding.set(false)">Cancel</button>
           <span class="grow"></span>
@@ -111,11 +109,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     <mp-modal [open]="!!roleFor()" size="wide" eyebrow="Give a role" [title]="roleFor()?.name ?? ''"
               [dirty]="mode() === 'new' && (picked().size > 0 || !!newRole.name)"
               discardText="Discard this role? Nothing has been created yet." (closed)="roleFor.set(null)">
-      <div class="seg" role="tablist">
-        <button *mpPerm="'rbac.role:create'" type="button" role="tab" [class.on]="mode() === 'new'" (click)="mode.set('new')">Create a role</button>
-        <button type="button" role="tab" [class.on]="mode() === 'existing'" [disabled]="!orgRoles().length"
-                (click)="mode.set('existing')">Use an existing role ({{ orgRoles().length }})</button>
-      </div>
+      <mp-tabs [options]="modeOpts()" [value]="mode()" (valueChange)="mode.set($event)" label="Role" />
 
       @if (mode() === 'existing') {
         <div class="roles">
@@ -153,7 +147,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
           } @empty {<div class="sub">No permission matches.</div>}
         </div>
       }
-      @if (modalError(); as e) {<div class="flash bad">{{ e }}</div>}
+      @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       <div modal-footer>
         <button type="button" class="ghost" (click)="roleFor.set(null)">Later</button>
         <button type="button" class="primary" (click)="giveRole()"
@@ -163,18 +157,13 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     </mp-modal>
   `,
   styles: [`
-    .head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 28px; }
     .org { color: var(--a-dim); font-size: 14px; }
-    .grow { flex: 1; }
-    .pad { padding: 16px; }
     .muted, .sub { color: var(--a-dim); }
     .sub { font-size: 12px; display: block; }
     .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
     .panel { overflow-x: auto; }
-    table.people { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .people th { text-align: left; font-size: 12px; font-weight: 600; color: var(--a-dim); padding: 12px 14px; border-bottom: 1px solid var(--a-border); }
-    .people td { padding: 12px 14px; border-bottom: 1px solid #1d1d1d; vertical-align: top; }
+    .tblpanel { padding: 12px 14px; }
     .nm { font-weight: 600; }
     .chip { display: inline-block; margin: 0 6px 6px 0; padding: 3px 10px; border-radius: 999px; font-size: 12px;
             background: color-mix(in srgb, var(--a-teal) 14%, transparent); color: var(--a-teal); }
@@ -182,9 +171,6 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     .st { font-size: 12px; } .st.active { color: var(--a-green); } .st.pending { color: var(--a-amber); }
     .act { text-align: right; white-space: nowrap; }
     button.sm { padding: 6px 12px; font-size: 12.5px; }
-    .flash { font-size: 13px; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 12%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 10%, transparent); color: var(--a-red); }
     .form { display: grid; gap: 16px; }
     .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
@@ -194,15 +180,11 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     .inp { box-sizing: border-box; height: 44px; width: 100%; font-size: 14.5px; border-radius: 10px;
            background: #0d0d0d; border-color: #2a2a2a; padding: 0 14px; }
     .tried .inp.ng-invalid { border-color: var(--a-red); }
-    .hint { margin: 0; color: var(--a-dim); font-size: 13px; }
     .linkrow { display: flex; gap: 8px; margin-top: 12px; }
     .linkrow .inp { font-size: 12.5px; }
     .act button + button { margin-left: 6px; }
     .foot { display: flex; gap: 10px; align-items: center; }
     .foot button { min-height: 42px; padding: 0 20px; }
-    .seg { display: inline-flex; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; justify-self: start; }
-    .seg button { border: 0; background: transparent; padding: 8px 16px; border-radius: 7px; font-size: 13.5px; color: var(--a-dim); }
-    .seg button.on { background: #262626; color: var(--a-text); font-weight: 600; }
     .roles { display: grid; gap: 8px; }
     .rolecard { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid #262626; border-radius: 12px; cursor: pointer; }
     .rolecard.on { border-color: var(--a-teal); }
@@ -226,6 +208,13 @@ export class UserManagement implements OnInit {
 
   readonly access = signal<MyAccess | null>(null);
   readonly people = signal<Person[]>([]);
+  readonly peopleCols: DataCol<Person>[] = [
+    { key: 'name', label: 'Person', search: (p) => [p.name, p.username] },
+    { key: 'contact', label: 'Contact', search: (p) => [p.phone, p.email] },
+    { key: 'roles', label: 'Roles', search: (p) => this.rolesOf(p.id).map((r) => this.label(r.role)) },
+    { key: 'status', label: 'Status' },
+    { key: 'act', label: '', cls: 'act' },
+  ];
   readonly assignments = signal<RoleAssignment[]>([]);
   readonly orgRoles = signal<RbacRole[]>([]);
   readonly loadError = signal('');
@@ -261,6 +250,12 @@ export class UserManagement implements OnInit {
 
   readonly roleFor = signal<Person | null>(null);
   readonly mode = signal<'new' | 'existing'>('new');
+  modeOpts(): TabOption<'new' | 'existing'>[] {
+    return [
+      { value: 'new', label: 'Create a role', hidden: !this.accessSvc.can('rbac.role:create') },
+      { value: 'existing', label: `Use an existing role (${this.orgRoles().length})`, disabled: !this.orgRoles().length },
+    ];
+  }
   existing = '';
   newRole = { name: '', description: '' };
   filterText = '';
@@ -307,7 +302,11 @@ export class UserManagement implements OnInit {
       ]);
       this.people.set(people);
       this.assignments.set(asg);
-      this.orgRoles.set(roles?.org_roles ?? []);
+      // the standard org-level roles it may use (e.g. admin_role, reseller_role), then its own roles
+      this.orgRoles.set([
+        ...(roles?.roles ?? []).filter((r) => r.kind === 'ORG' && r.in_ceiling !== false),
+        ...(roles?.org_roles ?? []),
+      ]);
     } catch (e) {
       this.loadError.set(this.refusal(e));
     }

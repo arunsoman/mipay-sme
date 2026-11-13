@@ -1,3 +1,4 @@
+import { MpAlert } from '../../design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -5,8 +6,6 @@ import { AuthService } from '../../core/auth.service';
 import { ThemeService } from '../../core/theme.service';
 import { homeForRole } from '../../core/guards';
 import { MpCard } from '../../design-system/atoms/mp-card';
-import { MpButton } from '../../design-system/atoms/mp-button';
-import { MpSpinner } from '../../design-system/atoms/mp-spinner';
 
 /**
  * E01/E02 + login. One screen, two tabs: merchant OTP or staff password.
@@ -15,7 +14,7 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
 @Component({
   selector: 'mp-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, MpCard, MpButton, MpSpinner, RouterLink],
+  imports: [MpAlert, FormsModule, MpCard, RouterLink],
   template: `
     <div class="wrap">
       <div class="head">
@@ -44,7 +43,7 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
             </button>
             <button class="go" type="submit" [disabled]="busy()">{{ busy() ? 'Signing in...' : 'Sign in' }}</button>
           </div>
-          @if (error()) {<div class="err">{{ error() }}</div>}
+          @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
           @if (hint()) {<div class="hint mt">New here? <a routerLink="/onboarding/merchant">Merchant registration</a> · <a routerLink="/onboarding/supplier">Supplier registration</a></div>}
         </form>
       </mp-card>
@@ -63,8 +62,6 @@ import { MpSpinner } from '../../design-system/atoms/mp-spinner';
     .hint { font-size: var(--fs-xs); color: var(--mp-text-dim); }
     .amber { color: #92610a; font-weight: 700; }
     .sim { background: var(--mp-amber); border-radius: 999px; padding: 1px 6px; font-size: 10px; color: #3b2f00; }
-    .err { color: #dc2626; font-size: var(--fs-sm); }
-    .mt { margin-top: var(--sp-3); }
     a { color: var(--mp-accent-deep); }
   `],
 })

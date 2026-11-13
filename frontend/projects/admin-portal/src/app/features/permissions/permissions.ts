@@ -1,5 +1,9 @@
+import { PageHeader } from '../../../../../../src/app/design-system/organisms/page-header';
+import { MpSpinner } from '../../../../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { MpPerm } from '../../../../../shared/web-core/perm-directive';
-import { Modal } from '../../../../../shared/ui/modal';
+import { Modal } from '../../../../../../src/app/design-system/organisms/modal';
+import { DataCol, DATA_TABLE } from '../../../../../../src/app/design-system/organisms/data-table';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -18,18 +22,19 @@ import { problemText } from '../onboarding/onboarding';
 @Component({
   selector: 'mpa-permissions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, Modal, MpPerm],
+  imports: [PageHeader, MpSpinner, MpAlert, FormsModule, Modal, MpPerm, ...DATA_TABLE],
   template: `
-    <div class="head">
-      <h2>Onboarding rights</h2>
-      <button class="ghost" (click)="reload()">Refresh</button>
-    </div>
+    <page-header title="Onboarding rights">
+      <div actions>
+        <button class="ghost" (click)="reload()">Refresh</button>
+      </div>
+    </page-header>
 
     <div class="cols">
       <div class="panel tree">
         <div class="ptitle">Organizations</div>
-        @if (problem(); as p) {<div class="err">{{ p }}</div>}
-        @if (loading()) {<div class="muted">Loading tree…</div>}
+        @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
+        @if (loading()) {<mp-spinner label="Loading tree…" />}
         @if (tree(); as root) {
           @for (n of flatten(root); track n.id) {
             <div class="node" [class.selected]="n.id === selectedId()"
@@ -50,7 +55,7 @@ import { problemText } from '../onboarding/onboarding';
             <button *mpPerm="'org.rights:administer'" class="primary" (click)="openEdit()" [disabled]="!rights()">Edit rights</button>
           </div>
 
-          @if (rightsError(); as e) {<div class="err">{{ e }}</div>}
+          @if (rightsError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
           @if (rights(); as r) {
             <div class="cards">
               <div class="card">
@@ -62,7 +67,7 @@ import { problemText } from '../onboarding/onboarding';
                 <div class="tags">@for (t of list(r.effCeiling); track t) {<span class="tag">{{ word(t) }}</span>} @empty {<span class="muted">Nothing</span>}</div>
               </div>
             </div>
-            @if (!editing() && flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+            @if (!editing() && flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
             <div class="hint">You can only narrow these here. Wider rights are given by the organization above it, when it is onboarded.</div>
 
             <mp-modal [open]="editing()" eyebrow="Onboarding rights" [title]="'Rights of ' + org.name"
@@ -103,7 +108,7 @@ import { problemText } from '../onboarding/onboarding';
                 </div>
 
               </div>
-              @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+              @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
               <div modal-footer>
                 <button class="ghost" type="button" (click)="closeEdit()">Cancel</button>
                 <button class="primary" [disabled]="busy() || !dirty()" (click)="save()">Save</button>
@@ -114,20 +119,8 @@ import { problemText } from '../onboarding/onboarding';
           @if (grantable(); as g) {
             <div class="grantable">
               <div class="btitle">What your organization may onboard</div>
-              <table class="grid">
-                <thead><tr><th>Type</th><th>It may let them onboard</th><th>Ticked by default</th></tr></thead>
-                <tbody>
-                  @for (c of g.children; track c.type) {
-                    <tr>
-                      <td>{{ word(c.type) }}</td>
-                      <td class="small">{{ words(c.allowedCeiling) }}</td>
-                      <td class="small">{{ words(c.defaultDirect) }}</td>
-                    </tr>
-                  } @empty {
-                    <tr><td colspan="3" class="muted">Your organization may not onboard anything.</td></tr>
-                  }
-                </tbody>
-              </table>
+              <mp-data-table [cols]="grantCols" [rows]="g.children" placeholder="Search types"
+                             empty="Your organization may not onboard anything." [trackBy]="grantKey" />
             </div>
           }
         } @else {
@@ -146,14 +139,11 @@ import { problemText } from '../onboarding/onboarding';
     .tag { padding: 4px 11px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--a-teal) 14%, transparent); color: var(--a-teal); }
     .ty { margin-left: auto; font-size: 11.5px; color: var(--a-dim); }
     .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; margin: 6px 0 12px; }
-    .head { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
-    .grantable table td { vertical-align: middle; }
     .grantable { overflow-x: auto; }
     @media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr) !important; } .dhead { flex-wrap: wrap; } }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; }
     .cols { display: grid; grid-template-columns: 360px 1fr; gap: 14px; align-items: start; }
     .panel { padding: 12px; }
-    .ptitle { font-size: 13.5px; font-weight: 600; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .tree { max-height: 60vh; overflow: auto; }
     .node { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
     .node:hover { background: var(--a-panel-2); }
@@ -165,7 +155,6 @@ import { problemText } from '../onboarding/onboarding';
     .blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .block { border: 1px solid var(--a-border); border-radius: 8px; padding: 12px; }
     .derived { grid-column: 1 / -1; }
-    .btitle { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
     .opts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; }
     .opt { display: inline-flex; gap: 6px; align-items: center; font-size: var(--fs-sm);
            border: 1px solid var(--a-border); padding: 4px 10px; border-radius: 999px; }
@@ -174,14 +163,8 @@ import { problemText } from '../onboarding/onboarding';
     .kv { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: var(--fs-sm); }
     .kv span:first-child { color: var(--a-dim); }
     .row { display: flex; gap: 8px; margin-top: 14px; }
-    .hint { color: var(--a-dim); font-size: var(--fs-xs); margin-top: 10px; }
     .grantable { margin-top: 16px; border-top: 1px solid var(--a-border); padding-top: 12px; }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 6px 0; }
     .muted { color: var(--a-dim); }
-    .pad { padding: 20px; }
-    .flash { font-size: var(--fs-sm); margin-top: 10px; padding: 8px 12px; border-radius: 8px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
   `],
 })
 export class Permissions implements OnInit {
@@ -200,6 +183,12 @@ export class Permissions implements OnInit {
   readonly busy = signal(false);
   readonly flash = signal<{ kind: string; text: string } | null>(null);
   readonly grantable = signal<GrantableView | null>(null);
+  readonly grantCols: DataCol<GrantableView['children'][number]>[] = [
+    { key: 'type', label: 'Type', text: (c) => this.word(c.type) },
+    { key: 'allowed', label: 'It may let them onboard', cls: 'small', text: (c) => this.words(c.allowedCeiling) },
+    { key: 'def', label: 'Ticked by default', cls: 'small', text: (c) => this.words(c.defaultDirect) },
+  ];
+  readonly grantKey = (c: { type: string }) => c.type;
 
   private base: { direct: Set<string>; ceiling: Set<string> } = { direct: new Set(), ceiling: new Set() };
   private work: { direct: Set<string>; ceiling: Set<string> } = { direct: new Set(), ceiling: new Set() };

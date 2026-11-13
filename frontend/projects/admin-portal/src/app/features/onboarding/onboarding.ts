@@ -1,3 +1,6 @@
+import { PageHeader } from '../../../../../../src/app/design-system/organisms/page-header';
+import { MpSpinner } from '../../../../../../src/app/design-system/atoms/mp-spinner';
+import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -8,7 +11,9 @@ import { KycApplicationView, KycCheckRow, KycTaskRow, OnboardingRequestRow, Onbo
 import { KycView } from './kyc-view';
 import { RouterLink } from '@angular/router';
 import { OnboardChild } from '../../../../../shared/kyc/onboard-child';
-import { Modal } from '../../../../../shared/ui/modal';
+import { Modal } from '../../../../../../src/app/design-system/organisms/modal';
+import { MpTabs, TabOption } from '../../../../../../src/app/design-system/molecules/tabs';
+import { DataCol, DATA_TABLE } from '../../../../../../src/app/design-system/organisms/data-table';
 import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 
 /**
@@ -25,31 +30,27 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 @Component({
   selector: 'mpa-onboarding',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, DatePipe, KycView, RouterLink, OnboardChild, Modal, MpPerm],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, DatePipe, KycView, RouterLink, OnboardChild, Modal, MpPerm, ...DATA_TABLE],
   template: `
-    <div class="head">
-      <h2>Onboarding</h2>
-      <span class="grow"></span>
-      <button class="ghost" (click)="load()">Refresh</button>
-      <!-- onboard under the platform root, within the root's rights, then straight into KYC -->
-      <mp-onboard-child *mpPerm="'org.onboarding:create'" [compact]="true" (onboarded)="load()" (kycChanged)="loadKycTasks()" />
-    </div>
-    <div class="seg" role="tablist" aria-label="Request status">
-      @for (t of tabs; track t) {
-        <button role="tab" [class.on]="tab() === t" [attr.aria-selected]="tab() === t" (click)="setTab(t)">{{ label(t) }}</button>
-      }
-    </div>
+    <page-header title="Onboarding">
+      <div actions>
+        <button class="ghost" (click)="load()">Refresh</button>
+        <!-- onboard under the platform root, within the root's rights, then straight into KYC -->
+        <mp-onboard-child *mpPerm="'org.onboarding:create'" [compact]="true" (onboarded)="load()" (kycChanged)="loadKycTasks()" />
+      </div>
+    </page-header>
+    <mp-tabs [options]="tabOpts()" [value]="tab()" (valueChange)="setTab($event)" label="Request status" />
 
-    @if (problem(); as p) {<div class="err">{{ p }}</div>}
-    @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
-    @if (loading()) {<div class="muted">Loading…</div>}
+    @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
+    @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
+    @if (loading()) {<mp-spinner label="Loading…" />}
 
     @if (selected(); as row) {
       <mp-modal [open]="true" size="wide"
                 [eyebrow]="(row.status === 'PENDING_REVIEW' ? 'Review request' : 'Request') + ' · ' + label(row.kind)"
                 [title]="row.orgName ?? 'Organization'" [subtitle]="row.orgType + ' · request ' + row.id"
                 (closed)="close()">
-        @if (flash(); as f) {<div class="flash {{ f.kind }}">{{ f.text }}</div>}
+        @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
         @if (row.status === 'PENDING_REVIEW') {
         @if (row.kind === 'ORG_ONBOARDING') {
           <!-- [D8] ORG_ONBOARDING is decided by the KYC workflow's ops-review task -->
@@ -111,26 +112,10 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 
         <div class="kyc-section">
           <div class="dtitle">Screening checks for {{ row.orgName }}</div>
-          <table class="grid kyc-table">
-            <thead><tr>
-              <th>Check type</th><th>Result</th><th>Details</th><th>Checked</th><th></th>
-            </tr></thead>
-            <tbody>
-              @for (c of kycChecks(); track c.id) {
-                <tr>
-                  <td><span class="chip small" [class.ok]="c.result === 'PASS'"
-                            [class.bad]="c.result === 'FAIL'">{{ c.checkType }}</span></td>
-                  <td><span class="chip small" [class.ok]="c.result === 'PASS'"
-                            [class.bad]="c.result === 'FAIL'">{{ c.result }}</span></td>
-                  <td class="small muted">{{ c.details }}</td>
-                  <td class="mono small">{{ c.checkedAt | date:'MMM d, HH:mm' }}</td>
-                  <td></td>
-                </tr>
-              } @empty {
-                <tr><td colspan="5" class="muted">No KYC checks recorded yet.</td></tr>
-              }
-            </tbody>
-          </table>
+          <mp-data-table [cols]="checkCols" [rows]="kycChecks()" placeholder="Search checks" empty="No KYC checks recorded yet.">
+            <ng-template mpCell="chip" let-c let-v="value"><span class="chip small" [class.ok]="c.result === 'PASS'" [class.bad]="c.result === 'FAIL'">{{ v }}</span></ng-template>
+            <ng-template mpCell="checkedAt" let-v="value">{{ v | date:'MMM d, HH:mm' }}</ng-template>
+          </mp-data-table>
           <div class="grid3" *mpPerm="'ops.kyc_check:create'">
             <label>Check type
               <select name="kycType" [(ngModel)]="kycType">
@@ -161,55 +146,36 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
       </mp-modal>
     }
 
-    <div class="panel">
-      <div class="tablewrap">
-      <table class="grid reqs">
-        <thead><tr>
-          <th>Organization</th><th>May onboard</th><th>Requested</th><th>Status</th><th class="act"></th>
-        </tr></thead>
-        <tbody>
-          @for (r of rows(); track r.id) {
-            <tr>
-              <td class="org">
-                <div class="nm">{{ r.orgName }}</div>
-                <div class="sub">{{ typeLabel(r.orgType) }}@if (r.kind === 'ADMIN_RECOVERY') { · <span class="warnt">admin recovery</span>}</div>
-                @if (r.note && r.kind === 'ADMIN_RECOVERY') {<div class="muted small clip" [title]="r.note">{{ r.note }}</div>}
-              </td>
-              <td class="small">{{ pretty(r.rightsDirect) }}</td>
-              <td class="nowrap small">{{ r.createdAt | date:'MMM d, HH:mm' }}</td>
-              <td>
-                <span class="chip" [class.warn]="r.status === 'PENDING_REVIEW'"
-                      [class.ok]="r.status === 'APPROVED'"
-                      [class.bad]="r.status === 'BLOCKED' || r.status === 'REJECTED'">{{ label(r.status) }}</span>
-                @if (r.reviewedAt) {<div class="muted small">decided {{ r.reviewedAt | date:'MMM d' }}</div>}
-              </td>
-              <td class="act">
-                <div class="acts">
-                  @if (r.status === 'PENDING_REVIEW' && r.kind === 'ADMIN_RECOVERY') {
-                    <button *mpPerm="'org.onboarding:authorize'" (click)="pick(r)">Decide</button>
-                  }
-                  @if (r.orgId) {
-                    <button *mpPerm="'kyc.application:read'" class="ghost" (click)="pickKyc(r)">Review</button>
-                    <a *mpPerm="'kyc.application:modify'" class="btn ghost" routerLink="/kyc" [queryParams]="{ org: r.orgId }">Edit KYC</a>
-                  }
-                </div>
-              </td>
-            </tr>
-          } @empty {
-            <tr><td colspan="5" class="muted empty">No {{ label(tab()).toLowerCase() }} requests.</td></tr>
-          }
-        </tbody>
-      </table>
-      </div>
+    <div class="panel tblpanel">
+      <mp-data-table [cols]="rowCols" [rows]="rows()" placeholder="Search organizations"
+                     [empty]="'No ' + label(tab()).toLowerCase() + ' requests.'" noMatch="No request matches your search.">
+        <ng-template mpCell="org" let-r>
+          <div class="nm">{{ r.orgName }}</div>
+          <div class="sub">{{ typeLabel(r.orgType) }}@if (r.kind === 'ADMIN_RECOVERY') { · <span class="warnt">admin recovery</span>}</div>
+          @if (r.note && r.kind === 'ADMIN_RECOVERY') {<div class="muted small clip" [title]="r.note">{{ r.note }}</div>}
+        </ng-template>
+        <ng-template mpCell="createdAt" let-v="value">{{ v | date:'MMM d, HH:mm' }}</ng-template>
+        <ng-template mpCell="status" let-r>
+          <span class="chip" [class.warn]="r.status === 'PENDING_REVIEW'" [class.ok]="r.status === 'APPROVED'"
+                [class.bad]="r.status === 'BLOCKED' || r.status === 'REJECTED'">{{ label(r.status) }}</span>
+          @if (r.reviewedAt) {<div class="muted small">decided {{ r.reviewedAt | date:'MMM d' }}</div>}
+        </ng-template>
+        <ng-template mpCell="act" let-r>
+          <div class="acts">
+            @if (r.status === 'PENDING_REVIEW' && r.kind === 'ADMIN_RECOVERY') {
+              <button *mpPerm="'org.onboarding:authorize'" (click)="pick(r)">Decide</button>
+            }
+            @if (r.orgId) {
+              <button *mpPerm="'kyc.application:read'" class="ghost" (click)="pickKyc(r)">Review</button>
+              <a *mpPerm="'kyc.application:modify'" class="btn ghost" routerLink="/kyc" [queryParams]="{ org: r.orgId }">Edit KYC</a>
+            }
+          </div>
+        </ng-template>
+      </mp-data-table>
     </div>
   `,
   styles: [`
-    .head { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
     h2 { margin: 0; font-size: 30px; line-height: 1.1; }
-    .grow { flex: 1; }
-    .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid #2a2a2a; border-radius: 10px; padding: 3px; gap: 3px; background: #0d0d0d; margin-bottom: 4px; }
-    .seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 7px; font-size: 13.5px; color: var(--a-dim); }
-    .seg button.on { background: #262626; color: var(--a-text); font-weight: 600; }
     .sub { color: var(--a-dim); font-size: 12.5px; margin-top: 3px; }
     .warnt { color: var(--a-amber); }
     .empty { padding: 28px 14px !important; text-align: center; }
@@ -224,21 +190,14 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
     label { display: grid; gap: 5px; font-size: var(--fs-sm); color: var(--a-dim); }
     .row { display: flex; gap: 8px; }
     .cell { padding-bottom: 1px; }
-    .err { color: var(--a-red); font-size: var(--fs-sm); margin: 8px 0; }
-    .flash { font-size: var(--fs-sm); margin: 8px 0; padding: 8px 12px; border-radius: 8px; }
-    .flash.ok { background: color-mix(in srgb, var(--a-green) 14%, transparent); color: var(--a-green); }
-    .flash.bad { background: color-mix(in srgb, var(--a-red) 14%, transparent); color: var(--a-red); }
     .btnlink { color: var(--a-teal); font-size: var(--fs-sm); white-space: nowrap; }
-    .tablewrap { overflow-x: auto; }
-    table.reqs { width: 100%; table-layout: auto; }
-    table.reqs td { vertical-align: top; overflow-wrap: anywhere; }
-    table.reqs .org { min-width: 200px; }
-    table.reqs .org .nm { font-weight: 600; }
-    table.reqs .sub { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; font-size: var(--fs-xs); }
-    table.reqs .clip { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    table.reqs .rights { min-width: 140px; }
-    table.reqs .nowrap { white-space: nowrap; }
-    table.reqs th.act, table.reqs td.act { width: 1%; }
+    .tblpanel { padding: 12px 14px; }
+    .org .nm { font-weight: 600; }
+    .sub { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; font-size: var(--fs-xs); }
+    .clip { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rights { min-width: 140px; }
+    .nowrap { white-space: nowrap; }
+    th.act, td.act { width: 1%; }
     .acts { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
     .acts button, .acts a { white-space: nowrap; padding: 6px 14px; font-size: 13px; }
     td { vertical-align: middle; }
@@ -260,6 +219,7 @@ export class Onboarding implements OnInit {
   private readonly auth = inject(AdminAuthService);
 
   readonly tabs: OnboardingStatus[] = ['PENDING_REVIEW', 'APPROVED', 'REJECTED', 'BLOCKED'];
+  tabOpts(): TabOption<OnboardingStatus>[] { return this.tabs.map((t) => ({ value: t, label: this.label(t) })); }
   readonly tab = signal<OnboardingStatus>('PENDING_REVIEW');
   readonly rows = signal<OnboardingRequestRow[]>([]);
   readonly loading = signal(false);
@@ -269,6 +229,20 @@ export class Onboarding implements OnInit {
   readonly kycSelected = signal<OnboardingRequestRow | null>(null);
 
   readonly kycChecks = signal<KycCheckRow[]>([]);
+  readonly checkCols: DataCol<KycCheckRow>[] = [
+    { key: 'checkType', label: 'Check type', type: 'chip' },
+    { key: 'result', label: 'Result', type: 'chip' },
+    { key: 'details', label: 'Details', cls: 'small muted' },
+    { key: 'checkedAt', label: 'Checked', cls: 'mono small' },
+  ];
+  readonly rowCols: DataCol<OnboardingRequestRow>[] = [
+    { key: 'org', label: 'Organization',
+      search: (r) => [r.orgName, this.typeLabel(r.orgType), r.kind === 'ADMIN_RECOVERY' ? 'admin recovery' : '', r.note] },
+    { key: 'rights', label: 'May onboard', cls: 'small', text: (r) => this.pretty(r.rightsDirect) },
+    { key: 'createdAt', label: 'Requested', cls: 'nowrap small' },
+    { key: 'status', label: 'Status', search: (r) => this.label(r.status) },
+    { key: 'act', label: '', cls: 'act' },
+  ];
   kycLoading = signal(false);
 
   note = '';
