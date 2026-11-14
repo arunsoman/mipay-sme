@@ -15,7 +15,7 @@ public final class RootAdminPolicy {
         grid.put("org.user", Verbs.READ | Verbs.bit("create") | Verbs.ADMINISTER);
         grid.put("rbac.role", Verbs.READ | Verbs.bit("create") | Verbs.bit("modify") | Verbs.bit("delete"));
         grid.put("rbac.user", Verbs.READ);
-        grid.put("rbac.assignment", Verbs.READ | Verbs.bit("create") | Verbs.ADMINISTER | Verbs.AUTHORIZE);
+        grid.put("rbac.assignment", Verbs.READ | Verbs.bit("create") | Verbs.ADMINISTER);
         return grid;
     }
 }

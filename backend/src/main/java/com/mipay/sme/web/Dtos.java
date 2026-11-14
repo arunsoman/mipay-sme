@@ -148,9 +148,17 @@ public final class Dtos {
 
     // ---- OA1: the one-time TPTS operating-root bootstrap (cell admin.bootstrap) ----
 
-    public record TptsBootstrapRequest(String name, String username, String phone, String email) { }
+    public record TptsBootstrapRequest(String name, String username, String phone, String email,
+                                      String reviewerName, String reviewerUsername,
+                                      String reviewerPhone, String reviewerEmail) {
+        public TptsBootstrapRequest(String name, String username, String phone, String email) {
+            this(name, username, phone, email, null, null, null, null);
+        }
+    }
 
-    public record FirstAdminResult(String userId, String username, String status, String setupLink) { }
+    public record FirstAdminResult(String userId, String username, String status, String setupLink,
+                                   String reviewerUserId, String reviewerUsername,
+                                   String reviewerStatus, String reviewerSetupLink) { }
 
     public record TptsBootstrapResult(String orgId, String firstAdminId, String firstAdminStatus,
                                       int staffMoved, java.util.List<String> movedUserIds) { }

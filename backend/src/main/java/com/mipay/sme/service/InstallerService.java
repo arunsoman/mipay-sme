@@ -27,13 +27,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** One temporary portal account creates the first real administrator, then is archived. */
+/** One temporary portal account creates a separated administrator maker/checker pair, then is archived. */
 @Service
 @RequiredArgsConstructor
 public class InstallerService implements ApplicationRunner {
     private static final String INSTALLER = "installer";
     private static final String MARKER = "bootstrap:installer";
     private static final String ROOT_ROLE = "organization_root";
+    private static final String REVIEWER_ROLE = "organization_root_reviewer";
 
     private final AppProperties props;
     private final UserRepository users;
@@ -85,9 +86,12 @@ public class InstallerService implements ApplicationRunner {
                 || installer.getCreatedAt() == null || !installer.getCreatedAt().plusSeconds(72 * 3600).isAfter(Instant.now())) {
             throw new ForbiddenException("INSTALLER_EXPIRED", "Installer account expired");
         }
-        if (request == null || blank(request.name()) || blank(request.username()) || blank(request.phone())) {
-            throw new com.mipay.sme.common.SimException("VALIDATION", "name, username and phone are required");
+        if (request == null || blank(request.name()) || blank(request.username()) || blank(request.phone())
+                || blank(request.reviewerName()) || blank(request.reviewerUsername()) || blank(request.reviewerPhone())) {
+            throw new com.mipay.sme.common.SimException("VALIDATION", "maker and checker name, username and phone are required");
         }
+        if (request.username().equalsIgnoreCase(request.reviewerUsername()))
+            throw new com.mipay.sme.common.SimException("VALIDATION", "maker and checker must use different usernames");
         User first = users.findByRole(Enums.UserRole.MINDLABS_ADMIN).stream()
                 .filter(u -> !INSTALLER.equals(u.getId()) && u.getStatus() == Enums.UserStatus.ACTIVE)
                 .findFirst().orElse(null);
@@ -98,16 +102,29 @@ public class InstallerService implements ApplicationRunner {
                 .findFirst().orElse(null);
         if (pending != null && (!request.username().equals(pending.getUsername())
                 || !request.phone().equals(pending.getPhone()))) {
-            throw new ConflictException("ADMIN_PENDING", "Finish setting up the pending first administrator");
+            throw new ConflictException("ADMIN_PENDING", "Finish setting up the pending administrator pair");
         }
+        User pendingReviewer = users.findByRole(Enums.UserRole.MINDLABS_ADMIN).stream()
+                .filter(u -> (INSTALLER + ":reviewer").equals(u.getCreatedBy()) && u.getStatus() == Enums.UserStatus.PENDING)
+                .findFirst().orElse(null);
+        if (pendingReviewer != null && (!request.reviewerUsername().equals(pendingReviewer.getUsername())
+                || !request.reviewerPhone().equals(pendingReviewer.getPhone())))
+            throw new ConflictException("ADMIN_PENDING", "Finish setting up the pending administrator pair");
         if (pending == null) usernamePolicy.validate(request.username());
+        if (pendingReviewer == null) usernamePolicy.validate(request.reviewerUsername());
         var root = orgs.ensurePlatformSubOrg("mindlabs", "MiNdLABS (operator)", "org_mindlabs_platform");
         if (pending == null) {
             pending = lifecycle.create(new UserLifecycleService.Registration(root.getId(), request.name(),
                     request.username(), request.phone(), request.email(), Enums.UserRole.MINDLABS_ADMIN,
                     Enums.OrgMemberRole.ADMIN, INSTALLER));
         }
+        if (pendingReviewer == null) {
+            pendingReviewer = lifecycle.create(new UserLifecycleService.Registration(root.getId(), request.reviewerName(),
+                    request.reviewerUsername(), request.reviewerPhone(), request.reviewerEmail(), Enums.UserRole.MINDLABS_ADMIN,
+                    Enums.OrgMemberRole.ADMIN, INSTALLER + ":reviewer"));
+        }
         ensureRbac(pending.getId());
+        ensureReviewerRbac(pendingReviewer.getId());
         String setupLink;
         if ("gateway".equals(props.getIdentityMode())) {
             setupLink = enrolFirstAdmin(pending);
@@ -115,10 +132,26 @@ public class InstallerService implements ApplicationRunner {
             String tokenId = activation.issue(pending, INSTALLER);
             setupLink = activation.linkOfToken(tokenId);
         }
+        String reviewerSetupLink = "gateway".equals(props.getIdentityMode())
+                ? enrolFirstAdmin(pendingReviewer)
+                : activation.linkOfToken(activation.issue(pendingReviewer, INSTALLER));
         audit.record(INSTALLER, "MINDLABS_ADMIN", "first_admin_enrolled", "user", pending.getId(),
                 null, "PENDING", "role=" + ROOT_ROLE, false, null);
-        return new Dtos.FirstAdminResult(pending.getId(), pending.getUsername(),
-                pending.getStatus().name(), setupLink);
+        return new Dtos.FirstAdminResult(pending.getId(), pending.getUsername(), pending.getStatus().name(), setupLink,
+                pendingReviewer.getId(), pendingReviewer.getUsername(), pendingReviewer.getStatus().name(), reviewerSetupLink);
+    }
+
+    private void ensureReviewerRbac(String subject) {
+        if (!rbac.configured()) throw new IllegalStateException("RBAC is required for first admin bootstrap");
+        if (rbac.platformRoles().stream().noneMatch(r -> REVIEWER_ROLE.equals(r.get("name")))) {
+            rbac.createPlatformRole(Map.of("actor", INSTALLER, "core_authorized", false,
+                    "name", REVIEWER_ROLE, "description", "Platform access approval checker",
+                    "kind", "PLATFORM", "grid", Map.of("rbac.assignment", List.of("read", "authorize"))));
+        }
+        String tenant = orgs.ensurePlatformRoot().getId();
+        if (rbac.assignmentsFor(subject).stream().noneMatch(a -> REVIEWER_ROLE.equals(a.get("role"))
+                && "ACTIVE".equals(a.get("status"))))
+            rbac.assignSystem(subject, REVIEWER_ROLE, tenant, "all", "first administrator checker bootstrap");
     }
 
     private String enrolFirstAdmin(User pending) {
@@ -179,7 +212,7 @@ public class InstallerService implements ApplicationRunner {
         grid.put("org.user", List.of("read", "create", "administer"));
         grid.put("rbac.role", List.of("read", "create", "modify", "delete"));
         grid.put("rbac.user", List.of("read"));
-        grid.put("rbac.assignment", List.of("read", "create", "administer", "authorize"));
+        grid.put("rbac.assignment", List.of("read", "create", "administer"));
         return grid;
     }
 

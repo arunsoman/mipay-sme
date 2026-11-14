@@ -34,6 +34,10 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
+                        // /api/auth/introspect must NOT be open to anonymous callers –
+                        // it is a privileged mesh endpoint (Bug #3: permitAll on that path
+                        // allowed forged-token probing without authentication).
+                        .requestMatchers("/api/auth/introspect").authenticated()
                         .requestMatchers("/api/auth/**", "/api/env", "/api/onboarding/**", "/api/customer/**",
                                 "/api/auth/activate",
                                 "/internal/auth/events",

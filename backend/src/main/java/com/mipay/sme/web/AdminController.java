@@ -396,7 +396,7 @@ public class AdminController {
     // ------------------------------------------------- OA1: one-time TPTS operating-root bootstrap
 
     @Perm(resource = "admin.bootstrap", verb = Verb.ADMINISTER, tenantSource = TenantSource.NONE, tenant = "null",
-          description = "Temporary installer creates the first administrator")
+          description = "Temporary installer creates the first administrator maker and reviewer checker")
     @PostMapping("/bootstrap/first-admin")
     public Dtos.FirstAdminResult firstAdmin(@Valid @RequestBody Dtos.TptsBootstrapRequest req) {
         return installerService.create(req, actor());

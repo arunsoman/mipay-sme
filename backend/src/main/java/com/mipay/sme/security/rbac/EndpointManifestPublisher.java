@@ -108,6 +108,27 @@ public class EndpointManifestPublisher {
         return t.isEmpty() ? t : Character.toUpperCase(t.charAt(0)) + t.substring(1);
     }
 
+    /**
+     * Returns the nav-catalogue entries from {@code rbac/nav-catalogue.json} on the classpath.
+     * Each entry is a map with {@code id} and {@code description} keys.
+     * Used by {@link NavCatalogueTest} and by the RBAC registration payload to register
+     * nav-area permission rows (Bug #6: this method was missing, preventing compilation).
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, String>> navCatalogue() {
+        try (java.io.InputStream is = getClass().getClassLoader()
+                .getResourceAsStream("rbac/nav-catalogue.json")) {
+            if (is == null) {
+                return List.of();
+            }
+            return mapper.readValue(is,
+                    mapper.getTypeFactory().constructCollectionType(List.class, Map.class));
+        } catch (Exception e) {
+            log.warn("[rbac] could not load nav-catalogue.json: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
     /** Retries in the background; RBAC may start after the backend. */
     private void register(Map<String, Object> body) {
         for (int attempt = 1; attempt <= 20; attempt++) {

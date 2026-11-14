@@ -6,7 +6,7 @@ import { Router } from '@angular/router';
 import { AdminAuthService } from '../../core/auth';
 import { readProblem } from '../../core/api';
 
-interface FirstAdminResult { userId: string; username: string; status: string; setupLink: string }
+interface FirstAdminResult { userId: string; username: string; status: string; setupLink: string; reviewerUserId: string; reviewerUsername: string; reviewerStatus: string; reviewerSetupLink: string }
 
 @Component({
   selector: 'mpa-install',
@@ -14,22 +14,30 @@ interface FirstAdminResult { userId: string; username: string; status: string; s
   imports: [FormsModule],
   template: `
     <section class="install">
-      <h1>Create the first administrator</h1>
-      <p>This temporary account can only create the first administrator. It expires after 72 hours and is retired when the administrator sets a password.</p>
+      <h1>Create administrator maker and checker</h1>
+      <p>This temporary account can only create the initial administrator pair. It expires after 72 hours. Use separate people for the maker and checker.</p>
       <form (ngSubmit)="create()">
+        <h2>Administrator (maker)</h2>
         <label>Full name <input name="name" [(ngModel)]="name" required autocomplete="name" /></label>
         <label>Username <input name="username" [(ngModel)]="username" required autocomplete="off" /></label>
         <label>Phone <input name="phone" [(ngModel)]="phone" required autocomplete="tel" /></label>
         <label>Email <input name="email" [(ngModel)]="email" type="email" autocomplete="email" /></label>
-        <button type="submit" [disabled]="busy()">{{ busy() ? 'Creating…' : 'Create administrator' }}</button>
+        <h2>Admin reviewer (checker)</h2>
+        <label>Full name <input name="reviewerName" [(ngModel)]="reviewerName" required autocomplete="name" /></label>
+        <label>Username <input name="reviewerUsername" [(ngModel)]="reviewerUsername" required autocomplete="off" /></label>
+        <label>Phone <input name="reviewerPhone" [(ngModel)]="reviewerPhone" required autocomplete="tel" /></label>
+        <label>Email <input name="reviewerEmail" [(ngModel)]="reviewerEmail" type="email" autocomplete="email" /></label>
+        <button type="submit" [disabled]="busy()">{{ busy() ? 'Creating…' : 'Create administrator pair' }}</button>
       </form>
       @if (error()) { <p role="alert">{{ error() }}</p> }
       @if (result(); as r) {
         <div class="result">
-          <p>Administrator {{ r.username }} is awaiting password setup. Share this private, one-time link with them:</p>
-          <a [href]="r.setupLink">Open administrator setup link</a>
-          <button type="button" (click)="copy(r.setupLink)">Copy link</button>
-          <p>After setup, sign out and sign in as {{ r.username }}.</p>
+          <p>Maker {{ r.username }} is awaiting password setup. Share this private, one-time link with them:</p>
+          <a [href]="r.setupLink">Open maker setup link</a>
+          <button type="button" (click)="copy(r.setupLink)">Copy maker link</button>
+          <p>Checker {{ r.reviewerUsername }} is awaiting password setup. Share their separate one-time link privately:</p>
+          <a [href]="r.reviewerSetupLink">Open checker setup link</a>
+          <button type="button" (click)="copy(r.reviewerSetupLink)">Copy checker link</button>
         </div>
       }
       <button type="button" (click)="logout()">Sign out</button>
@@ -55,6 +63,10 @@ export class Install {
   username = '';
   phone = '';
   email = '';
+  reviewerName = '';
+  reviewerUsername = '';
+  reviewerPhone = '';
+  reviewerEmail = '';
 
   async create() {
     this.error.set('');
@@ -62,6 +74,8 @@ export class Install {
     try {
       this.result.set(await firstValueFrom(this.http.post<FirstAdminResult>('/api/admin/bootstrap/first-admin', {
         name: this.name.trim(), username: this.username.trim(), phone: this.phone.trim(), email: this.email.trim(),
+        reviewerName: this.reviewerName.trim(), reviewerUsername: this.reviewerUsername.trim(),
+        reviewerPhone: this.reviewerPhone.trim(), reviewerEmail: this.reviewerEmail.trim(),
       })));
     } catch (e) {
       const p = readProblem(e);

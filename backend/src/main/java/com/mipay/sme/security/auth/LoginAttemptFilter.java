@@ -5,8 +5,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.annotation.Order;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -23,10 +21,15 @@ import java.util.concurrent.ConcurrentHashMap;
  *   - app.login.windowMinutes    – time window in minutes for counting attempts (default 15)
  *   - app.login.lockoutMinutes   – lockout duration in minutes (default 30)
  * - Tracks failures per IP address.
- * - After `limit` failed attempts within `windowMinutes` the IP is blocked for `lockoutMinutes`.
+ * - After `limit` FAILED attempts within `windowMinutes` the IP is blocked for `lockoutMinutes`.
  * - The block is lifted after the timeout; subsequent attempts reset the counter.
  * - This filter runs before the authentication entry point so that the 401 response
  *   can carry a FAPI‑style `WWW-Authenticate` header if desired.
+ *
+ * Bug #5 fix: the counter is incremented AFTER the filter chain executes and only
+ * when the downstream response signals an authentication failure (4xx). Previously
+ * the counter was incremented on every login request regardless of outcome, which
+ * caused five successful logins to trigger a lockout.
  */
 @Component
 @Order(1)
@@ -55,13 +58,20 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        String uri = request.getRequestURI();
-
-        // If the IP is currently locked, immediately reject
         String ip = request.getRemoteAddr();
+
+        // Clear expired lockout before checking so the check below is fresh.
         Long lockExpiry = lockoutUntil.get(ip);
-        if (lockExpiry != null && Instant.now().getEpochSecond() < lockExpiry) {
-            response.setStatus(401);
+        if (lockExpiry != null && Instant.now().getEpochSecond() >= lockExpiry) {
+            lockoutUntil.remove(ip);
+            attemptMap.entrySet().removeIf(e -> e.getKey().startsWith(ip + ":"));
+            lockExpiry = null;
+        }
+
+        // If the IP is currently locked, immediately reject.
+        if (lockExpiry != null) {
+            response.setStatus(429);
+            response.setHeader("Retry-After", String.valueOf(lockoutMinutes * 60));
             response.setHeader("WWW-Authenticate", "Bearer error=\"invalid_token\"");
             try {
                 response.getWriter().write(
@@ -70,35 +80,27 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Reset lockout if the time has passed
-        if (lockExpiry != null && Instant.now().getEpochSecond() >= lockExpiry) {
-            lockoutUntil.remove(ip);
-            attemptMap.clear(); // start fresh for this IP
-        }
+        // Let the request proceed through the full filter chain first.
+        chain.doFilter(request, response);
 
-        if ("POST".equals(request.getMethod()) && uri.endsWith("/auth/login")) {
-            // Count this attempt (the actual authentication is performed later;
-            // we just record that a login POST was seen)
-            String key = ip + ":" + (Instant.now().getEpochSecond() / (windowMinutes * 60));
-            attemptMap.merge(key, 1, Integer::sum);
+        // --- POST-authentication: only count failures (Bug #5 fix) ---
+        // A successful authentication returns 2xx or 3xx; 4xx means the
+        // credentials were wrong or the IdP rejected the attempt.
+        if ("POST".equals(request.getMethod())
+                && request.getRequestURI().contains("/auth/login")
+                && response.getStatus() >= 400) {
 
-            // Check if we have exceeded the limit
-            int attempts = attemptMap.get(key);
+            String key = ip + ":" + (Instant.now().getEpochSecond() / (windowMinutes * 60L));
+            int attempts = attemptMap.merge(key, 1, Integer::sum);
+
             if (attempts >= attemptLimit) {
-                // Lock out for lockoutMinutes
                 lockoutUntil.put(ip, Instant.now().getEpochSecond() + (long) lockoutMinutes * 60);
-                response.setStatus(429);
-                response.setHeader("Retry-After", String.valueOf(lockoutMinutes));
-                try {
-                    response.getWriter().write(
-                            "{\"error\":\"account_locked\",\"error_description\":\"too many failed logins, try again in " + lockoutMinutes + " minutes\"}");
-                } catch (IOException ignored) {}
-                // optionally clear the attempt counter for this IP to avoid spam
                 attemptMap.remove(key);
-                return;
+                // The response has already been written by the downstream filter;
+                // override the status code to 429 so the client knows it is locked out.
+                response.setStatus(429);
+                response.setHeader("Retry-After", String.valueOf(lockoutMinutes * 60));
             }
         }
-
-        chain.doFilter(request, response);
     }
 }

@@ -95,38 +95,19 @@ export class Login {
     this.busy.set(true);
     try {
       if (this.mode() === 'otp') {
-        if (!this.hint()) {
-          // Request OTP from gateway; gateway sets __Host-mp_sess cookie + redirects to IdP
-          // Support Rich Authorization Requests (RFC 9396) - authorization_details
-          let authDetails = null;
-          if (this.phone.startsWith('+264') || this.phone.startsWith('+264')) {
-            authDetails = JSON.stringify({
-              type: 'payout',
-              amount: '0',
-              currency: 'NAD',
-              payee: this.phone
-            });
-          }
-          await this.auth.requestOtp(this.phone, authDetails);
-          // The gateway will redirect to IdP; after callback, /api/me will hydrate
-          this.hint.set('OTP sent - check your phone / complete login at IdP');
-          this.busy.set(false);
-          return;
-        }
-        // Verify OTP at gateway; gateway creates session + sets __Host-mp_sess
-        await this.auth.verifyOtp(this.phone, this.otp);
-        // After verifyOtp, hydrate user info from /api/me
-        await this.auth.hydrate();
-        // Navigate based on role
-        this.router.navigateByUrl(homeForRole(this.auth.me()?.role ?? ''));
+        // FAPI 2.0: navigate the browser to GET /auth/login so the gateway can
+        // PAR → redirect to IdP. The page will not return here; the IdP redirects
+        // to /auth/callback, the gateway creates a session, then redirects to '/'.
+        this.auth.startLogin('/');
+        // startLogin() triggers a full-page navigation; execution stops here.
+        return;
       } else {
-        // Password login - gateway creates session
-        await this.auth.hydrate();
-        this.router.navigateByUrl(homeForRole(this.auth.me()?.role ?? ''));
+        // Password / staff login: same FAPI 2.0 redirect flow.
+        this.auth.startLogin('/');
+        return;
       }
     } catch (e: any) {
-      this.error.set(e?.error?.detail || e?.message || 'Sign-in failed - check credentials / request a new OTP');
-      this.hint.set('');
+      this.error.set(e?.error?.detail || e?.message || 'Sign-in failed');
     } finally {
       this.busy.set(false);
     }
