@@ -77,7 +77,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
     <!-- a pending person's set-up link: emailed, and shown here to copy -->
     <mp-modal [open]="!!link()" eyebrow="Set-up link" [title]="link()?.name ?? ''" (closed)="link.set(null)">
       @if (link(); as l) {
-        <p class="hint">A new link was issued and emailed to {{ l.email || 'them' }}. Earlier links stop working.
+        <p class="hint">{{ l.delivery }} Earlier links stop working.
           It works once and expires in 72 hours. Anyone with it can set this person's password: share it only with them.</p>
         <div class="linkrow"><input class="inp mono" readonly [value]="l.url" (focus)="$any($event.target).select()" />
           <button type="button" class="primary" (click)="copy(l.url)">{{ copied() ? 'Copied' : 'Copy' }}</button></div>
@@ -249,7 +249,7 @@ export class UserManagement implements OnInit {
   readonly busy = signal(false);
 
   readonly adding = signal(false);
-  readonly link = signal<{ name: string; email: string; url: string } | null>(null);
+  readonly link = signal<{ name: string; email: string; url: string; delivery: string } | null>(null);
   readonly copied = signal(false);
 
   /** Issues a fresh set-up link (emailed through comms) and shows it to copy. */
@@ -257,10 +257,13 @@ export class UserManagement implements OnInit {
     this.busy.set(true);
     this.flash.set(null);
     try {
-      const r = await firstValueFrom(this.http.post<{ message: string; label: string | null }>(
+      const r = await firstValueFrom(this.http.post<{ message?: string; label?: string | null;
+        setupLink?: string; delivered?: boolean; deliveryMessage?: string }>(
         `/api/orgs/users/${p.id}/resend-activation`, {}));
       this.copied.set(false);
-      if (r.label) this.link.set({ name: p.name, email: p.email, url: r.label });
+      const url = r.setupLink ?? r.label;
+      if (url) this.link.set({ name: p.name, email: p.email, url,
+        delivery: r.deliveryMessage ?? `A new link was issued for ${p.email || p.name}.` });
       else this.flash.set({ kind: 'ok', text: `A new set-up link was emailed to ${p.name}.` });
     } catch (e) {
       this.flash.set({ kind: 'bad', text: this.refusal(e) });

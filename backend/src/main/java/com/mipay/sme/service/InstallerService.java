@@ -8,6 +8,11 @@ import com.mipay.sme.domain.core.User;
 import com.mipay.sme.repository.DeviceSessionRepository;
 import com.mipay.sme.repository.UserRepository;
 import com.mipay.sme.security.auth.UserLifecycleService;
+import com.mipay.sme.security.auth.AuthProviderRegistry;
+import com.mipay.sme.security.auth.AuthPluginContracts;
+import com.mipay.sme.security.auth.LinkDelivery;
+import com.mipay.sme.domain.core.IdentityLink;
+import com.mipay.sme.repository.IdentityLinkRepository;
 import com.mipay.sme.security.rbac.RbacMeshClient;
 import com.mipay.sme.web.Dtos;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +43,9 @@ public class InstallerService implements ApplicationRunner {
     private final UserLifecycleService lifecycle;
     private final RbacMeshClient rbac;
     private final ActivationService activation;
+    private final AuthProviderRegistry authProviders;
+    private final IdentityLinkRepository identityLinks;
+    private final List<LinkDelivery> linkDeliveries;
     private final UsernamePolicy usernamePolicy;
     private final PasswordEncoder encoder;
     private final AuditService audit;
@@ -100,11 +108,49 @@ public class InstallerService implements ApplicationRunner {
                     Enums.OrgMemberRole.ADMIN, INSTALLER));
         }
         ensureRbac(pending.getId());
-        String tokenId = activation.issue(pending, INSTALLER);
+        String setupLink;
+        if ("gateway".equals(props.getIdentityMode())) {
+            setupLink = enrolFirstAdmin(pending);
+        } else {
+            String tokenId = activation.issue(pending, INSTALLER);
+            setupLink = activation.linkOfToken(tokenId);
+        }
         audit.record(INSTALLER, "MINDLABS_ADMIN", "first_admin_enrolled", "user", pending.getId(),
                 null, "PENDING", "role=" + ROOT_ROLE, false, null);
         return new Dtos.FirstAdminResult(pending.getId(), pending.getUsername(),
-                pending.getStatus().name(), activation.linkOfToken(tokenId));
+                pending.getStatus().name(), setupLink);
+    }
+
+    private String enrolFirstAdmin(User pending) {
+        var provider = authProviders.selected();
+        IdentityLink link = identityLinks.findByUserId(pending.getId()).stream()
+                .filter(l -> provider.key().equals(l.getProvider())).findFirst().orElse(null);
+        AuthPluginContracts.Enrolment enrolment;
+        if (link == null) {
+            enrolment = provider.enrol(new AuthPluginContracts.EnrolRequest(pending.getId(),
+                    pending.getUsername(), pending.getPhone(), pending.getName()));
+            link = new IdentityLink();
+            link.setUserId(pending.getId());
+            link.setProvider(provider.key());
+            link.setIssuer(provider.issuer());
+            link.setSubject(enrolment.subject());
+            link.setStatus(IdentityLink.Status.PENDING);
+            identityLinks.save(link);
+        } else {
+            enrolment = provider.resetCredential(link.getSubject(), AuthPluginContracts.ResetScope.LINK);
+        }
+        if (enrolment.oneTimeLink() == null || enrolment.oneTimeLink().isBlank())
+            throw new IllegalStateException("IdP returned no administrator set-up link");
+        for (LinkDelivery delivery : linkDeliveries) {
+            try {
+                delivery.deliver(new LinkDelivery.Request(pending.getId(), link.getSubject(), "ENROL",
+                        enrolment.oneTimeLink(), enrolment.expiresAt()));
+            } catch (RuntimeException e) {
+                // The one-time link is still shown to the installer for secure sharing.
+                // The durable ENROL command from lifecycle.create also retries delivery.
+            }
+        }
+        return enrolment.oneTimeLink();
     }
 
     private void ensureRbac(String subject) {

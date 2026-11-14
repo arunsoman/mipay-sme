@@ -5,6 +5,10 @@ import com.mipay.sme.security.rbac.Perm;
 import com.mipay.sme.security.rbac.TenantSource;
 import com.mipay.sme.security.rbac.Verb;
 import com.mipay.sme.service.ActivationService;
+import com.mipay.sme.service.IdpSetupLinkService;
+import com.mipay.sme.config.AppProperties;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import com.mipay.sme.web.Dtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,15 +29,22 @@ import java.util.List;
 public class ActivationController {
 
     private final ActivationService activation;
+    private final IdpSetupLinkService idpLinks;
+    private final AppProperties properties;
 
     /** Resend (new invalidating token) — org admin or platform staff only. */
-    @Perm(resource = "org.user", verb = Verb.ADMINISTER, tenantSource = TenantSource.PATH, tenant = "#id",
-          description = "Resend activation for a user (PATH tenant)")
+    @Perm(resource = "org.user", verb = Verb.ADMINISTER, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Issue a set-up link for a user in the manager's org subtree")
     @PostMapping("/api/orgs/users/{id}/resend-activation")
-    public Dtos.Message resend(@PathVariable String id) {
+    public ResponseEntity<?> resend(@PathVariable String id) {
+        if ("gateway".equals(properties.getIdentityMode())) {
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(idpLinks.issue(id, Current.get()));
+        }
         String tokenId = activation.resend(id, Current.get());
         // the set-up link itself (also emailed through the comms plane): User management shows it to copy
-        return new Dtos.Message("A new set-up link was issued", activation.linkOfToken(tokenId));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new Dtos.Message("A new set-up link was issued", activation.linkOfToken(tokenId)));
     }
 
     /** Sandbox-only outbox ([M8]) — never in production environments. */
