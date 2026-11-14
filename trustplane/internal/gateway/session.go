@@ -37,6 +37,7 @@ type Session struct {
 	Sub      string   `json:"sub"`
 	UID      string   `json:"uid"` // core user id from the ID token (RBAC subject)
 	ClientID string   `json:"client_id"`
+	Host     string   `json:"-"` // portal host that initiated this browser session
 	CSRF     string   `json:"csrf"`
 	OrgID    string   `json:"org_id,omitempty"` // org the user is acting in
 	ACR      string   `json:"acr"`
@@ -88,6 +89,7 @@ func NewSessionStore(pool *pgxpool.Pool, encKey []byte) (*SessionStore, error) {
 			session_id   TEXT PRIMARY KEY,
 			sub          TEXT NOT NULL,
 			client_id    TEXT NOT NULL,
+			host         TEXT NOT NULL DEFAULT '',
 			csrf         TEXT NOT NULL,
 			org_id       TEXT,
 			acr          TEXT,
@@ -107,6 +109,7 @@ func NewSessionStore(pool *pgxpool.Pool, encKey []byte) (*SessionStore, error) {
 		)`,
 		`CREATE INDEX IF NOT EXISTS gw_sessions_sub_idx ON gw_sessions(sub)`,
 		`ALTER TABLE gw_sessions ADD COLUMN IF NOT EXISTS uid TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE gw_sessions ADD COLUMN IF NOT EXISTS host TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS gw_sessions_expires_idx ON gw_sessions(expires_at)`,
 	}
 	ctx, cancel := newCtx(5 * time.Second)
@@ -171,11 +174,11 @@ func (s *SessionStore) Create(ctx context.Context, ses *Session) error {
 		INSERT INTO gw_sessions
 			(session_id, sub, client_id, csrf, org_id, acr, amr, auth_time,
 			 issuer, audience, access_token_enc, refresh_token_enc, id_token_enc,
-			 dpop_jkt, dpop_private_enc, expires_at, idle_at, uid)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			 dpop_jkt, dpop_private_enc, expires_at, idle_at, uid, host)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		ses.ID, ses.Sub, ses.ClientID, ses.CSRF, ses.OrgID, ses.ACR, string(amrJSON),
 		ses.AuthTime, ses.Issuer, ses.Audience, atEnc, rtEnc, idEnc,
-		ses.DPoPJKT, dpEnc, ses.ExpiresAt, ses.IdleAt, ses.UID)
+		ses.DPoPJKT, dpEnc, ses.ExpiresAt, ses.IdleAt, ses.UID, ses.Host)
 	return err
 }
 
@@ -187,13 +190,13 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT session_id, sub, client_id, csrf, org_id, acr, amr, auth_time,
 			issuer, audience, access_token_enc, refresh_token_enc, id_token_enc,
-			dpop_jkt, dpop_private_enc, created_at, expires_at, idle_at, revoked, uid
+			dpop_jkt, dpop_private_enc, created_at, expires_at, idle_at, revoked, uid, host
 		FROM gw_sessions WHERE session_id=$1`, id).
 		Scan(&row.SessionID, &row.Sub, &row.ClientID, &row.CSRF, &row.OrgID,
 			&row.ACR, &row.AMR, &row.AuthTime, &row.Issuer, &row.Audience,
 			&row.AccessToken, &row.RefreshToken, &row.IDToken,
 			&row.DPoPJKT, &row.DPoPPrivate, &row.CreatedAt, &row.ExpiresAt,
-			&row.IdleAt, &row.Revoked, &row.UID)
+			&row.IdleAt, &row.Revoked, &row.UID, &row.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +204,7 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 		return nil, errors.New("session revoked or expired")
 	}
 	ses := &Session{
-		ID: row.SessionID, Sub: row.Sub, UID: row.UID, ClientID: row.ClientID, CSRF: row.CSRF,
+		ID: row.SessionID, Sub: row.Sub, UID: row.UID, ClientID: row.ClientID, CSRF: row.CSRF, Host: row.Host,
 		OrgID: row.OrgID, ACR: row.ACR, AuthTime: row.AuthTime,
 		Issuer: row.Issuer, Audience: row.Audience,
 		DPoPJKT: row.DPoPJKT, CreatedAt: row.CreatedAt,
@@ -300,6 +303,7 @@ type sessionRow struct {
 	Sub          string
 	UID          string
 	ClientID     string
+	Host         string
 	CSRF         string
 	OrgID        string
 	ACR          string

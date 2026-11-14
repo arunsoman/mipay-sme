@@ -540,6 +540,7 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request) {
 		Sub:          sub,
 		UID:          idString(idClaims, "uid"),
 		ClientID:     g.bffID,
+		Host:         tx.Host,
 		CSRF:         jwtx.RandB64(24),
 		OrgID:        idString(idClaims, "org_id"),
 		ACR:          idString(idClaims, "acr"),
@@ -767,6 +768,9 @@ func (g *Gateway) currentSession(r *http.Request) *Session {
 	}
 	ses, err := g.store.Get(r.Context(), c.Value)
 	if err != nil {
+		return nil
+	}
+	if ses.Host == "" || !strings.EqualFold(ses.Host, externalHost(r)) {
 		return nil
 	}
 	if time.Since(ses.IdleAt) > g.bffIdle {
