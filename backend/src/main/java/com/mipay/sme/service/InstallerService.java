@@ -150,8 +150,9 @@ public class InstallerService implements ApplicationRunner {
                     request.reviewerUsername(), request.reviewerPhone(), request.reviewerEmail(), Enums.UserRole.MINDLABS_ADMIN,
                     Enums.OrgMemberRole.ADMIN, INSTALLER + ":reviewer"));
         }
-        ensureRbac(pending.getId());
-        ensureReviewerRbac(pendingReviewer.getId(), pending.getId());
+        ensureRbacRoles();
+        ensureRbacAssignment(pending.getId(), ROOT_ROLE, "first administrator bootstrap");
+        ensureRbacAssignment(pendingReviewer.getId(), REVIEWER_ROLE, "first administrator checker bootstrap");
         String setupLink;
         if ("gateway".equals(props.getIdentityMode())) {
             setupLink = enrolFirstAdmin(pending);
@@ -168,20 +169,42 @@ public class InstallerService implements ApplicationRunner {
                 pendingReviewer.getId(), pendingReviewer.getUsername(), pendingReviewer.getStatus().name(), reviewerSetupLink);
     }
 
-    private void ensureReviewerRbac(String subject, String maker) {
+    /** Create both roles before the first assignment closes RBAC's clean-slate window. */
+    private void ensureRbacRoles() {
         if (!rbac.configured()) throw new IllegalStateException("RBAC is required for first admin bootstrap");
-        if (rbac.platformRoles().stream().noneMatch(r -> REVIEWER_ROLE.equals(r.get("name")))) {
-            // The temporary installer loses the clean-slate exception when the maker's
-            // organization_root assignment is created. The maker role can create roles,
-            // so it authorizes creation of the checker role after that point.
-            rbac.createPlatformRole(Map.of("actor", maker, "core_authorized", false,
-                    "name", REVIEWER_ROLE, "description", "Platform access approval checker",
-                    "kind", "PLATFORM", "grid", Map.of("rbac.assignment", List.of("read", "authorize"))));
+        List<Map<String, Object>> resources = rbac.platformResources();
+        Map<String, List<String>> makerGrid = rootAdminGrid();
+        Map<String, List<String>> reviewerGrid = Map.of("rbac.assignment", List.of("read", "authorize"));
+        for (Map.Entry<String, List<String>> row : makerGrid.entrySet()) {
+            requireResource(resources, row.getKey(), row.getValue());
         }
+        for (Map.Entry<String, List<String>> row : reviewerGrid.entrySet()) {
+            requireResource(resources, row.getKey(), row.getValue());
+        }
+        // RBAC's bootstrap allowance remains open until the first assignment exists.
+        // Create both roles before assigning either one.
+        ensureRbacRole(ROOT_ROLE, "Platform access administrator: users, roles and assignments only", makerGrid);
+        ensureRbacRole(REVIEWER_ROLE, "Platform access approval checker", reviewerGrid);
+    }
+
+    private void ensureRbacRole(String role, String description, Map<String, List<String>> grid) {
+        if (rbac.platformRoles().stream().noneMatch(r -> role.equals(r.get("name")))) {
+            rbac.createPlatformRole(Map.of("actor", INSTALLER, "core_authorized", false,
+                    "name", role, "description", description, "kind", "PLATFORM", "grid", grid));
+        }
+    }
+
+    private void requireResource(List<Map<String, Object>> resources, String id, List<String> verbs) {
+        boolean ready = resources.stream().anyMatch(r -> id.equals(r.get("id"))
+                && r.get("used") instanceof List<?> used && used.containsAll(verbs));
+        if (!ready) throw new IllegalStateException("RBAC has not registered " + id + " yet; retry shortly");
+    }
+
+    private void ensureRbacAssignment(String subject, String role, String reason) {
         String tenant = orgs.ensurePlatformRoot().getId();
-        if (rbac.assignmentsFor(subject).stream().noneMatch(a -> REVIEWER_ROLE.equals(a.get("role"))
+        if (rbac.assignmentsFor(subject).stream().noneMatch(a -> role.equals(a.get("role"))
                 && "ACTIVE".equals(a.get("status"))))
-            rbac.assignSystem(subject, REVIEWER_ROLE, tenant, "all", "first administrator checker bootstrap");
+            rbac.assignSystem(subject, role, tenant, "all", reason);
     }
 
     private String enrolFirstAdmin(User pending) {
@@ -214,27 +237,6 @@ public class InstallerService implements ApplicationRunner {
             }
         }
         return enrolment.oneTimeLink();
-    }
-
-    private void ensureRbac(String subject) {
-        if (!rbac.configured()) throw new IllegalStateException("RBAC is required for first admin bootstrap");
-        List<Map<String, Object>> resources = rbac.platformResources();
-        Map<String, List<String>> grid = rootAdminGrid();
-        for (var row : grid.entrySet()) {
-            boolean ready = resources.stream().anyMatch(r -> row.getKey().equals(r.get("id"))
-                    && r.get("used") instanceof List<?> used && used.containsAll(row.getValue()));
-            if (!ready) throw new IllegalStateException("RBAC has not registered " + row.getKey() + " yet; retry shortly");
-        }
-        if (rbac.platformRoles().stream().noneMatch(r -> ROOT_ROLE.equals(r.get("name")))) {
-            rbac.createPlatformRole(Map.of("actor", INSTALLER, "core_authorized", false,
-                    "name", ROOT_ROLE, "description", "Platform access administrator: users, roles and assignments only",
-                    "kind", "PLATFORM", "grid", grid));
-        }
-        String tenant = orgs.ensurePlatformRoot().getId();
-        if (rbac.assignmentsFor(subject).stream().noneMatch(a -> ROOT_ROLE.equals(a.get("role"))
-                && "ACTIVE".equals(a.get("status")))) {
-            rbac.assignSystem(subject, ROOT_ROLE, tenant, "all", "first administrator bootstrap");
-        }
     }
 
     static Map<String, List<String>> rootAdminGrid() {
