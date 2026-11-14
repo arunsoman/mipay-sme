@@ -51,7 +51,7 @@ func (g *Gateway) sessionIdentity(r *http.Request, ses *Session) (*identity, int
 	if err != nil {
 		return nil, 400, "invalid_request: url"
 	}
-	proof, err := dpop.SignProof(key, jwk, r.Method, htu, ses.AccessToken)
+	proof, err := sessionDPoPProof(key, jwk, r.Method, htu, ses.AccessToken)
 	if err != nil {
 		return nil, 503, "server_error: dpop proof"
 	}
@@ -67,6 +67,11 @@ func (g *Gateway) sessionIdentity(r *http.Request, ses *Session) (*identity, int
 		return nil, 401, "login_required"
 	}
 	return ident, 0, ""
+}
+
+func sessionDPoPProof(key crypto.Signer, jwk map[string]any, method, htu, accessToken string) (string, error) {
+	ath := sha256.Sum256([]byte(accessToken))
+	return dpop.SignProof(key, jwk, method, htu, jwtx.B64UEnc(ath[:]))
 }
 
 // refreshSession retains the session's DPoP key and refresh-token binding.
