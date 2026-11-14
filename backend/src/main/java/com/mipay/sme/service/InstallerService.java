@@ -23,6 +23,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +59,8 @@ public class InstallerService implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         String password = props.getInstallerPassword();
-        if (!"legacy".equals(props.getIdentityMode()) || password == null || password.isBlank()) return;
+        boolean gateway = "gateway".equals(props.getIdentityMode());
+        if ((!gateway && !"legacy".equals(props.getIdentityMode())) || password == null || password.isBlank()) return;
         if (password.length() < 24) throw new IllegalStateException("APP_INSTALLER_PASSWORD needs at least 24 characters");
         if (users.findById(INSTALLER).isPresent()) return; // never recreate a retired or expired installer
         if (users.findByRole(Enums.UserRole.MINDLABS_ADMIN).stream()
@@ -73,8 +78,30 @@ public class InstallerService implements ApplicationRunner {
         user.setStatus(Enums.UserStatus.ACTIVE);
         user.setCreatedBy(MARKER);
         users.save(user);
+        if (gateway) {
+            IdentityLink link = new IdentityLink();
+            link.setUserId(INSTALLER);
+            link.setProvider(authProviders.selected().key());
+            link.setIssuer(props.getAuthIssuer());
+            link.setSubject(bootstrapInstallerSubject());
+            link.setStatus(IdentityLink.Status.ACTIVE);
+            link.setIdpEnabled(true);
+            link.setCreatedBy(MARKER);
+            identityLinks.save(link);
+        }
         audit.record(INSTALLER, "SYSTEM", "installer_created", "user", INSTALLER,
-                null, "ACTIVE", "expires in 72h", false, null);
+                null, "ACTIVE", gateway ? "gateway bootstrap; expires in 72h" : "expires in 72h", false, null);
+    }
+
+    /** Matches the IdP's stable subject for its clean-slate bootstrap account. */
+    private static String bootstrapInstallerSubject() {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest("seed:installer".getBytes(StandardCharsets.UTF_8));
+            return "acc_seed_" + Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(digest, 12));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required", e);
+        }
     }
 
     /** Idempotent retry after an RBAC/network failure; never accepts a second first admin. */
@@ -225,6 +252,17 @@ public class InstallerService implements ApplicationRunner {
             installer.setPasswordHash(null);
             users.save(installer);
             sessions.deleteByUserId(INSTALLER);
+            if ("gateway".equals(props.getIdentityMode())) {
+                identityLinks.findByUserId(INSTALLER).stream()
+                        .filter(link -> link.getStatus() == IdentityLink.Status.ACTIVE)
+                        .forEach(link -> {
+                            link.setStatus(IdentityLink.Status.DISABLED);
+                            link.setIdpEnabled(false);
+                            identityLinks.save(link);
+                            authProviders.selected().disable(link.getSubject(), "first administrator activated");
+                            authProviders.selected().revokeSessions(link.getSubject());
+                        });
+            }
             audit.record(activated.getId(), activated.getRole().name(), "installer_retired", "user", INSTALLER,
                     "ACTIVE", "ARCHIVED", "first admin activated", false, null);
         });
