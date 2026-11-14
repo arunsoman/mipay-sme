@@ -28,7 +28,8 @@ public class MyAccessController {
 
     public record HeldPermission(String id, String row, String verb, String rowDescription) { }
 
-    public record MyAccess(String orgId, String orgName, String orgType, List<HeldPermission> permissions) { }
+    public record MyAccess(String orgId, String orgName, String orgType,
+                           List<HeldPermission> permissions, List<String> roles) { }
 
     @SuppressWarnings("unchecked")
     @com.mipay.sme.security.rbac.PublicEndpoint(reason = "needs no permission, only a signed-in user (SecurityConfig): "
@@ -54,6 +55,15 @@ public class MyAccessController {
                 out.add(new HeldPermission(id, row, id.substring(i + 1), described.getOrDefault(row, row)));
             }
         }
-        return new MyAccess(org.getId(), org.getName(), org.getOrgType() == null ? null : org.getOrgType().name(), out);
+        List<String> roles = rbac.assignmentsFor(me.userId()).stream()
+                .filter(a -> "ACTIVE".equals(String.valueOf(a.get("status"))))
+                .map(a -> a.get("role"))
+                .filter(java.util.Objects::nonNull)
+                .map(String::valueOf)
+                .distinct()
+                .sorted()
+                .toList();
+        return new MyAccess(org.getId(), org.getName(), org.getOrgType() == null ? null : org.getOrgType().name(),
+                out, roles);
     }
 }

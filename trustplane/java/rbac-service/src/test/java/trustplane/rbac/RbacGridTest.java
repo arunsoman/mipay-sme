@@ -206,6 +206,19 @@ class RbacGridTest {
     }
 
     @Test
+    void organizationRolesCannotHoldPlatformAdministrationCells() {
+        assertEquals(400, status(() -> store.validateGrid("bad_org_role", "ORG",
+                Map.of("admin.config", Verbs.bit("read")))));
+        // Protect decisions as well as writes: an older stored role may still
+        // contain the cell, but cannot exercise or advertise it.
+        db.update("INSERT INTO rbac_role_grid(role, resource, verbs) VALUES (?,?,?) ON CONFLICT (role, resource) DO UPDATE SET verbs=EXCLUDED.verbs",
+                "org_staff", "admin.config", Verbs.bit("read"));
+        policy.reload();
+        assertFalse(allowed("tomas", "", "admin.config:read"));
+        assertFalse(decisions.listPermissions("tomas", "oka", List.of()).operations().contains("admin.config:read"));
+    }
+
+    @Test
     void holdsBlockTheSubtreeButNotPlatformStaff() {
         Map<String, String[]> orgs = new LinkedHashMap<>();
         orgs.put("plat", new String[]{"PLATFORM", null});

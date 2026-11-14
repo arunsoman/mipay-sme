@@ -8,7 +8,9 @@ import { SimulatedBanner } from '../molecules/simulated-banner';
 import { EnvironmentService } from '../../core/env.service';
 import { ThemeService } from '../../core/theme.service';
 import { AccessService } from '../../../../projects/shared/web-core/access';
-import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../projects/shared/web-core/menu';
+import { MenuNavEntry, navEntries } from '../../../../projects/shared/web-core/menu';
+import { BusinessPortal, liveNavigation } from '../../../../projects/shared/web-core/portal-permission-catalogue';
+import { ROUTE_PERMS } from '../../access-map';
 
 /**
  * Organism: application shell - sidebar nav (role-aware), topbar (user +
@@ -37,7 +39,7 @@ import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../projects
             }
           }
         </nav>
-        <div class="foot dim">{{ env().environment }} - {{ me()?.role }}</div>
+        <div class="foot dim">{{ env().environment }} · {{ access.roles().join(', ') }}</div>
       </aside>
       <div class="main">
         <header class="top">
@@ -121,6 +123,15 @@ export class NavShell {
   // guards (access-map.ts) derive from, so nav and guards can never drift apart.
   readonly nav = computed<MenuNavEntry[]>(() => {
     const r = this.auth.role();
+    if (r === 'MERCHANT' || r === 'LENDER' || r === 'SUPPLIER') {
+      return liveNavigation(r as BusinessPortal,
+        (resources) => this.access.can(...resources),
+        (link) => !!ROUTE_PERMS[link] && this.access.can(...ROUTE_PERMS[link]))
+        .flatMap((m): MenuNavEntry[] => [
+          { kind: 'group', label: m.label },
+          ...m.screens.map((s): MenuNavEntry => ({ kind: 'item', label: s.label, icon: '›', link: s.link })),
+        ]);
+    }
     return navEntries('sme', (item) => {
       if (item.roles && !item.roles.includes(r)) return false;
       return this.access.can(...item.perm);

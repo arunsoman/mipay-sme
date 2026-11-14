@@ -19,8 +19,8 @@ spring:
           time_zone: UTC
   flyway:
     enabled: false              # H2 demo profile: Hibernate ddl-auto manages the schema.
-                                # The `postgres` profile enables Flyway with V1__init.sql.
-    locations: classpath:db/migration
+                                # The `postgres` profile runs the fresh-install baseline.
+    locations: classpath:db/fresh
 server:
   port: 8080
 

@@ -14,7 +14,7 @@ spring:
           time_zone: UTC
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:db/fresh
 
 app:
   environment: ${APP_ENVIRONMENT:sandbox}

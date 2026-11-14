@@ -26,6 +26,7 @@ export interface MyAccess {
   orgName: string;
   orgType: string | null;
   permissions: HeldCell[];
+  roles: string[];
 }
 
 /** The cell that unlocks the user-management screens (RBAC or extended RBAC). */
@@ -43,6 +44,7 @@ export class AccessService {
 
   readonly orgName = computed(() => this.access()?.orgName ?? '');
   readonly orgType = computed(() => this.access()?.orgType ?? '');
+  readonly roles = computed(() => this.access()?.roles ?? []);
   /** Held cells: exact `<row>:<verb>` matches. */
   readonly cells = computed(() => new Set((this.access()?.permissions ?? []).map((p) => p.id)));
   /** Rows with at least one held verb. */

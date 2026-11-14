@@ -64,6 +64,8 @@ export interface MenuItem {
  */
 export const MENU_ITEMS: MenuItem[] = [
   // ---------------- governance (admin + org portals)
+  { id: 'platform-overview', label: 'Overview', icon: '◫', link: '/overview', perm: ['rbac.role', 'admin.platform_ops', 'org.user'], portals: ['admin'] },
+  { id: 'platform-organizations', label: 'Organizations', icon: '◈', link: '/orgs', perm: ['admin.org_directory'], portals: ['admin'] },
   { id: 'onboarding', label: 'Onboarding', icon: '⇲', link: '/onboarding', perm: ['org.onboarding'], portals: ['admin', 'org'] },
   { id: 'network', label: 'My network', icon: '⑃', link: '/network', perm: ['org.tree'], portals: ['org'] },
   { id: 'users', label: 'User management', icon: '☰', link: '/users', perm: ['org.user:administer'], portals: ['admin', 'org'] },
@@ -107,10 +109,11 @@ export const MENU_ITEMS: MenuItem[] = [
 
   // ---------------- platform admin (sme-ui)
   { id: 'admin-home', label: 'Overview', icon: '◫', link: '/admin', perm: ['admin.access'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
-  { id: 'connectors', label: 'Connectors', icon: '⑂', link: '/admin/connectors', perm: ['admin.connector'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
-  { id: 'config', label: 'Config', icon: '⚙', link: '/admin/config', perm: ['admin.config'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
+  { id: 'connectors', label: 'Connectors', icon: '⑂', link: '/admin/connectors', perm: ['admin.connector'], portals: ['sme', 'admin'], roles: ['MINDLABS_ADMIN'] },
+  { id: 'config', label: 'Config', icon: '⚙', link: '/admin/config', perm: ['admin.config'], portals: ['sme', 'admin'], roles: ['MINDLABS_ADMIN'] },
+  { id: 'api-clients', label: 'API clients', icon: '⑂', link: '/admin/api-clients', perm: ['admin.api_client'], portals: ['admin'] },
   { id: 'simulator', label: 'Simulator', icon: '⌁', link: '/admin/simulator', perm: ['admin.simulation'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
-  { id: 'access-control', label: 'Access control', icon: '⚿', link: '/admin/access', perm: ['admin.access'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
+  { id: 'access-control', label: 'Access control', icon: '⚿', link: '/admin/access', perm: ['admin.access'], portals: ['sme', 'admin'], roles: ['MINDLABS_ADMIN'] },
   { id: 'hygiene', label: 'Ops hygiene', icon: '◷', link: '/admin/hygiene', perm: ['admin.platform_ops'], portals: ['sme'], roles: ['MINDLABS_ADMIN'] },
 
   // ---------------- compliance (sme-ui + MiPay Admin; one page, one per-portal URL)

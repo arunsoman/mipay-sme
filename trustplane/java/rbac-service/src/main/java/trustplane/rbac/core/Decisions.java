@@ -376,6 +376,10 @@ public class Decisions {
         List<Asg> usable = activate(s, cands, q.activeRoles(), why);
         if (usable == null) return new Decision(false, why[0], version, newDecisionId(), List.of());
         for (Asg a : usable) {
+            // Platform administration is never delegated by an organization role,
+            // including older roles created before this rule was validated on save.
+            Policy.Role assigned = s.roles().get(a.role());
+            if (cell.row().startsWith("admin.") && (assigned == null || !"PLATFORM".equals(assigned.kind()))) continue;
             if ((a.mask(s, cell.row()) & cell.bit()) == 0) continue;
             // a role assigned on a merchant org never acts in another org type through "any tenant"
             if (t == null && !res.tenantTypes().isEmpty() && !"all".equals(a.scope())
@@ -419,6 +423,8 @@ public class Decisions {
         Verbs.Cell cell = Verbs.parse(operation);
         if (cell == null || subject == null) return false;
         for (Asg a : assignmentsOf(subject)) {
+            Policy.Role assigned = s.roles().get(a.role());
+            if (cell.row().startsWith("admin.") && (assigned == null || !"PLATFORM".equals(assigned.kind()))) continue;
             if ("all".equals(a.scope()) && (s.mask(a.role(), cell.row()) & cell.bit()) != 0) return true;
         }
         return false;
@@ -441,7 +447,11 @@ public class Decisions {
             for (Policy.Resource r : s.resources().values()) {
                 if (t != null && !r.tenantTypes().isEmpty() && (t.orgType() == null || !r.tenantTypes().contains(t.orgType()))) continue;
                 int m = 0;
-                for (Asg a : usable) m |= a.mask(s, r.id());
+                for (Asg a : usable) {
+                    Policy.Role assigned = s.roles().get(a.role());
+                    if (r.id().startsWith("admin.") && (assigned == null || !"PLATFORM".equals(assigned.kind()))) continue;
+                    m |= a.mask(s, r.id());
+                }
                 m &= r.used();
                 if (m != 0) masks.put(r.id(), m);
             }

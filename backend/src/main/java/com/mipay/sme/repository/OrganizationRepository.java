@@ -5,11 +5,18 @@ import com.mipay.sme.domain.org.Organization;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface OrganizationRepository extends JpaRepository<Organization, String> {
+
+    @Query("select o from Organization o where (:type is null or o.orgType = :type) and (:status is null or o.lifecycle = :status)")
+    Page<Organization> directory(@Param("type") OrgType type,
+                                 @Param("status") com.mipay.sme.domain.Enums.OrgStatus status,
+                                 Pageable pageable);
 
     Optional<Organization> findByOrgTypeAndEntityId(OrgType orgType, String entityId);
 

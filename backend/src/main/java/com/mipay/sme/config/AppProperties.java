@@ -18,7 +18,7 @@ public class AppProperties {
 
     private String environment = "sandbox";  // sandbox | uat | production
     /** Demo accounts and fixtures; disable on public sandbox hosts with real user data. */
-    private boolean seedDemoData = true;
+    private boolean seedDemoData = false;
     private String devOtp = "123456";        // fixed OTP in sandbox for the UAT demos
     private String rbacUrl = "https://rbac:8443";  // trustplane RBAC mesh service
 

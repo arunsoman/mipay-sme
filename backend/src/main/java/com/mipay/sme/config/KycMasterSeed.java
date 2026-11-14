@@ -29,10 +29,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Seeds the KYC master exactly like V8/V9 do on Postgres (§5). Runs only when
- * Flyway is off (the H2 test profile): migrations never run there, so the same
- * dataset is applied through JPA. Idempotent: skips when NA-PSP-BUSINESS v1
- * already exists.
+ * Seeds the KYC master for the H2 test profile, where Flyway is disabled.
+ * PostgreSQL fresh installs load the published v3 catalogue through Flyway.
+ * Idempotent: skips when NA-PSP-BUSINESS v1 already exists.
  */
 @Component
 @RequiredArgsConstructor

@@ -19,3 +19,4 @@ spring:
 app:
   environment: sandbox        # every simulated bank/lender event is labelled (UAT SB p.16)
   dev-otp: "123456"
+  seed-demo-data: true

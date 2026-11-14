@@ -9,6 +9,7 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 import { MpTabs, TabOption } from '../../../../../../src/app/design-system/molecules/tabs';
 import { TableView, TABLE_TOOLS } from '../../../../../../src/app/design-system/molecules/table-view';
 import { AccessService } from '../../../../../shared/web-core/access';
+import { AVAILABLE_SCREEN_KEYS, BusinessPortal, PermissionMenu, PermissionScreen, PORTAL_PERMISSION_CATALOGUE } from '../../../../../shared/web-core/portal-permission-catalogue';
 import {
   RbacResourceView, RbacRoleUpdate, RbacRoleView, RBAC_VERBS, RbacVerb, readProblem,
 } from '../../core/api';
@@ -38,7 +39,7 @@ import {
  * locked in uat/production. Org-defined roles are managed per org under Roles & access.
  */
 
-type ScopeId = 'MERCHANT' | 'SUPPLIER' | 'LENDER' | 'DISTRIBUTOR' | 'MANUFACTURER' | 'PLATFORM';
+type ScopeId = BusinessPortal;
 interface Scope { id: ScopeId; label: string }
 interface Grant { verb: RbacVerb; label: string; kind: 'own' | 'inh'; from: string; privileged: boolean }
 interface Group { area: string; label: string; rows: RbacResourceView[] }
@@ -50,7 +51,8 @@ const SCOPES: Scope[] = [
   { id: 'LENDER', label: 'Lender' },
   { id: 'DISTRIBUTOR', label: 'Distributor' },
   { id: 'MANUFACTURER', label: 'Manufacturer' },
-  { id: 'PLATFORM', label: 'standard' },
+  { id: 'PLATFORM', label: 'Admin / platform' },
+  { id: 'CUSTOMER', label: 'Customer' },
 ];
 
 const VERB_LABEL: Record<RbacVerb, string> = {
@@ -100,6 +102,11 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     </page-header>
 
     <div class="toolbar">
+      <label class="small">Portal
+        <select [ngModel]="scope()" (ngModelChange)="setScope($event)">
+          @for (s of scopes; track s.id) {<option [value]="s.id">{{ s.label }}</option>}
+        </select>
+      </label>
       <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event); ctlView.go(0); rowView.go(0)" placeholder="Filter rows (e.g. withdrawal)" />
       <label class="small check"><input type="checkbox" [ngModel]="showAll()" (ngModelChange)="showAll.set($event)" /> show unused rows</label>
       <span class="legend small">
@@ -177,7 +184,54 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           <div class="danger-row"><button *mpPerm="'rbac.role:delete'" class="danger" (click)="deleteRole(r.name)" [disabled]="busy()">Delete this role</button>
             <span class="muted small">only while nobody holds it</span></div>
         }
-        <div class="muted small hint">Click an action to give or take it. Inherited actions are changed on the role they come from.</div>
+        <div class="muted small hint">Grant a menu or screen in one click, then adjust its backend actions. Multiple screens may share one backend permission, so changing that action affects every screen using it. Inherited permissions are changed on the role they come from. Planned screens cannot be granted yet.</div>
+
+        <div class="business-tree">
+          <div class="ptitle">Portal menus and screens</div>
+          @for (portal of cataloguePortals(); track portal) {
+            <h3>{{ portalLabel(portal) }} portal</h3>
+            @for (m of catalogue[portal]; track m.id) {
+              <section class="menu-node">
+                <div class="menu-head">
+                  <b>{{ m.label }}</b>
+                  <span class="muted small">{{ enabledCount(menuCells(portal, m)) }}/{{ menuCells(portal, m).length }} actions</span>
+                  <button type="button" class="ghost" (click)="setCells(menuCells(portal, m), true)"
+                    [disabled]="!canEditTree() || !menuCells(portal, m).length">Enable menu</button>
+                  <button type="button" class="ghost" (click)="setCells(menuCells(portal, m), false)"
+                    [disabled]="!canEditTree() || !menuCells(portal, m).length">Disable menu</button>
+                </div>
+                @for (s of m.screens; track s.id) {
+                  <div class="screen-node">
+                    <div class="screen-head">
+                      <span>{{ s.label }}</span>
+                      @if (screenStatus(portal, m, s) === 'unavailable') {<span class="tag amber">Not available today</span>}
+                      @else {
+                        @if (screenStatus(portal, m, s) === 'partial') {<span class="tag amber">Partly available</span>}
+                        <button type="button" class="ghost" (click)="setCells(screenCells(portal, m, s), true)"
+                          [disabled]="!canEditTree()">Enable screen</button>
+                        <button type="button" class="ghost" (click)="setCells(screenCells(portal, m, s), false)"
+                          [disabled]="!canEditTree()">Disable screen</button>
+                      }
+                    </div>
+                    @if (screenCells(portal, m, s).length) {
+                      <div class="chips">
+                        @for (cell of screenCells(portal, m, s); track cell) {
+                          <button type="button" class="chip-v" [class.own]="states().get(cell) === 'own'"
+                            [class.inh]="states().get(cell) === 'inh'" [class.off]="states().get(cell) === 'off'"
+                            [attr.aria-pressed]="states().get(cell) !== 'off'"
+                            [disabled]="!canEditTree() || states().get(cell) === 'inh'"
+                            [title]="cell" (click)="toggleCell(cell)">{{ cellLabel(cell) }}</button>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </section>
+            }
+          }
+        </div>
+
+        <details><summary>All backend permissions (technical view)</summary>
 
         @for (g of groups(); track g.area) {
           <div class="group">{{ g.label }}</div>
@@ -208,6 +262,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
         } @empty {
           <div class="muted pad">No rows match.</div>
         }
+        </details>
 
         @if (saveError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         @if (saved()) {<mp-alert kind="ok">Saved.</mp-alert>}
@@ -389,6 +444,17 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .ttl { flex: 1; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
     .rname { font-size: 19px; font-weight: 700; }
     .role-pick { max-width: 220px; }
+    .business-tree { display: grid; gap: 10px; padding: 16px; }
+    .business-tree h3 { margin: 14px 0 2px; }
+    .menu-node { border: 1px solid var(--a-border); border-radius: 8px; overflow: hidden; }
+    .menu-head, .screen-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; }
+    .menu-head { background: var(--a-panel-2); }
+    .menu-head b { margin-right: auto; }
+    .screen-node { padding-left: 16px; border-top: 1px solid var(--a-border); }
+    .screen-head span:first-child { margin-right: auto; }
+    .screen-node .chips { padding: 0 12px 10px; }
+    details { padding: 12px 16px; border-top: 1px solid var(--a-border); }
+    summary { cursor: pointer; font-weight: 700; }
     .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--a-dim); margin-bottom: 8px; align-items: center; font-size: 13px; }
     .tag { padding: 1px 8px; border-radius: 999px; border: 1px solid #d6a43a; color: #f4d58d; }
     .group { font-weight: 700; color: var(--a-teal); margin: 16px 0 4px; font-size: 16px; }
@@ -412,6 +478,11 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 export class PermissionMatrix implements OnInit {
   private readonly http = inject(HttpClient);
   readonly scopes = SCOPES;
+  readonly catalogue = PORTAL_PERMISSION_CATALOGUE;
+  readonly cataloguePortals = computed<BusinessPortal[]>(() => this.scope() === 'PLATFORM'
+    ? ['PLATFORM', 'LENDER', 'MERCHANT', 'MANUFACTURER', 'DISTRIBUTOR', 'SUPPLIER', 'CUSTOMER']
+    : [this.scope()]);
+  portalLabel(id: BusinessPortal) { return id === 'PLATFORM' ? 'Admin' : id.charAt(0) + id.slice(1).toLowerCase(); }
 
   readonly roles = signal<RbacRoleView[]>([]);
   readonly resources = signal<RbacResourceView[]>([]);
@@ -489,6 +560,43 @@ export class PermissionMatrix implements OnInit {
   readonly editing = computed(() => this.byName().get(this.editingName() ?? '') ?? null);
   readonly scopeLabel = computed(() => SCOPES.find((s) => s.id === this.scope())!.label);
   private readonly rowById = computed(() => new Map(this.resources().map((r) => [r.id, r])));
+  /** A screen's actions are exactly the cells registered by backend endpoints. */
+  screenCells(portal: BusinessPortal, m: PermissionMenu, s: PermissionScreen): string[] {
+    if (!AVAILABLE_SCREEN_KEYS.has(`${portal}/${m.id}/${s.id}`)) return [];
+    return [...new Set(s.resources.flatMap((id) => {
+      const row = this.rowById().get(id);
+      return row?.used.map((verb) => `${id}:${verb}`) ?? [];
+    }))];
+  }
+  menuCells(portal: BusinessPortal, m: PermissionMenu): string[] {
+    return [...new Set(m.screens.flatMap((s) => this.screenCells(portal, m, s)))];
+  }
+  screenStatus(portal: BusinessPortal, m: PermissionMenu, s: PermissionScreen): 'available' | 'partial' | 'unavailable' {
+    if (!AVAILABLE_SCREEN_KEYS.has(`${portal}/${m.id}/${s.id}`)) return 'unavailable';
+    const live = s.resources.filter((id) => this.rowById().get(id)?.used.length);
+    return !live.length ? 'unavailable' : live.length < s.resources.length ? 'partial' : 'available';
+  }
+  enabledCount(cells: string[]): number { return cells.filter((c) => this.states().get(c) !== 'off').length; }
+  canEditTree(): boolean { return !!this.editing() && !this.editing()!.locked && this.access.can('rbac.role:modify') && !this.busy(); }
+  cellLabel(c: string): string {
+    const [row, verb] = c.split(':');
+    const endpoints = this.rowById().get(row)?.endpoints?.filter((e) => e.verb === verb) ?? [];
+    return `${this.verbLabel(verb)} ${this.rowById().get(row)?.description || row}${endpoints.length ? ` (${endpoints.length} API)` : ''}`;
+  }
+  toggleCell(c: string) {
+    const [row, verb] = c.split(':');
+    if (this.states().get(c) !== 'inh') this.toggle(row, verb as RbacVerb);
+  }
+  setCells(cells: string[], enabled: boolean) {
+    if (!this.canEditTree()) return;
+    const next = new Set(this.work());
+    for (const c of cells) {
+      if (this.states().get(c) === 'inh') continue;
+      if (enabled) next.add(c); else next.delete(c);
+    }
+    this.work.set(next);
+    this.saved.set(false);
+  }
 
   /** Rows that exist at all (some endpoint uses a cell on them). */
   private readonly liveRows = computed(() => this.resources().filter((r) => r.used.length));
@@ -498,11 +606,11 @@ export class PermissionMatrix implements OnInit {
     return !row.tenantTypes.length || (scope !== 'PLATFORM' && row.tenantTypes.includes(scope));
   }
 
-  /** Roles of the org type: platform roles for TPTS; org roles holding anything that applies there. */
+  /** Roles of the selected portal: platform roles for admin; org roles that fit the org type. */
   readonly scopeRoles = computed(() => {
     const s = this.scope(), rows = this.rowById();
     return this.roles()
-      .filter((r) => s === 'PLATFORM' || r.kind === 'ORG')
+      .filter((r) => s === 'PLATFORM' ? r.kind === 'PLATFORM' : r.kind === 'ORG')
       .filter((r) => s === 'PLATFORM' || !r.permissions.length || r.permissions.some((c) => {
         const row = rows.get(c.split(':')[0]);
         return !row || this.fitsType(row, s);

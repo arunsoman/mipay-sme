@@ -21,7 +21,8 @@ services:
   rbac:
     restart: unless-stopped
     environment:
-      RBAC_ENVIRONMENT: sandbox        # e2e fixtures load (demo orgs prefixed e2e-); production loads none
+      RBAC_ENVIRONMENT: sandbox
+      RBAC_FIXTURES_FILE: ""          # a fresh public install starts without demo tenants or assignments
       RBAC_CORE_AUTHORIZED_UNTIL: "2026-12-31T23:59:59Z" # temporary portal authorization bridge; cut over to RBAC before expiry
   comms:
     restart: unless-stopped

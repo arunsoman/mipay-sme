@@ -3,7 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AccessService } from '../../../../../shared/web-core/access';
-import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../shared/web-core/menu';
+import { linkFor, menuFor } from '../../../../../shared/web-core/menu';
+import { liveNavigation } from '../../../../../shared/web-core/portal-permission-catalogue';
 import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
@@ -24,21 +25,19 @@ import { MeView } from '../../core/api';
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
         <div class="brand">MiPay <span>Admin</span></div>
         <nav>
-          @for (entry of nav(); track $index) {
-            @if (entry.kind === 'group') {
-              <div class="navgroup">{{ entry.label }}</div>
-            } @else {
-              <a [routerLink]="entry.link" routerLinkActive="active" (click)="closeNav()">{{ entry.label }}</a>
+          @for (menu of nav(); track menu.id) {
+            <div class="navgroup">{{ menu.label }}</div>
+            @for (screen of menu.screens; track screen.id) {
+              <a [routerLink]="screen.link" routerLinkActive="active" (click)="closeNav()">{{ screen.label }}</a>
             }
           }
         </nav>
         <div class="navfoot">
           <div class="who">
             <div class="name">{{ who().name }}</div>
-            <div class="roles">
-              <span class="chip teal">{{ who().role }}</span>
-              @if (who().orgType) {<span class="chip">{{ who().orgType }} · {{ who().orgRole }}</span>}
-            </div>
+            @if (accessLabel(); as label) {
+              <div class="roles"><span class="chip teal">{{ label }}</span></div>
+            }
           </div>
           <button class="ghost wide" (click)="logout()">Sign out</button>
         </div>
@@ -121,9 +120,9 @@ export class Shell implements OnInit {
   readonly access = inject(AccessService);
   /** Sidebar from THE menu registry: every point declares its own permission rows
    *  (no ungated items), so nav and the route guards below read one truth. */
-  readonly nav = computed<MenuNavEntry[]>(() =>
-    navEntries('admin', (item) => this.access.can(...item.perm)),
-  );
+  readonly nav = computed(() => liveNavigation('PLATFORM',
+    (resources) => this.access.can(...resources),
+    (link) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); }));
   /** Pages and the permission rows that show them (registry order) - the redirect
    *  logic below pairs with the sidebar and the route guards by construction. */
   private readonly pages: [string, string[]][] = menuFor('admin').map(
@@ -167,12 +166,15 @@ export class Shell implements OnInit {
 
   who() {
     const me = this.me() ?? this.auth.me();
-    return {
-      name: me?.name ?? '…',
-      role: me?.role ?? '',
-      orgType: me?.orgType ?? null,
-      orgRole: me?.orgRole ?? null,
-    };
+    return { name: me?.name ?? '…' };
+  }
+
+  accessLabel(): string {
+    if (this.auth.me()?.username === 'installer') return 'Installer';
+    return this.access.roles().map((role) => {
+      const name = role.split('@')[0].replace(/_/g, ' ');
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }).join(', ');
   }
 
   simulated() {

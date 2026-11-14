@@ -6,7 +6,8 @@ import { PortalAuthService } from '../../core/auth';
 import { OrgView, statusClass } from '../../core/api';
 import { PORTAL } from '../../portal.config';
 import { AccessService } from '../../../../../shared/web-core/access';
-import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../shared/web-core/menu';
+import { linkFor, menuFor } from '../../../../../shared/web-core/menu';
+import { liveNavigation } from '../../../../../shared/web-core/portal-permission-catalogue';
 
 /**
  * Portal shell ([layout]/C11): a left navigation sidebar. On screens wider
@@ -24,11 +25,10 @@ import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../share
       <aside class="side" [class.open]="navOpen()" aria-label="Main navigation">
         <div class="brand">MiPay <span>{{ portal.label }}</span></div>
         <nav>
-          @for (entry of nav(); track $index) {
-            @if (entry.kind === 'group') {
-              <div class="navgroup">{{ entry.label }}</div>
-            } @else {
-              <a [routerLink]="entry.link" routerLinkActive="active" (click)="closeNav()">{{ entry.label }}</a>
+          @for (menu of nav(); track menu.id) {
+            <div class="navgroup">{{ menu.label }}</div>
+            @for (screen of menu.screens; track screen.id) {
+              <a [routerLink]="screen.link" routerLinkActive="active" (click)="closeNav()">{{ screen.label }}</a>
             }
           }
         </nav>
@@ -40,7 +40,7 @@ import { MenuNavEntry, linkFor, menuFor, navEntries } from '../../../../../share
                 <span class="chip teal">{{ o.name }}</span>
                 <span class="chip {{ cls(o.effectiveStatus) }}">{{ o.effectiveStatus }}</span>
               }
-              <span class="chip">{{ auth.me()?.orgRole }}</span>
+              @for (role of access.roles(); track role) {<span class="chip">{{ roleLabel(role) }}</span>}
             </div>
           </div>
           <button class="ghost wide" (click)="logout()">Sign out</button>
@@ -116,6 +116,7 @@ export class Shell implements OnInit {
   readonly portal = PORTAL;
   readonly org = signal<OrgView | null>(null);
   readonly cls = statusClass;
+  readonly roleLabel = (role: string) => role.split('@')[0].replace(/_/g, ' ');
   readonly navOpen = signal(false);
 
   closeNav() {
@@ -152,9 +153,9 @@ export class Shell implements OnInit {
   /** Sidebar from THE menu registry (shared/web-core/menu.ts): every point
    *  declares its own permission rows - no ungated items, one label per menu
    *  point across all portals. */
-  readonly nav = computed<MenuNavEntry[]>(() =>
-    navEntries('org', (item) => this.access.can(...item.perm)),
-  );
+  readonly nav = computed(() => liveNavigation(this.portal.orgType,
+    (resources) => this.access.can(...resources),
+    (link) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); }));
 
   can(...rows: string[]) {
     return this.access.can(...rows);
