@@ -168,8 +168,5 @@ export class Shell implements OnInit {
     window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }
 
-  async logout() {
-    this.auth.logout();
-    await this.router.navigateByUrl('/login');
-  }
+  logout() { this.auth.logout(); }
 }

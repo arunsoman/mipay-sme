@@ -181,8 +181,5 @@ export class Shell implements OnInit {
     return (this.me() ?? this.auth.me())?.simulated ?? true;
   }
 
-  async logout() {
-    this.auth.logout();
-    await this.router.navigateByUrl('/login');
-  }
+  logout() { this.auth.logout(); }
 }

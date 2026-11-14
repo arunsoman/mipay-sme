@@ -140,6 +140,11 @@ func GenerateES256() (crypto.Signer, map[string]any, error) {
 
 // SignProof creates a DPoP proof JWS (client side).
 func SignProof(key crypto.Signer, jwk map[string]any, htm, htu, ath string) (string, error) {
+	return SignProofWithNonce(key, jwk, htm, htu, ath, "")
+}
+
+// SignProofWithNonce answers an authorization server's DPoP-Nonce challenge.
+func SignProofWithNonce(key crypto.Signer, jwk map[string]any, htm, htu, ath, nonce string) (string, error) {
 	alg := ""
 	switch key.(type) {
 	case *ecdsa.PrivateKey:
@@ -157,6 +162,9 @@ func SignProof(key crypto.Signer, jwk map[string]any, htm, htu, ath string) (str
 	}
 	if ath != "" {
 		claims["ath"] = ath
+	}
+	if nonce != "" {
+		claims["nonce"] = nonce
 	}
 	hdr := map[string]any{"typ": TypJWT, "jwk": jwk}
 	return jwtx.SignJWSWithHeader(alg, hdr, claims, key)

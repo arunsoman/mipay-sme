@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/x509"
 	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -21,28 +22,156 @@ import (
 	"trustplane/internal/jwtx"
 )
 
+// sessionIdentity validates the token that the gateway, rather than browser
+// JavaScript, holds for this session. Every request gets a fresh DPoP proof.
+func (g *Gateway) sessionIdentity(r *http.Request, ses *Session) (*identity, int, string) {
+	if ses.UID == "" || ses.Sub == "" || ses.DPoPPrivateJWK == "" {
+		return nil, 401, "login_required"
+	}
+	key, err := pemToECKey(ses.DPoPPrivateJWK)
+	if err != nil {
+		return nil, 401, "login_required"
+	}
+	_, claims, err := g.jwks.verify(ses.AccessToken)
+	if err != nil {
+		return nil, 401, "login_required"
+	}
+	exp, _ := jwtx.ClaimInt64(claims, "exp")
+	if exp <= time.Now().Add(30*time.Second).Unix() {
+		if err := g.refreshSession(r.Context(), ses, key); err != nil {
+			_ = g.store.Delete(r.Context(), ses.ID)
+			return nil, 401, "login_required"
+		}
+	}
+	jwk, err := jwkFromSigner(key)
+	if err != nil {
+		return nil, 503, "server_error: dpop key"
+	}
+	htu, err := dpop.CanonicalHTU("https://" + externalHost(r) + r.URL.EscapedPath())
+	if err != nil {
+		return nil, 400, "invalid_request: url"
+	}
+	proof, err := dpop.SignProof(key, jwk, r.Method, htu, ses.AccessToken)
+	if err != nil {
+		return nil, 503, "server_error: dpop proof"
+	}
+	r.Header.Set("Authorization", "DPoP "+ses.AccessToken)
+	r.Header.Set("DPoP", proof)
+	ident, status, code := g.authenticate(r)
+	r.Header.Del("Authorization")
+	r.Header.Del("DPoP")
+	if status != 0 {
+		return nil, status, code
+	}
+	if ident.uid != ses.UID || ident.sub != ses.Sub || ident.clientID != ses.ClientID {
+		return nil, 401, "login_required"
+	}
+	return ident, 0, ""
+}
+
+// refreshSession retains the session's DPoP key and refresh-token binding.
+func (g *Gateway) refreshSession(ctx context.Context, ses *Session, key crypto.Signer) error {
+	if ses.RefreshToken == "" {
+		return fmt.Errorf("refresh token missing")
+	}
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {ses.RefreshToken}}
+	status, body, err := g.postToken(ctx, form, key)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("refresh rejected: %d", status)
+	}
+	var tr tokenResponse
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return err
+	}
+	if tr.AccessToken == "" {
+		return fmt.Errorf("refresh returned no access token")
+	}
+	if tr.RefreshToken == "" {
+		tr.RefreshToken = ses.RefreshToken
+	}
+	if err := g.store.UpdateTokens(ctx, ses.ID, tr.AccessToken, tr.RefreshToken); err != nil {
+		return err
+	}
+	ses.AccessToken, ses.RefreshToken = tr.AccessToken, tr.RefreshToken
+	return nil
+}
+
+// postToken retries once with a fresh proof and client assertion if the IdP
+// asks for a DPoP nonce. The code verifier or refresh token is never sent to
+// another origin: the mesh URL was checked against discovery at startup.
+func (g *Gateway) postToken(ctx context.Context, form url.Values, key crypto.Signer) (int, []byte, error) {
+	htu, err := dpop.CanonicalHTU(g.bffTokenHTU)
+	if err != nil {
+		return 0, nil, err
+	}
+	jwk, err := jwkFromSigner(key)
+	if err != nil {
+		return 0, nil, err
+	}
+	nonce := ""
+	for attempt := 0; attempt < 2; attempt++ {
+		assertion, err := g.clientAssertion(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		form.Set("client_id", g.bffID)
+		form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+		form.Set("client_assertion", assertion)
+		proof, err := dpop.SignProofWithNonce(key, jwk, http.MethodPost, htu, "", nonce)
+		if err != nil {
+			return 0, nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bffTokenURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return 0, nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("DPoP", proof)
+		resp, err := g.up["idp"].client.Do(req)
+		if err != nil {
+			return 0, nil, err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return 0, nil, readErr
+		}
+		challenge := resp.Header.Get("DPoP-Nonce")
+		if attempt == 0 && challenge != "" && (resp.StatusCode == 400 || resp.StatusCode == 401) {
+			nonce = challenge
+			continue
+		}
+		return resp.StatusCode, body, nil
+	}
+	return 0, nil, fmt.Errorf("DPoP nonce retry exhausted")
+}
+
 // bff is the gateway's Browser-for-Frontend (Lane A, §4): a confidential
 // FAPI 2.0 client that signs users in via the IdP and holds their tokens.
+
 type bff struct {
-	store     *SessionStore
-	clientID  string
-	signKey   crypto.Signer // gateway-bff private key for client_assertion
-	signKid   string
-	idpBase   string        // https://idp:8443 (mesh)
-	absLife   time.Duration // session absolute lifetime
-	idleLife  time.Duration // session idle timeout
+	store    *SessionStore
+	clientID string
+	signKey  crypto.Signer // gateway-bff private key for client_assertion
+	signKid  string
+	idpBase  string        // https://idp:8443 (mesh)
+	absLife  time.Duration // session absolute lifetime
+	idleLife time.Duration // session idle timeout
 }
 
 // loginTransaction is a short-lived login attempt (5 min).
 type loginTransaction struct {
-	State           string    `json:"state"`
-	Nonce           string    `json:"nonce"`
-	CodeVerifier    string    `json:"code_verifier"`
-	ReturnTo        string    `json:"return_to"`
-	Host            string    `json:"host"` // original Host for callback redirect_uri
-	DPoPPrivatePEM  string    `json:"dpop_private_pem"` // session DPoP private key (PEM)
-	DPoPJKT         string    `json:"dpop_jkt"`           // cnf.jkt sent to the IdP
-	CreatedAt       time.Time `json:"created_at"`
+	State          string    `json:"state"`
+	Nonce          string    `json:"nonce"`
+	CodeVerifier   string    `json:"code_verifier"`
+	ReturnTo       string    `json:"return_to"`
+	Host           string    `json:"host"`             // original Host for callback redirect_uri
+	DPoPPrivatePEM string    `json:"dpop_private_pem"` // session DPoP private key (PEM)
+	DPoPJKT        string    `json:"dpop_jkt"`         // cnf.jkt sent to the IdP
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // txStore holds in-flight login transactions (memory, 5 min TTL). Requests run
@@ -75,12 +204,97 @@ func (t *txStore) pop(id string) (*loginTransaction, bool) {
 
 var loginTx = newTxStore()
 
+// loadBFFMetadata pins the server-side OAuth flow to the issuer's discovery
+// document. The mesh transport is private, but every advertised endpoint must
+// be on the configured public issuer origin before its path is used.
+func (g *Gateway) loadBFFMetadata(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimSuffix(g.bffIDP, "/")+"/.well-known/openid-configuration", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := g.up["idp"].client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("discovery status %d", resp.StatusCode)
+	}
+	var m struct {
+		Issuer        string   `json:"issuer"`
+		Authorization string   `json:"authorization_endpoint"`
+		PAR           string   `json:"pushed_authorization_request_endpoint"`
+		Token         string   `json:"token_endpoint"`
+		Revoke        string   `json:"revocation_endpoint"`
+		Introspect    string   `json:"introspection_endpoint"`
+		JWKS          string   `json:"jwks_uri"`
+		RequirePAR    bool     `json:"require_pushed_authorization_requests"`
+		PKCE          []string `json:"code_challenge_methods_supported"`
+		AuthMethods   []string `json:"token_endpoint_auth_methods_supported"`
+		DPoP          []string `json:"dpop_signing_alg_values_supported"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&m); err != nil {
+		return err
+	}
+	if m.Issuer != g.cfg.Server.Issuer || m.Issuer != strings.TrimSuffix(g.bffIDPPublic, "/") {
+		return fmt.Errorf("issuer mismatch")
+	}
+	if !m.RequirePAR || !containsString(m.PKCE, "S256") || !containsString(m.AuthMethods, "private_key_jwt") || !containsString(m.DPoP, "ES256") {
+		return fmt.Errorf("required FAPI capabilities missing")
+	}
+	if g.bffAuthURL, _, err = g.bffEndpoint(m.Authorization); err != nil {
+		return err
+	}
+	if _, g.bffPARURL, err = g.bffEndpoint(m.PAR); err != nil {
+		return err
+	}
+	if g.bffTokenHTU, g.bffTokenURL, err = g.bffEndpoint(m.Token); err != nil {
+		return err
+	}
+	if _, g.bffRevokeURL, err = g.bffEndpoint(m.Revoke); err != nil {
+		return err
+	}
+	if _, g.bffIntroURL, err = g.bffEndpoint(m.Introspect); err != nil {
+		return err
+	}
+	if _, g.bffJWKSURL, err = g.bffEndpoint(m.JWKS); err != nil {
+		return err
+	}
+	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Gateway) bffEndpoint(raw string) (public, mesh string, err error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", "", err
+	}
+	iss, err := url.Parse(g.cfg.Server.Issuer)
+	if err != nil {
+		return "", "", err
+	}
+	if u.Scheme != "https" || u.Host != iss.Host || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path == "" {
+		return "", "", fmt.Errorf("discovery endpoint is outside issuer: %q", raw)
+	}
+	return raw, strings.TrimSuffix(g.bffIDP, "/") + u.EscapedPath(), nil
+}
+
 // ---------------------------------------------------------------- routes
 
 // bff handles /auth/* directly (Lane A). These routes are "auth: none"
 // (login, callback, session, logout) and are invoked from Gateway.serve
 // before deny-by-default route matching.
 func (g *Gateway) bff(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	path := r.URL.Path
 	if g.store == nil || g.bffID == "" {
 		writeErr(w, 404, "not_found: browser sessions are not configured")
@@ -91,7 +305,7 @@ func (g *Gateway) bff(w http.ResponseWriter, r *http.Request) {
 		g.login(w, r)
 	case path == "/auth/callback" && r.Method == http.MethodGet:
 		g.callback(w, r)
-	case path == "/auth/logout" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
+	case path == "/auth/logout" && r.Method == http.MethodPost:
 		g.logout(w, r)
 	case path == "/auth/session" && r.Method == http.MethodGet:
 		g.session(w, r)
@@ -102,11 +316,30 @@ func (g *Gateway) bff(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (g *Gateway) bffHostAllowed(host string) bool {
+	for _, allowed := range g.cfg.BFF.Hosts {
+		if strings.EqualFold(host, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------- login
 
 // login starts a FAPI 2.0 authorization flow: PAR → 302 to IdP /authorize.
 // The browser never sees tokens; the gateway holds them in a session.
 func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
+	// A cross-origin navigation or subresource request must not silently start
+	// an authorization flow in the user's browser (FAPI login CSRF rule).
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		writeErr(w, http.StatusForbidden, "login_initiation_forbidden")
+		return
+	}
+	if dest := r.Header.Get("Sec-Fetch-Dest"); dest != "" && dest != "document" {
+		writeErr(w, http.StatusForbidden, "login_initiation_forbidden")
+		return
+	}
 	q := r.URL.Query()
 	returnTo := q.Get("return_to")
 	if returnTo == "" {
@@ -140,17 +373,18 @@ func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
 	state := jwtx.RandB64(24)
 	nonce := jwtx.RandB64(24)
 	verifier := jwtx.RandB64(32)
-	sum := sha256.Sum256([]byte(verifier)); challenge := jwtx.B64UEnc(sum[:])
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := jwtx.B64UEnc(sum[:])
 
 	tx := &loginTransaction{
-		State:           state,
-		Nonce:           nonce,
-		CodeVerifier:    verifier,
-		ReturnTo:        returnTo,
-		Host:            externalHost(r),
-		DPoPPrivatePEM:  privatePEM,
-		DPoPJKT:         dpopJKT,
-		CreatedAt:       time.Now(),
+		State:          state,
+		Nonce:          nonce,
+		CodeVerifier:   verifier,
+		ReturnTo:       returnTo,
+		Host:           externalHost(r),
+		DPoPPrivatePEM: privatePEM,
+		DPoPJKT:        dpopJKT,
+		CreatedAt:      time.Now(),
 	}
 	loginTx.put(state, tx)
 
@@ -173,7 +407,7 @@ func (g *Gateway) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authURL := g.bffIDPPublic + "/authorize?client_id=" + urlEscape(g.bffID) +
+	authURL := g.bffAuthURL + "?client_id=" + urlEscape(g.bffID) +
 		"&request_uri=" + urlEscape(requestURI)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -198,7 +432,7 @@ func (g *Gateway) par(ctx context.Context, host, state, nonce, challenge, dpopJK
 	form.Set("nonce", nonce)
 	form.Set("dpop_jkt", dpopJKT)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bffIDP+"/par",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bffPARURL,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
@@ -269,6 +503,10 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid_state: transaction expired")
 		return
 	}
+	if !strings.EqualFold(tx.Host, externalHost(r)) {
+		writeErr(w, 400, "invalid_state: callback host mismatch")
+		return
+	}
 	// Clear the transaction cookie.
 	http.SetCookie(w, &http.Cookie{Name: "__Host-mp_tx", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
 
@@ -298,23 +536,23 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request) {
 
 	// Build the session.
 	ses := &Session{
-		ID:             jwtx.RandB64(32),
-		Sub:            sub,
-		UID:            idString(idClaims, "uid"),
-		ClientID:       g.bffID,
-		CSRF:           jwtx.RandB64(24),
-		OrgID:          idString(idClaims, "org_id"),
-		ACR:            idString(idClaims, "acr"),
-		AuthTime:       idInt64(idClaims, "auth_time"),
-		Issuer:         idString(idClaims, "iss"),
-		Audience:       idString(idClaims, "aud"),
-		AccessToken:    tokens.AccessToken,
-		RefreshToken:   tokens.RefreshToken,
-		IDToken:        tokens.IDToken,
-		DPoPJKT:        tx.DPoPJKT,
-		CreatedAt:      time.Now(),
-		ExpiresAt:      time.Now().Add(g.bffAbs),
-		IdleAt:         time.Now(),
+		ID:           jwtx.RandB64(32),
+		Sub:          sub,
+		UID:          idString(idClaims, "uid"),
+		ClientID:     g.bffID,
+		CSRF:         jwtx.RandB64(24),
+		OrgID:        idString(idClaims, "org_id"),
+		ACR:          idString(idClaims, "acr"),
+		AuthTime:     idInt64(idClaims, "auth_time"),
+		Issuer:       idString(idClaims, "iss"),
+		Audience:     idString(idClaims, "aud"),
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		IDToken:      tokens.IDToken,
+		DPoPJKT:      tx.DPoPJKT,
+		CreatedAt:    time.Now(),
+		ExpiresAt:    time.Now().Add(g.bffAbs),
+		IdleAt:       time.Now(),
 	}
 	if amr, ok := idClaims["amr"].([]any); ok {
 		for _, a := range amr {
@@ -332,6 +570,9 @@ func (g *Gateway) callback(w http.ResponseWriter, r *http.Request) {
 	// proofs for this session's API calls.
 	if err := g.store.SetDPoPKey(r.Context(), ses.ID, tx.DPoPPrivatePEM); err != nil {
 		log.Printf("[gateway] bff callback store DPoP key failed: %v", err)
+		_ = g.store.Delete(r.Context(), ses.ID)
+		writeErr(w, 500, "server_error: session")
+		return
 	}
 
 	// __Host-mp_sess: the browser's only handle on this session.
@@ -361,50 +602,14 @@ type tokenResponse struct {
 // client_assertion is sent in the request body (RFC 7523); the DPoP proof is
 // in the DPoP request header.
 func (g *Gateway) tokenExchange(ctx context.Context, code, verifier, redirectURI string, dpopKey crypto.Signer) (*tokenResponse, error) {
-	assertion, err := g.clientAssertion(ctx)
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {code},
+		"code_verifier": {verifier}, "redirect_uri": {redirectURI}}
+	status, body, err := g.postToken(ctx, form, dpopKey)
 	if err != nil {
 		return nil, err
 	}
-	// The request goes over the mesh (bffIDP), but the IdP checks htu against its public
-	// issuer URL, so the proof names the issuer's token endpoint.
-	htu, err := dpop.CanonicalHTU(g.cfg.Server.Issuer + "/token")
-	if err != nil {
-		return nil, err
-	}
-	jwk, err2 := jwkFromSigner(dpopKey)
-	if err2 != nil {
-		return nil, err2
-	}
-	proof, err := dpop.SignProof(dpopKey, jwk, "POST", htu, "")
-	if err != nil {
-		return nil, err
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("code_verifier", verifier)
-	form.Set("redirect_uri", redirectURI)
-	form.Set("client_id", g.bffID)
-	form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-	form.Set("client_assertion", assertion)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bffIDP+"/token",
-		strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("DPoP", proof)
-
-	resp, err := g.up["idp"].client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("token status %d: %s", resp.StatusCode, string(body))
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("token status %d: %s", status, string(body))
 	}
 	var tr tokenResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
@@ -420,16 +625,27 @@ func (g *Gateway) tokenExchange(ctx context.Context, code, verifier, redirectURI
 func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 	ses := g.currentSession(r)
 	if ses != nil {
+		csrf := r.Header.Get("X-CSRF")
+		if csrf == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+			csrf = r.FormValue("csrf")
+		}
+		if !csrfMatches(csrf, ses.CSRF) {
+			writeErr(w, http.StatusForbidden, "csrf_required")
+			return
+		}
 		// Revoke refresh token at the IdP (best effort).
 		g.revokeRefresh(r.Context(), ses.RefreshToken)
 		g.store.Delete(r.Context(), ses.ID)
 	}
 	http.SetCookie(w, &http.Cookie{Name: "__Host-mp_sess", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
 	http.SetCookie(w, &http.Cookie{Name: "__Host-mp_tx", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
-	http.Redirect(w, r, g.bffIDP+"/logout", http.StatusFound)
+	http.Redirect(w, r, g.bffIDPPublic+"/logout", http.StatusSeeOther)
 }
 
 func (g *Gateway) revokeRefresh(ctx context.Context, refreshToken string) {
+	if refreshToken == "" {
+		return
+	}
 	assertion, err := g.clientAssertion(ctx)
 	if err != nil {
 		return
@@ -440,10 +656,15 @@ func (g *Gateway) revokeRefresh(ctx context.Context, refreshToken string) {
 	form.Set("client_id", g.bffID)
 	form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
 	form.Set("client_assertion", assertion)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, g.bffIDP+"/revoke",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bffRevokeURL,
 		strings.NewReader(form.Encode()))
+	if err != nil {
+		return
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	g.up["idp"].client.Do(req) // nolint: errcheck (best effort)
+	if resp, err := g.up["idp"].client.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }
 
 // ---------------------------------------------------------------- session
@@ -456,7 +677,8 @@ func (g *Gateway) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Extend idle lifetime on activity.
-	_ = g.store.Touch(r.Context(), ses.ID, g.bffIdle)
+	_ = g.store.Touch(r.Context(), ses.ID)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"sub":        ses.Sub,
@@ -547,7 +769,15 @@ func (g *Gateway) currentSession(r *http.Request) *Session {
 	if err != nil {
 		return nil
 	}
+	if time.Since(ses.IdleAt) > g.bffIdle {
+		_ = g.store.Delete(r.Context(), ses.ID)
+		return nil
+	}
 	return ses
+}
+
+func csrfMatches(got, want string) bool {
+	return got != "" && want != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // ---------------------------------------------------------------- helpers

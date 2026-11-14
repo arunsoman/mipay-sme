@@ -54,7 +54,7 @@ services:
       pg:
         condition: service_healthy
     environment:
-      IDP_ISSUER: https://idp.fapi.local:8443
+      IDP_ISSUER: ${IDP_ISSUER:-https://idp.fapi.local:8443}
       IDP_TLS_CERT: /pki/idp-server.pem
       IDP_TLS_KEY: /pki/idp-server-key.pem
       IDP_INTERNAL_CA: /pki/platform-ca.pem
@@ -193,6 +193,8 @@ services:
         condition: service_healthy
     environment:
       GATEWAY_CONFIG: /config/gateway/routes.yaml
+      GATEWAY_ISSUER: ${IDP_ISSUER:-https://idp.fapi.local:8443}
+      GATEWAY_IDP_PUBLIC_BASE: ${IDP_ISSUER:-https://idp.fapi.local:8443}
       GATEWAY_LISTEN: ":8443"
       GATEWAY_DB_URL: postgres://platform:platform-dev@pg:5432/gateway?sslmode=disable
       GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:-}

@@ -15,7 +15,7 @@ type Config struct {
 	Introspection IntrospectionCfg    `yaml:"introspection"`
 	Limits        LimitsCfg           `yaml:"limits"`
 	Routes        []Route             `yaml:"routes"`
-	BFF           BFFCfg              `yaml:"bff"`          // Lane A: browser BFF session layer
+	BFF           BFFCfg              `yaml:"bff"` // Lane A: browser BFF session layer
 }
 
 type ServerCfg struct {
@@ -111,6 +111,12 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if v := os.Getenv("GATEWAY_ISSUER"); v != "" {
+		c.Server.Issuer = v
+	}
+	if v := os.Getenv("GATEWAY_IDP_PUBLIC_BASE"); v != "" {
+		c.BFF.IDPPublicBase = v
+	}
 	if v := os.Getenv("GATEWAY_DB_URL"); v != "" {
 		c.BFF.DBURL = v
 	}
@@ -118,7 +124,7 @@ func (c *Config) validate() error {
 		c.BFF.AbsLifeSec = 12 * 3600 // 12 h org users
 	}
 	if c.BFF.IdleLifeSec == 0 {
-		c.BFF.IdleLifeSec = 30 * 60   // 30 min idle
+		c.BFF.IdleLifeSec = 30 * 60 // 30 min idle
 	}
 	if c.BFF.IDPBase == "" {
 		c.BFF.IDPBase = "https://idp:8443"
@@ -126,8 +132,13 @@ func (c *Config) validate() error {
 	if c.BFF.IDPPublicBase == "" {
 		c.BFF.IDPPublicBase = c.BFF.IDPBase
 	}
-	if c.BFF.IDPPublicBase == "" {
-		c.BFF.IDPPublicBase = c.BFF.IDPBase
+	if c.BFF.ClientID != "" && len(c.BFF.Hosts) == 0 {
+		return fmt.Errorf("bff.hosts must list exact browser hosts")
+	}
+	for _, host := range c.BFF.Hosts {
+		if host == "" || !forwardedHostRe.MatchString(host) || strings.Contains(host, "*") {
+			return fmt.Errorf("invalid bff host %q", host)
+		}
 	}
 	if c.Server.Issuer == "" || c.Server.ClientCA == "" || c.Server.ContextSecret == "" {
 		return fmt.Errorf("server.issuer/client_ca/context_secret are required")
@@ -149,14 +160,20 @@ func (c *Config) validate() error {
 		if r.Host == "" || r.Path == "" || r.Upstream == "" {
 			return fmt.Errorf("route #%d: host/path/upstream required", i)
 		}
-		if r.Auth != "none" && r.Auth != "token" {
-			return fmt.Errorf("route %s%s: auth must be none|token (deny-by-default)", r.Host, r.Path)
+		if r.Auth != "none" && r.Auth != "token" && r.Auth != "session" {
+			return fmt.Errorf("route %s%s: auth must be none|token|session (deny-by-default)", r.Host, r.Path)
 		}
 		if _, ok := c.Upstreams[r.Upstream]; !ok {
 			return fmt.Errorf("route %s%s: unknown upstream %q", r.Host, r.Path, r.Upstream)
 		}
 		if r.Auth == "token" && len(r.Scopes) == 0 && r.Permission == "" {
 			return fmt.Errorf("route %s%s: token route without scopes or permission policy", r.Host, r.Path)
+		}
+		if r.Auth == "session" && r.Upstream != "mipay" {
+			return fmt.Errorf("route %s%s: session auth requires the mipay upstream", r.Host, r.Path)
+		}
+		if r.Auth == "session" && !containsString(c.BFF.Hosts, r.Host) {
+			return fmt.Errorf("route %s%s: session host is not allowed for BFF login", r.Host, r.Path)
 		}
 		if r.Permission != "" && !strings.HasPrefix(r.Permission, "rbac.") && !strings.Contains(r.Path, "{tenant}") {
 			// Business-domain permissions are tenant-scoped by construction;
@@ -182,12 +199,13 @@ func (c *Config) validate() error {
 // BFFCfg holds the gateway's confidential FAPI client configuration
 // (docs/plans/fapi2-design.md §4.2).
 type BFFCfg struct {
-	ClientID       string `yaml:"client_id"`      // gateway-bff OAuth client id
-	ClientKey      string `yaml:"client_key"`     // path to gateway-bff private key PEM
-	ClientKid      string `yaml:"client_kid"`     // key id for client_assertion
-	IDPBase        string `yaml:"idp_base"`       // https://idp:8443 (mesh, server-to-server)
-	IDPPublicBase  string `yaml:"idp_public_base"` // https://idp.fapi.local:8443 (browser redirect)
-	DBURL          string `yaml:"db_url"`         // Postgres for gw_sessions (env GATEWAY_DB_URL overrides)
-	AbsLifeSec     int    `yaml:"abs_life_seconds"`
-	IdleLifeSec    int    `yaml:"idle_life_seconds"`
+	Hosts         []string `yaml:"hosts"`           // exact browser hosts allowed to use /auth/*
+	ClientID      string   `yaml:"client_id"`       // gateway-bff OAuth client id
+	ClientKey     string   `yaml:"client_key"`      // path to gateway-bff private key PEM
+	ClientKid     string   `yaml:"client_kid"`      // key id for client_assertion
+	IDPBase       string   `yaml:"idp_base"`        // https://idp:8443 (mesh, server-to-server)
+	IDPPublicBase string   `yaml:"idp_public_base"` // https://idp.fapi.local:8443 (browser redirect)
+	DBURL         string   `yaml:"db_url"`          // Postgres for gw_sessions (env GATEWAY_DB_URL overrides)
+	AbsLifeSec    int      `yaml:"abs_life_seconds"`
+	IdleLifeSec   int      `yaml:"idle_life_seconds"`
 }

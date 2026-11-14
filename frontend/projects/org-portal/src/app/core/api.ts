@@ -1,5 +1,6 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { PORTAL } from '../portal.config';
+import { inject } from '@angular/core';
+import { BrowserSessionService } from '../../../../shared/web-core/session';
 
 // ---------------------------------------------------------------------------
 // API shapes (mirror com.mipay.sme.web.Dtos records used by /api/orgs/**)
@@ -180,12 +181,11 @@ export function refusal(e: unknown, hints: Record<string, string> = {}): string 
   return `Refused (${p.code ?? p.status}): ${p.detail}${hint}`;
 }
 
-/** Bearer token from this portal's own session into every /api call. */
+/** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway. */
 export const portalAuthInterceptor: HttpInterceptorFn = (req, next) => {
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(PORTAL.storageKey); } catch { /* storage blocked */ }
-  if (raw && req.url.startsWith('/api/') && !req.url.startsWith('/api/auth/')) {
-    req = req.clone({ setHeaders: { Authorization: `Bearer ${raw}` } });
+  const session = inject(BrowserSessionService).current();
+  if (req.url.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    if (session?.csrf) req = req.clone({ setHeaders: { 'X-CSRF': session.csrf } });
   }
   return next(req);
 };

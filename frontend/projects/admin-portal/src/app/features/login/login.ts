@@ -1,9 +1,5 @@
-import { MpAlert } from '../../../../../../src/app/design-system/molecules/alert';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
-import { AdminAuthService, PortalRefusedError } from '../../core/auth';
-import { readProblem } from '../../core/api';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { AdminAuthService } from '../../core/auth';
 
 /**
  * IdP-backed login: username + password posted to the platform identity
@@ -15,34 +11,11 @@ import { readProblem } from '../../core/api';
 @Component({
   selector: 'mpa-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpAlert, FormsModule, RouterLink],
   template: `
     <div class="stage">
-      <div class="head">
-        <div class="brand">MiPay <span>Admin</span></div>
-        <div class="sub">Sign in to manage your organizations</div>
-      </div>
-      <form class="card" (ngSubmit)="go()">
-        <label>Username
-          <input name="identifier" [(ngModel)]="identifier" placeholder="username (or phone)"
-                 autocomplete="username" required autofocus />
-        </label>
-        <label>Password
-          <input name="password" [(ngModel)]="password" type="password" placeholder="password"
-                 autocomplete="current-password" required />
-        </label>
-        <button class="primary" type="submit" [disabled]="busy()">
-          {{ busy() ? 'Signing in…' : 'Sign in' }}
-        </button>
-        @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
-        @if (devHint()) {<div class="hint">
-          Sandbox seed accounts —
-          <button type="button" class="use" (click)="useSeed('ops-admin-ops', 'ops123')">use ops-admin-ops</button>
-          <button type="button" class="use" (click)="useSeed('ops-admin-mindlabs', 'admin123')">use ops-admin-mindlabs</button>
-          <span class="simtag">SIMULATED</span>
-        </div>}
-      </form>
-      <div class="foot">Got a set-up link? <a routerLink="/activate">Set your password</a></div>
+      <div class="head"><div class="brand">MiPay <span>Admin</span></div>
+        <div class="sub">Sign in securely with MiPay Identity</div></div>
+      <div class="card"><button class="primary" type="button" (click)="go()">Continue to sign in</button></div>
     </div>
   `,
   styles: [`
@@ -62,44 +35,5 @@ import { readProblem } from '../../core/api';
 })
 export class Login {
   private readonly auth = inject(AdminAuthService);
-  private readonly router = inject(Router);
-
-  readonly busy = signal(false);
-  readonly error = signal('');
-  /** The sandbox seed accounts are only ever hinted on a local machine, never on a public host. */
-  readonly devHint = signal(['localhost', '127.0.0.1'].includes(location.hostname)
-    && localStorage.getItem('mp.admin.hint') !== 'off');
-
-  identifier = '';
-  password = '';
-
-  async go() {
-    this.error.set('');
-    this.busy.set(true);
-    this.identifier = this.identifier.trim();
-    try {
-      await this.auth.login(this.identifier, this.password);
-      await this.router.navigateByUrl(this.auth.me()?.username === 'installer' ? '/install' : '/onboarding');
-    } catch (e) {
-      if (e instanceof PortalRefusedError) {
-        this.error.set('Signed in, but this portal is restricted to ADMIN and platform staff accounts.');
-      } else {
-        const p = readProblem(e);
-        this.error.set(p.status === 0 || p.status >= 502
-          ? 'Can’t reach the MiPay server — check the portal address (the admin portal is http://localhost:4201) and that the backend is running.'
-          : p.status === 401 || p.status === 403
-            ? `Login failed for “${this.identifier}” — unknown user or wrong password. (If the browser autofilled the form, clear the fields before typing.)`
-            : `${p.title}: ${p.detail}`);
-      }
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  /** Sandbox only: replace (not append to) whatever the browser autofilled. */
-  useSeed(identifier: string, password: string) {
-    this.identifier = identifier;
-    this.password = password;
-    this.error.set('');
-  }
+  go() { this.auth.login(); }
 }

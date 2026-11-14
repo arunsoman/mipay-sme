@@ -74,9 +74,15 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, route *Route, 
 	}
 	// header allow-list (everything else is dropped — identity cannot leak,
 	// spoofed forwarding headers are never copied)
-	for _, h := range []string{"Cookie", "Accept", "Content-Type", "User-Agent", "Referer"} {
+	for _, h := range []string{"Accept", "Content-Type", "User-Agent", "Referer"} {
 		if v := r.Header.Get(h); v != "" {
 			outReq.Header.Set(h, v)
+		}
+	}
+	// The BFF session cookie is an edge credential and must never reach core.
+	if route.Auth != "session" {
+		if cookie := r.Header.Get("Cookie"); cookie != "" {
+			outReq.Header.Set("Cookie", cookie)
 		}
 	}
 	if up.cfg.ForwardAuthorization {

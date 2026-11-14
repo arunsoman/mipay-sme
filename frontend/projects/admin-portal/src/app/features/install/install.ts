@@ -70,5 +70,5 @@ export class Install {
   }
 
   async copy(link: string) { await navigator.clipboard.writeText(link); }
-  async logout() { this.auth.logout(); await this.router.navigateByUrl('/login'); }
+  logout() { this.auth.logout(); }
 }

@@ -49,6 +49,10 @@ clients:
       - "https://manufacturer.fapi.local/auth/callback"
       - "https://distributor.fapi.local/auth/callback"
       - "https://supplier.fapi.local/auth/callback"
+      - "https://admin.afriqpay.com/auth/callback"
+      - "https://manufacturer.afriqpay.com/auth/callback"
+      - "https://distributor.afriqpay.com/auth/callback"
+      - "https://supplier.afriqpay.com/auth/callback"
     scopes: [openid, offline_access]
     jwks_files:
       - /pki/clients/gateway-bff.pem

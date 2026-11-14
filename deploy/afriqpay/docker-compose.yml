@@ -40,6 +40,10 @@ services:
       APP_INSTALLER_PASSWORD: ${APP_INSTALLER_PASSWORD:-}
       APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
       APP_PUBLIC_BASE_URL: https://admin.afriqpay.com
+      APP_IDENTITY_MODE: ${APP_IDENTITY_MODE:-legacy}
+      APP_AUTH_PROVIDER: ${APP_AUTH_PROVIDER:-none}
+      APP_AUTH_ISSUER: ${IDP_ISSUER:-https://idp.fapi.local:8443}
+      APP_AUTH_URL: https://idp:8443
       APP_CORS_ALLOWED_ORIGINS: https://admin.afriqpay.com,https://manufacturer.afriqpay.com,https://distributor.afriqpay.com,https://supplier.afriqpay.com
       POSTGRES_URL: jdbc:postgresql://db:5432/mipay
       POSTGRES_USER: mipay

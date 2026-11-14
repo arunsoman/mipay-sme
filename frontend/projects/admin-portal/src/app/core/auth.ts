@@ -1,7 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { MeView, TokenView } from './api';
+import { MeView } from './api';
+import { BrowserSessionService } from '../../../../shared/web-core/session';
+import { AccessService } from '../../../../shared/web-core/access';
 
 /**
  * IdP-backed session for the admin portal (org spec [H6/M9]).
@@ -20,7 +22,8 @@ export class AdminAuthService {
   private readonly http = inject(HttpClient);
 
   readonly me = signal<MeView | null>(null);
-  readonly token = signal<string | null>(localStorage.getItem('mp.admin.token'));
+  private readonly session = inject(BrowserSessionService);
+  private readonly access = inject(AccessService);
 
   readonly role = computed(() => this.me()?.role ?? '');
   readonly orgId = computed(() => this.me()?.orgId ?? null);
@@ -31,42 +34,32 @@ export class AdminAuthService {
   readonly isPlatformStaff = computed(() =>
     this.role() === 'TPTS_OPS' || this.role() === 'MINDLABS_ADMIN');
   readonly isOrgAdmin = computed(() => this.orgRole() === 'ADMIN');
-  readonly isAdmin = computed(() => this.isPlatformStaff() || this.isOrgAdmin());
-  readonly loggedIn = computed(() => !!this.token() && !!this.me());
+  readonly isAdmin = computed(() => this.orgType() === 'PLATFORM' || this.isPlatformStaff() || this.isOrgAdmin());
+  readonly loggedIn = computed(() => !!this.session.current() && !!this.me());
 
-  /** Username (+password) login against the IdP; phone numbers also accepted. */
-  async login(identifier: string, password: string): Promise<void> {
-    const trimmed = identifier.trim();
-    const tv = await firstValueFrom(this.http.post<TokenView>('/api/auth/login', {
-      phone: trimmed,      // @NotBlank contract; harmless when username wins
-      password,
-      username: trimmed,   // username (or phone-as-identifier) resolves via the IdP
-    }));
-    localStorage.setItem('mp.admin.token', tv.token);
-    this.token.set(tv.token);
-    const me = await this.hydrate();
-    if (!me || !this.isAdmin()) {
-      this.logout();
-      throw new PortalRefusedError();
-    }
-  }
+  /** Start the gateway-owned FAPI authorization flow. */
+  login() { this.access.clear(); this.session.login('/onboarding'); }
 
-  /** Hydrate /api/me after a stored token so reloads keep the session. */
+  /** Hydrate /api/me after verifying the BFF session. */
   async hydrate(): Promise<MeView | null> {
-    if (!this.token()) return null;
+    if (!await this.session.load()) return null;
     try {
       const me = await firstValueFrom(this.http.get<MeView>('/api/me'));
       this.me.set(me);
       return me;
     } catch {
-      this.logout();
+      this.clear();
       return null;
     }
   }
 
   logout() {
-    localStorage.removeItem('mp.admin.token');
-    this.token.set(null);
+    this.clear();
+    this.session.logout();
+  }
+
+  private clear() {
+    this.access.clear();
     this.me.set(null);
   }
 }

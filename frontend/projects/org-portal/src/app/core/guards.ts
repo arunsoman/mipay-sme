@@ -6,11 +6,9 @@ import { PortalAuthService } from './auth';
 export const portalGuard: CanActivateFn = async () => {
   const auth = inject(PortalAuthService);
   const router = inject(Router);
-  if (!auth.token()) return router.createUrlTree(['/login']);
-  if (!auth.me()) await auth.hydrate();
+  if (!auth.me() && !await auth.hydrate()) return router.createUrlTree(['/login']);
   if (!auth.eligible()) {
-    auth.logout();
-    return router.createUrlTree(['/login']);
+    return router.createUrlTree(['/no-access']);
   }
   return true;
 };

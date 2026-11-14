@@ -52,6 +52,7 @@ introspection:
 
 bff:
   client_id: gateway-bff
+  hosts: [fapi.local, admin.fapi.local, manufacturer.fapi.local, distributor.fapi.local, supplier.fapi.local, admin.afriqpay.com, manufacturer.afriqpay.com, distributor.afriqpay.com, supplier.afriqpay.com]
   client_key: /pki/clients/gateway-bff.pem
   client_kid: gateway-bff
   idp_base: https://idp:8443
@@ -424,6 +425,40 @@ routes:
     methods: [GET, POST, PUT, DELETE, PATCH]
     upstream: mipay
     auth: none
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000
+
+  # Production portals: gateway-held OAuth tokens, cookie + CSRF at the browser.
+  - host: admin.afriqpay.com
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: session
+    scopes: [openid]
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000
+  - host: manufacturer.afriqpay.com
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: session
+    scopes: [openid]
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000
+  - host: distributor.afriqpay.com
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: session
+    scopes: [openid]
+    rate: {ip_per_min: 600, client_per_min: 300}
+    timeout_ms: 15000
+  - host: supplier.afriqpay.com
+    path: /api/**
+    methods: [GET, POST, PUT, DELETE, PATCH]
+    upstream: mipay
+    auth: session
+    scopes: [openid]
     rate: {ip_per_min: 600, client_per_min: 300}
     timeout_ms: 15000
 

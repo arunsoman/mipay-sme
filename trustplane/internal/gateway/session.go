@@ -10,12 +10,12 @@
 package gateway
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,17 +33,17 @@ import (
 // Session is an in-memory view of a browser session. Sensitive fields are
 // encrypted at rest in gw_sessions.
 type Session struct {
-	ID            string    `json:"-"` // session_id, never returned to the browser
-	Sub           string    `json:"sub"`
-	UID           string    `json:"uid"` // core user id from the ID token (RBAC subject)
-	ClientID      string    `json:"client_id"`
-	CSRF          string    `json:"csrf"`
-	OrgID         string    `json:"org_id,omitempty"` // org the user is acting in
-	ACR           string    `json:"acr"`
-	AMR           []string  `json:"amr,omitempty"`
-	AuthTime      int64     `json:"auth_time,omitempty"`
-	Issuer        string    `json:"iss,omitempty"`
-	Audience      string    `json:"aud,omitempty"`
+	ID       string   `json:"-"` // session_id, never returned to the browser
+	Sub      string   `json:"sub"`
+	UID      string   `json:"uid"` // core user id from the ID token (RBAC subject)
+	ClientID string   `json:"client_id"`
+	CSRF     string   `json:"csrf"`
+	OrgID    string   `json:"org_id,omitempty"` // org the user is acting in
+	ACR      string   `json:"acr"`
+	AMR      []string `json:"amr,omitempty"`
+	AuthTime int64    `json:"auth_time,omitempty"`
+	Issuer   string   `json:"iss,omitempty"`
+	Audience string   `json:"aud,omitempty"`
 
 	// Token material (encrypted at rest).
 	AccessToken  string `json:"-"`
@@ -53,12 +53,12 @@ type Session struct {
 	// Per-session DPoP key (§4.2): the gateway signs DPoP proofs for every
 	// API call this session makes. cnf.jkt of the tokens equals the
 	// thumbprint of this key.
-	DPoPJKT         string `json:"-"`
-	DPoPPrivateJWK  string `json:"-"` // JWK of the session's ES256 DPoP private key
+	DPoPJKT        string `json:"-"`
+	DPoPPrivateJWK string `json:"-"` // JWK of the session's ES256 DPoP private key
 
 	CreatedAt time.Time `json:"-"`
-	ExpiresAt time.Time `json:"-"`  // absolute lifetime
-	IdleAt    time.Time `json:"-"`  // last activity
+	ExpiresAt time.Time `json:"-"` // absolute lifetime
+	IdleAt    time.Time `json:"-"` // last activity
 	Revoked   bool      `json:"-"`
 }
 
@@ -237,16 +237,44 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	return ses, nil
 }
 
-// Touch updates idle_at and extends the absolute expiry while the session is
-// still within its window. Returns an error if the session is gone.
-func (s *SessionStore) Touch(ctx context.Context, id string, idle time.Duration) error {
+// Touch records activity without extending the absolute session lifetime.
+func (s *SessionStore) Touch(ctx context.Context, id string) error {
 	ctx, cancel := newCtx(3 * time.Second)
 	defer cancel()
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 		UPDATE gw_sessions
-		SET idle_at = now(), expires_at = now() + $2
-		WHERE session_id=$1 AND NOT revoked AND expires_at > now()`, id, idle)
-	return err
+		SET idle_at = now()
+		WHERE session_id=$1 AND NOT revoked AND expires_at > now()`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("session expired")
+	}
+	return nil
+}
+
+// UpdateTokens persists a refreshed, sender-constrained access token.
+func (s *SessionStore) UpdateTokens(ctx context.Context, id, accessToken, refreshToken string) error {
+	at, err := s.encrypt(accessToken)
+	if err != nil {
+		return err
+	}
+	rt, err := s.encrypt(refreshToken)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := newCtx(3 * time.Second)
+	defer cancel()
+	tag, err := s.pool.Exec(ctx, `UPDATE gw_sessions SET access_token_enc=$2, refresh_token_enc=$3
+		WHERE session_id=$1 AND NOT revoked AND expires_at > now()`, id, at, rt)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("session expired")
+	}
+	return nil
 }
 
 // Delete removes a session (logout).
@@ -268,26 +296,26 @@ func (s *SessionStore) RevokeBySub(ctx context.Context, sub string) (int64, erro
 
 // sessionRow mirrors gw_sessions columns.
 type sessionRow struct {
-	SessionID     string
-	Sub           string
-	UID           string
-	ClientID      string
-	CSRF          string
-	OrgID         string
-	ACR           string
-	AMR           string
-	AuthTime      int64
-	Issuer        string
-	Audience      string
-	AccessToken   string
-	RefreshToken  string
-	IDToken       string
-	DPoPJKT       string
-	DPoPPrivate   string
-	CreatedAt     time.Time
-	ExpiresAt     time.Time
-	IdleAt        time.Time
-	Revoked       bool
+	SessionID    string
+	Sub          string
+	UID          string
+	ClientID     string
+	CSRF         string
+	OrgID        string
+	ACR          string
+	AMR          string
+	AuthTime     int64
+	Issuer       string
+	Audience     string
+	AccessToken  string
+	RefreshToken string
+	IDToken      string
+	DPoPJKT      string
+	DPoPPrivate  string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	IdleAt       time.Time
+	Revoked      bool
 }
 
 // ensureSessionKey derives a 32-byte encryption key: base64(GATEWAY_SESSION_KEY)

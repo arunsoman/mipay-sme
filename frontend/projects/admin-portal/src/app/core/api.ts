@@ -1,5 +1,6 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { BrowserSessionService } from '../../../../shared/web-core/session';
 
 // ---------------------------------------------------------------------------
 // API shapes (mirrors com.mipay.sme.web.Dtos records)
@@ -189,11 +190,11 @@ export function readProblem(err: unknown): ApiProblem {
   return { title: 'Error', detail: String(err), status: 0 };
 }
 
-/** Bearer token for protected calls; public login and activation use their own credentials. */
+/** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway. */
 export const adminAuthInterceptor: HttpInterceptorFn = (req, next) => {
-  const raw = localStorage.getItem('mp.admin.token');
-  if (raw && req.url.startsWith('/api/') && !req.url.startsWith('/api/auth/')) {
-    req = req.clone({ setHeaders: { Authorization: `Bearer ${raw}` } });
+  const session = inject(BrowserSessionService).current();
+  if (req.url.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    if (session?.csrf) req = req.clone({ setHeaders: { 'X-CSRF': session.csrf } });
   }
   return next(req);
 };

@@ -41,6 +41,7 @@ export class AccessService {
   readonly ready = signal(false);
   private readonly failed = signal(false);
   private inflight: Promise<void> | null = null;
+  private generation = 0;
 
   readonly orgName = computed(() => this.access()?.orgName ?? '');
   readonly orgType = computed(() => this.access()?.orgType ?? '');
@@ -60,20 +61,34 @@ export class AccessService {
   load(force = false): Promise<void> {
     if (this.inflight) return this.inflight;
     if (this.ready() && !force) return Promise.resolve();
-    this.inflight = firstValueFrom(this.http.get<MyAccess>(ACCESS_URL))
+    const generation = this.generation;
+    const pending = firstValueFrom(this.http.get<MyAccess>(ACCESS_URL))
       .then((a) => {
+        if (generation !== this.generation) return;
         this.access.set(a);
         this.failed.set(false);
       })
       .catch(() => {
+        if (generation !== this.generation) return;
         if (this.ready()) return; // keep a previously loaded grant list during outages
         this.failed.set(true);
       })
       .finally(() => {
+        if (generation !== this.generation) return;
         this.ready.set(true);
-        this.inflight = null;
+        if (this.inflight === pending) this.inflight = null;
       });
+    this.inflight = pending;
     return this.inflight;
+  }
+
+  /** Drop permissions before an account switch or logout. */
+  clear() {
+    this.generation++;
+    this.access.set(null);
+    this.ready.set(false);
+    this.failed.set(false);
+    this.inflight = null;
   }
 
   /**

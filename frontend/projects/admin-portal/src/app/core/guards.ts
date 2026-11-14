@@ -9,8 +9,7 @@ import { AdminAuthService } from './auth';
 export const adminGuard: CanActivateFn = async () => {
   const auth = inject(AdminAuthService);
   const router = inject(Router);
-  if (!auth.token()) return router.createUrlTree(['/login']);
-  if (!auth.me()) await auth.hydrate();
+  if (!auth.me() && !await auth.hydrate()) return router.createUrlTree(['/login']);
   if (!auth.me() || !auth.isAdmin()) return router.createUrlTree(['/login']);
   return true;
 };

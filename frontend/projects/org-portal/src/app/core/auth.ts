@@ -1,19 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { MeView, TokenView } from './api';
+import { MeView } from './api';
 import { PORTAL } from '../portal.config';
-
-function readToken(): string | null {
-  try { return localStorage.getItem(PORTAL.storageKey); } catch { return null; }
-}
-
-function writeToken(t: string | null) {
-  try {
-    if (t) localStorage.setItem(PORTAL.storageKey, t);
-    else localStorage.removeItem(PORTAL.storageKey);
-  } catch { /* storage blocked: session lives in memory only */ }
-}
+import { BrowserSessionService } from '../../../../shared/web-core/session';
+import { AccessService } from '../../../../shared/web-core/access';
 
 /**
  * Session for one org portal. Eligibility: an ADMIN of an org whose type is
@@ -26,7 +17,8 @@ export class PortalAuthService {
   private readonly http = inject(HttpClient);
 
   readonly me = signal<MeView | null>(null);
-  readonly token = signal<string | null>(readToken());
+  private readonly session = inject(BrowserSessionService);
+  private readonly access = inject(AccessService);
 
   readonly orgId = computed(() => this.me()?.orgId ?? null);
   readonly name = computed(() => this.me()?.name ?? '');
@@ -37,38 +29,27 @@ export class PortalAuthService {
     return !!me && me.orgType === PORTAL.orgType;
   });
 
-  async login(identifier: string, password: string): Promise<void> {
-    const id = identifier.trim();
-    const tv = await firstValueFrom(this.http.post<TokenView>('/api/auth/login', {
-      phone: id, password, username: id,
-    }));
-    writeToken(tv.token);
-    this.token.set(tv.token);
-    const me = await this.hydrate();
-    if (!me || !this.eligible()) {
-      const why = !me ? 'NO_PROFILE'
-        : 'WRONG_ORG_TYPE';
-      const orgType = me?.orgType ?? null;
-      this.logout();
-      throw new PortalRefusedError(why, orgType);
-    }
-  }
+  login() { this.access.clear(); this.session.login('/onboarding'); }
 
   async hydrate(): Promise<MeView | null> {
-    if (!this.token()) return null;
+    if (!await this.session.load()) return null;
     try {
       const me = await firstValueFrom(this.http.get<MeView>('/api/me'));
       this.me.set(me);
       return me;
     } catch {
-      this.logout();
+      this.clear();
       return null;
     }
   }
 
   logout() {
-    writeToken(null);
-    this.token.set(null);
+    this.clear();
+    this.session.logout();
+  }
+
+  private clear() {
+    this.access.clear();
     this.me.set(null);
   }
 }

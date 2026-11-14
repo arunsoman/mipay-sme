@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -63,6 +64,13 @@ type Gateway struct {
 	bffIDPPublic string        // https://idp.fapi.local:8443 (browser redirect)
 	bffAbs       time.Duration // session absolute lifetime
 	bffIdle      time.Duration // session idle timeout
+	bffAuthURL   string
+	bffPARURL    string
+	bffTokenURL  string
+	bffTokenHTU  string
+	bffRevokeURL string
+	bffJWKSURL   string
+	bffIntroURL  string
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +109,17 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 	if idpUp == nil {
 		return fmt.Errorf("an upstream named 'idp' is required for JWKS/introspection")
 	}
-	jwksURL := strings.TrimSuffix(idpUp.cfg.BaseURL, "/") + "/jwks.json"
+	g.bffIDP = cfg.BFF.IDPBase
+	g.bffIDPPublic = cfg.BFF.IDPPublicBase
+	if cfg.BFF.ClientID != "" {
+		if err := g.loadBFFMetadata(ctx); err != nil {
+			return fmt.Errorf("gateway: IdP metadata: %w", err)
+		}
+	}
+	jwksURL := g.bffJWKSURL
+	if jwksURL == "" {
+		jwksURL = strings.TrimSuffix(idpUp.cfg.BaseURL, "/") + "/jwks.json"
+	}
 	g.jwks = newJWKSCache(5*time.Minute, func() ([]map[string]any, error) {
 		resp, err := idpUp.client.Get(jwksURL)
 		if err != nil {
@@ -127,7 +145,10 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		}
 		iclient := &http.Client{Timeout: timeout, Transport: idpUp.client.Transport}
 		ttl := 3 * time.Second
-		endpoint := strings.TrimSuffix(cfg.Introspection.BaseURL, "/") + "/introspect"
+		endpoint := g.bffIntroURL
+		if endpoint == "" {
+			endpoint = strings.TrimSuffix(cfg.Introspection.BaseURL, "/") + "/introspect"
+		}
 		// kid must match the IdP's client JWKS: derived from the key filename
 		// (same convention as internal/idpserver key registry).
 		introsKid := strings.TrimSuffix(filepath.Base(cfg.Introspection.AssertionKey), ".pem")
@@ -152,6 +173,10 @@ func Run(ctx context.Context, cfgPath, listen string) error {
 		dbURL = os.Getenv("GATEWAY_DB_URL")
 	}
 	if dbURL != "" {
+		if issuerURL, err := url.Parse(cfg.Server.Issuer); err != nil ||
+			(!strings.HasSuffix(issuerURL.Hostname(), ".local") && os.Getenv("GATEWAY_SESSION_KEY") == "") {
+			return fmt.Errorf("gateway: public issuer requires a dedicated GATEWAY_SESSION_KEY")
+		}
 		pool, err := pgxpool.New(ctx, dbURL)
 		if err != nil {
 			return fmt.Errorf("gateway: session db pool: %w", err)
@@ -438,6 +463,11 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 	// Lane A: browser BFF handles /auth/* directly (login, callback, session, logout).
 	// These are "auth: none" routes; hardening + rate limiting still apply.
 	if strings.HasPrefix(r.URL.Path, "/auth/") {
+		if r.URL.Path != "/auth/backchannel-logout" && !g.bffHostAllowed(externalHost(r)) {
+			writeErr(w, 404, "not_found")
+			return
+		}
+		ctxauth.StripSpoofed(r.Header)
 		if status, msg := g.harden(r); status != 0 {
 			writeErr(w, status, msg)
 			return
@@ -499,8 +529,28 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 	ctxVal := ""
 	ident := (*identity)(nil)
 
-	if route.route.Auth == "token" {
-		id, status, errCode := g.authenticate(r)
+	if route.route.Auth == "token" || route.route.Auth == "session" {
+		var id *identity
+		var status int
+		var errCode string
+		if route.route.Auth == "session" {
+			ses := g.currentSession(r)
+			if ses == nil {
+				writeAuthError(w, 401, "login_required")
+				return
+			}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions &&
+				!csrfMatches(r.Header.Get("X-CSRF"), ses.CSRF) {
+				writeAuthError(w, 403, "csrf_required")
+				return
+			}
+			id, status, errCode = g.sessionIdentity(r, ses)
+			if status == 0 {
+				_ = g.store.Touch(r.Context(), ses.ID)
+			}
+		} else {
+			id, status, errCode = g.authenticate(r)
+		}
 		if status != 0 {
 			writeAuthError(w, status, errCode)
 			return
