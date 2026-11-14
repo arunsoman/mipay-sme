@@ -9,6 +9,8 @@ import { Onboarding } from './features/onboarding/onboarding';
 import { Network } from './features/network/network';
 import { UserManagement } from '../../../shared/users/user-management';
 import { menuPerms } from '../../../shared/web-core/menu';
+import { BusinessPortal } from '../../../shared/web-core/portal-permission-catalogue';
+import { PORTAL } from './portal.config';
 import { Kyc } from './features/kyc/kyc';
 // The shared commerce screens (sme-ui feature set). Visible in whichever org
 // portal holds the matching supplier.* rows - a manufacturer or distributor
@@ -38,7 +40,8 @@ const NON_MENU: Record<string, string[]> = {
   '/supplier/invoices/:id': ['supplier.invoice'],
 };
 const pg = (path: string) =>
-  permGuard(menuPerms('org').find(([link]) => link === path)?.[1] ?? NON_MENU[path] ?? ['__no_menu_point__']);
+  permGuard(menuPerms('org').find(([link]) => link === path)?.[1] ?? NON_MENU[path] ?? ['__no_menu_point__'],
+    { portal: PORTAL.orgType as BusinessPortal, link: path });
 
 export const routes: Routes = [
   { path: 'login', component: Login },

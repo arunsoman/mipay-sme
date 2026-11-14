@@ -219,6 +219,15 @@ class RbacGridTest {
     }
 
     @Test
+    void codeRegisteredOnboardingEntitlementAcceptsScopedGrants() {
+        store.registerCatalog("mipay", List.of(Map.of("id", "org.onboarding:create", "description", "Onboard child")),
+                List.of(), List.of(Map.of("id", "org.onboarding", "description", "Onboarding")),
+                List.of(Map.of("id", "org.onboarding:create", "attribute", "child_type")));
+        assertTrue(store.resources().stream().anyMatch(r -> "org.onboarding".equals(r.get("id"))
+                && ((List<?>) r.get("entitlement")).contains("create")));
+    }
+
+    @Test
     void holdsBlockTheSubtreeButNotPlatformStaff() {
         Map<String, String[]> orgs = new LinkedHashMap<>();
         orgs.put("plat", new String[]{"PLATFORM", null});
@@ -419,6 +428,25 @@ class RbacGridTest {
         access.sweep();
         assertTrue(allowed("selma", "oka", "kyc.application:modify"), "minimum holders beats review expiry");
         assertEquals("CLOSED", access.review((String) rv.get("id")).get("status"));
+    }
+
+    @Test
+    void menuCellsHaveNoEndpointButCanBeTicked() {
+        // a portal submenu's menu cell (docs/plans/role-menu-builder.md): registered with no
+        // endpoint, it is usable for exactly the verb the service declares (read)
+        store.registerCatalog("navsvc", List.of(
+                        Map.of("id", "nav.supplier_orders_queue:read", "description", "Menu: Supplier portal › Merchant orders › Order queue"),
+                        Map.of("id", "test.navflow:read", "description", "")),
+                List.of(new RbacStore.EndpointReg("GET", "/t/navflow", "test.navflow:read", "NONE", "T#r")));
+        assertEquals(1, policy.get().resources().get("nav.supplier_orders_queue").used(), "declared read, no endpoint");
+        assertEquals(200, status(() -> store.createRole("ua1", "menu_only", "", "ORG",
+                store.parseGrid(Map.of("nav.supplier_orders_queue", List.of("read")), null), List.of())));
+        assertEquals(400, status(() -> store.createRole("ua1", "menu_create", "", "ORG",
+                store.parseGrid(Map.of("nav.supplier_orders_queue", List.of("create")), null), List.of())),
+                "only the declared verb");
+        // a registration that keeps the row keeps it usable
+        store.registerCatalog("navsvc", List.of(Map.of("id", "nav.supplier_orders_queue:read", "description", "m")), List.of());
+        assertEquals(1, policy.get().resources().get("nav.supplier_orders_queue").used());
     }
 
     @Test

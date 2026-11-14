@@ -12,6 +12,9 @@ import { MpPerm } from '../web-core/perm-directive';
 import { AccessService } from '../web-core/access';
 import { readProblem } from '../kyc/kyc-api';
 import { OrgRolesView, RbacRole, RBAC_HINTS, RoleAssignment } from '../rbac/rbac-api';
+import { BusinessPortal, PORTAL_PERMISSION_CATALOGUE } from '../web-core/portal-permission-catalogue';
+import type { PaletteRow } from '../rbac/role-menu-model';
+import { RoleMenuBuilder } from '../../../src/app/design-system/organisms/role-menu-builder';
 
 /** GET /api/orgs/me/access */
 export interface MyAccess {
@@ -38,7 +41,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
 @Component({
   selector: 'mp-user-management',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, Modal, MpPerm, ...DATA_TABLE],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, Modal, MpPerm, ...DATA_TABLE, RoleMenuBuilder],
   template: `
     <page-header title="User management">
       <div lead>@if (access(); as a) {<span class="org">{{ a.orgName }}</span>}</div>
@@ -138,7 +141,13 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
             <input class="inp" [(ngModel)]="newRole.description" placeholder="e.g. Takes payments at the till" /></label>
         </div>
         <div class="pickhead">
-          <span class="lb">Permissions <span class="sub">— from what you hold yourself · {{ picked().size }} picked</span></span>
+          <span class="lb">Menus and screens <span class="sub">— from what you hold yourself · {{ picked().size }} action(s) picked</span></span>
+        </div>
+        <mp-role-menu-builder [portal]="portal()" [palette]="palette()" [selected]="picked()" [disabled]="busy()" [nav]="true"
+                              (selectedChange)="picked.set($event)" />
+        <details class="tech"><summary>All permissions (technical view)</summary>
+        <div class="pickhead">
+          <span class="sub">Every action you hold, including ones no menu shows yet.</span>
           <input class="inp filter" [(ngModel)]="filterText" placeholder="Filter" />
         </div>
         <div class="groups">
@@ -155,6 +164,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
             </div>
           } @empty {<div class="sub">No permission matches.</div>}
         </div>
+        </details>
       }
       @if (!editing() && !platformRoleSelected()) {
         <label class="check"><input type="checkbox" [(ngModel)]="subtree" />
@@ -179,6 +189,8 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
   styles: [`
     h2 { margin: 0; font-size: 28px; }
     .org { color: var(--a-dim); font-size: 14px; }
+    .tech { margin-top: 12px; border-top: 1px solid var(--a-border); padding-top: 10px; }
+    .tech summary { cursor: pointer; font-weight: 600; font-size: 13px; }
     .muted, .sub { color: var(--a-dim); }
     .sub { font-size: 12px; display: block; }
     .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
@@ -312,6 +324,23 @@ export class UserManagement implements OnInit {
     for (const g of by.values()) g.verbs.sort((a, b) => VERB_ORDER.indexOf(a) - VERB_ORDER.indexOf(b));
     return [...by.values()].sort((a, b) => a.row.localeCompare(b.row));
   }
+
+  /** The portal whose menus the builder draws: the manager's own org type (one portal per role). */
+  readonly portal = computed<BusinessPortal>(() => {
+    const t = (this.access()?.orgType ?? '').toUpperCase();
+    return (t in PORTAL_PERMISSION_CATALOGUE ? t : 'PLATFORM') as BusinessPortal;
+  });
+  /** The ceiling: a new role may only contain cells the manager holds. */
+  readonly palette = computed<PaletteRow[]>(() => {
+    const by = new Map<string, PaletteRow>();
+    for (const p of this.access()?.permissions ?? []) {
+      const r = by.get(p.row) ?? { id: p.row, description: p.rowDescription || p.row, verbs: [] };
+      r.verbs.push(p.verb);
+      by.set(p.row, r);
+    }
+    for (const r of by.values()) r.verbs.sort((a, b) => VERB_ORDER.indexOf(a) - VERB_ORDER.indexOf(b));
+    return [...by.values()];
+  });
 
   word(v: string) { return VERB_WORD[v] ?? v; }
   /** "cashier@org_x" → "Cashier"; "organization_root" → "Organization root" */

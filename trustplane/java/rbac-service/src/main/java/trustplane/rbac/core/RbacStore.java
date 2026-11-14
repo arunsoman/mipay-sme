@@ -175,7 +175,7 @@ public class RbacStore {
 
     @Transactional
     public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints) {
-        return registerCatalog(service, permissions, endpoints, List.of());
+        return registerCatalog(service, permissions, endpoints, List.of(), List.of());
     }
 
     /** Org types a row applies to, from its prefix (merchant.* only in merchant orgs, …); null = any org type. */
@@ -197,6 +197,19 @@ public class RbacStore {
     @Transactional
     public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints,
                                                List<Map<String, String>> rowDescriptions) {
+        return registerCatalog(service, permissions, endpoints, rowDescriptions, List.of());
+    }
+
+    /**
+     * The code is the source of the permission grid, and of the ENTITLEMENT cells (2026-11-13,
+     * seed retired): {@code entitlements} declares the cells that carry tenant-grants — e.g.
+     * {@code org.onboarding:create} with attribute {@code child_type} — which the seed used to
+     * define. A service may only widen grant verbs; a cell dropping out of the code simply
+     * stops being refreshed (no rows are deleted by this method for entitlements).
+     */
+    @Transactional
+    public Map<String, Object> registerCatalog(String service, List<Map<String, String>> permissions, List<EndpointReg> endpoints,
+                                               List<Map<String, String>> rowDescriptions, List<Map<String, String>> entitlements) {
         if (service == null || service.isBlank()) throw ApiException.badRequest("service required");
         int newRows = 0;
         Set<String> rows = new LinkedHashSet<>();
@@ -208,6 +221,11 @@ public class RbacStore {
                 continue;
             }
             rows.add(c.row());
+        }
+        for (Map<String, String> en : entitlements == null ? List.<Map<String, String>>of() : entitlements) {
+            Verbs.Cell ec = Verbs.parse(en.get("id") == null ? "" : en.get("id"));
+            if (ec == null) { rejected.add(en.get("id")); continue; }
+            rows.add(ec.row()); // the entitlement row is code-registered too
         }
         Map<String, String> described = new java.util.HashMap<>();
         for (Map<String, String> r : rowDescriptions) if (r.get("id") != null) described.put(r.get("id"), r.get("description"));
@@ -229,6 +247,13 @@ public class RbacStore {
             log.info("[rbac] rows no longer in {}'s code removed: {}", service, stale);
         }
         db.update("DELETE FROM rbac_cell_endpoints WHERE service=?", service);
+        // entitlement cells: the code says this row can carry tenant-grants at all
+        for (Map<String, String> en : entitlements == null ? List.<Map<String, String>>of() : entitlements) {
+            Verbs.Cell ec = Verbs.parse(en.get("id") == null ? "" : en.get("id"));
+            if (ec == null) continue;
+            db.update("UPDATE rbac_resources SET grant_verbs = grant_verbs | ?, grant_attribute=?, updated_at=now() WHERE id=?",
+                    ec.bit(), en.get("attribute"), ec.row());
+        }
         int eps = 0;
         if (endpoints != null) {
             for (EndpointReg e : endpoints) {
@@ -240,6 +265,21 @@ public class RbacStore {
                             verb=EXCLUDED.verb, tenant_source=EXCLUDED.tenant_source, handler=EXCLUDED.handler""",
                         service, e.method(), e.path(), c.row(), c.bit(), e.tenantSource(), e.handler());
             }
+        }
+        // rows registered with no endpoint (e.g. the portals' menu cells "nav.*", which only decide
+        // what a sidebar draws) are usable for exactly the verbs the service registers for them
+        Set<String> endpointRows = new HashSet<>();
+        if (endpoints != null) for (EndpointReg e : endpoints) {
+            Verbs.Cell c = Verbs.parse(e.permission());
+            if (c != null) endpointRows.add(c.row());
+        }
+        Map<String, Integer> declared = new HashMap<>();
+        for (Map<String, String> p : permissions) {
+            Verbs.Cell c = Verbs.parse(p.get("id"));
+            if (c != null && !endpointRows.contains(c.row())) declared.merge(c.row(), c.bit(), (a, b) -> a | b);
+        }
+        for (var d : declared.entrySet()) {
+            db.update("UPDATE rbac_resources SET declared_verbs=?, updated_at=now() WHERE id=? AND service=?", d.getValue(), d.getKey(), service);
         }
         // used = the cells that have an endpoint (declared follows the code too)
         db.update("""

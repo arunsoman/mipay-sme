@@ -4,7 +4,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { HttpClient } from '@angular/common/http';
 import { AccessService } from '../../../../../shared/web-core/access';
 import { linkFor, menuFor } from '../../../../../shared/web-core/menu';
-import { liveNavigation } from '../../../../../shared/web-core/portal-permission-catalogue';
+import { liveNavigation, navAllows } from '../../../../../shared/web-core/portal-permission-catalogue';
 import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
@@ -141,13 +141,19 @@ export class Shell implements OnInit {
     const here = this.pages.find(([path]) => url.startsWith(path));
     if (this.access.empty()) { void this.router.navigateByUrl('/no-access'); return; }
     if (url === '/no-access') {
-      const first = this.pages.find(([, rows]) => this.can(...rows));
+      const first = this.pages.find(([path, rows]) => this.pageOk(path, rows));
       if (first) void this.router.navigateByUrl(first[0]);
       return;
     }
-    if (here && this.can(...here[1])) return;
-    const first = this.pages.find(([, rows]) => this.can(...rows));
+    if (here && this.pageOk(here[0], here[1])) return;
+    const first = this.pages.find(([path, rows]) => this.pageOk(path, rows));
     void this.router.navigateByUrl(first ? first[0] : '/no-access');
+  }
+
+  /** A page may be opened: its rows are held and, once the user picks submenus by menu
+   *  cells, one of its submenus is switched on (the route guards apply the same rule). */
+  private pageOk(path: string, rows: string[]) {
+    return this.can(...rows) && navAllows('PLATFORM', path, (r) => this.access.can(...r));
   }
 
   can(...rows: string[]) {

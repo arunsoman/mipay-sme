@@ -22,6 +22,15 @@ import (
 	"trustplane/internal/jwtx"
 )
 
+// Step-up authentication (RFC 9470)
+const (
+	stepUpRequiredCode  = 401
+	stepUpError         = "insufficient_user_authentication"
+	stepUpACRValues     = "aal2"
+	stepUpMaxAgeSeconds = 300
+	stepUpParamName     = "step_up"
+)
+
 // sessionIdentity validates the token that the gateway, rather than browser
 // JavaScript, holds for this session. Every request gets a fresh DPoP proof.
 func (g *Gateway) sessionIdentity(r *http.Request, ses *Session) (*identity, int, string) {
@@ -60,6 +69,7 @@ func (g *Gateway) sessionIdentity(r *http.Request, ses *Session) (*identity, int
 	ident, status, code := g.authenticate(r)
 	r.Header.Del("Authorization")
 	r.Header.Del("DPoP")
+
 	if status != 0 {
 		return nil, status, code
 	}
@@ -157,6 +167,12 @@ func (g *Gateway) postToken(ctx context.Context, form url.Values, key crypto.Sig
 // bff is the gateway's Browser-for-Frontend (Lane A, §4): a confidential
 // FAPI 2.0 client that signs users in via the IdP and holds their tokens.
 
+// WWWAuthenticate represents the WWW-Authenticate header for authentication challenges.
+type WWWAuthenticate struct {
+	Scheme     string
+	Parameters map[string]string
+}
+
 type bff struct {
 	store    *SessionStore
 	clientID string
@@ -167,7 +183,12 @@ type bff struct {
 	idleLife time.Duration // session idle timeout
 }
 
-// loginTransaction is a short-lived login attempt (5 min).
+// Step-up authentication (RFC 9470)
+const (
+	stepUpAuthenticationError = "step_up_required"
+)
+
+// loginTransaction is a short-lived login attempt \(5 min\)\.
 type loginTransaction struct {
 	State          string    `json:"state"`
 	Nonce          string    `json:"nonce"`
@@ -276,6 +297,27 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// checkStepUpRequired checks if the session requires step-up authentication
+func (g *Gateway) checkStepUpRequired(r *http.Request, ses *Session) (bool, *WWWAuthenticate) {
+	// If session has auth_time and it's within max age, no step-up needed
+	if ses.AuthTime > 0 {
+		age := time.Since(time.Unix(int64(ses.AuthTime), 0))
+		if age <= time.Duration(stepUpMaxAgeSeconds)*time.Second {
+			return false, nil
+		}
+	}
+
+	// Session too old or no auth_time: step-up required
+	return true, &WWWAuthenticate{
+		Scheme: "Bearer",
+		Parameters: map[string]string{
+			"error":      stepUpError,
+			"acr_values": stepUpACRValues,
+			"max_age":    fmt.Sprintf("%d", stepUpMaxAgeSeconds),
+		},
+	}
 }
 
 func (g *Gateway) bffEndpoint(raw string) (public, mesh string, err error) {

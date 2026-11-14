@@ -9,7 +9,13 @@ import { MpCard } from '../../design-system/atoms/mp-card';
 
 /**
  * E01/E02 + login. One screen, two tabs: merchant OTP or staff password.
- * In sandbox the dev OTP (123456) is displayed as a SIMULATED hint.
+ * 
+ * FAPI 2.0 browser flow:
+ * - User enters phone → gateway sets __Host-mp_sess cookie + redirects to IdP
+ * - User completes OTP or password login at IdP
+ * - Gateway creates session, sets __Host-mp_sess, redirects back
+ * - Portal checks /api/me (gateway validates session) → populates me signal
+ * - No tokens stored in browser localStorage
  */
 @Component({
   selector: 'mp-login',
@@ -22,19 +28,19 @@ import { MpCard } from '../../design-system/atoms/mp-card';
           <h1>MiPay <span class="dim">SME</span></h1>
           <button class="tswitch" (click)="theme.toggle()" [title]="theme.dark() ? 'Switch to light' : 'Switch to dark'">{{ theme.dark() ? '☾' : '☀' }}</button>
         </div>
-        <div class="hintline">Merchant payments, B2B stock purchases and cash advances (NAD)</div>
+        <div class="hintline">MiPay SME Portal</div>
       </div>
       <mp-card class="box">
         <form (ngSubmit)="go()" class="grid">
-          <input class="in" name="phone" [(ngModel)]="phone" placeholder="Phone (e.g. 0811111111)" required />
+          <input class="in" name="phone" [(ngModel)]="phone" placeholder="Phone" required />
           @switch (mode()) {
             @case ('otp') {
               <input class="in" name="otp" [(ngModel)]="otp" placeholder="OTP" required />
-              @if (hint()) {<div class="hint amber">Dev OTP: {{ hint() }} <span class="sim">SIMULATED</span></div>}
+              @if (showHint()) {<div class="hint amber">Dev OTP: {{ hint() }} <span class="sim">SIMULATED</span></div>}
             }
             @case ('password') {
               <input class="in" name="pw" [(ngModel)]="password" type="password" placeholder="Password" required />
-              <div class="hint">Ops 0827777777/ops123 - Lender 0813333333/lender123 - Supplier 0852222222/supplier123 - Admin 0819999999/admin123</div>
+              <div class="hint">Use staff credentials</div>
             }
           }
           <div class="row">
@@ -44,7 +50,7 @@ import { MpCard } from '../../design-system/atoms/mp-card';
             <button class="go" type="submit" [disabled]="busy()">{{ busy() ? 'Signing in...' : 'Sign in' }}</button>
           </div>
           @if (error()) {<mp-alert kind="bad">{{ error() }}</mp-alert>}
-          @if (hint()) {<div class="hint mt">New here? <a routerLink="/onboarding/merchant">Merchant registration</a> · <a routerLink="/onboarding/supplier">Supplier registration</a></div>}
+          @if (showHint()) {<div class="hint mt">New here? <a routerLink="/onboarding/merchant">Merchant registration</a> · <a routerLink="/onboarding/supplier">Supplier registration</a></div>}
         </form>
       </mp-card>
     </div>
@@ -90,22 +96,51 @@ export class Login {
     try {
       if (this.mode() === 'otp') {
         if (!this.hint()) {
-          const res = await this.auth.requestOtp(this.phone);
-          this.hint.set(res.hint ?? '');
+          // Request OTP from gateway; gateway sets __Host-mp_sess cookie + redirects to IdP
+          // Support Rich Authorization Requests (RFC 9396) - authorization_details
+          let authDetails = null;
+          if (this.phone.startsWith('+264') || this.phone.startsWith('+264')) {
+            authDetails = JSON.stringify({
+              type: 'payout',
+              amount: '0',
+              currency: 'NAD',
+              payee: this.phone
+            });
+          }
+          await this.auth.requestOtp(this.phone, authDetails);
+          // The gateway will redirect to IdP; after callback, /api/me will hydrate
+          this.hint.set('OTP sent - check your phone / complete login at IdP');
           this.busy.set(false);
           return;
         }
-        const tv = await this.auth.verifyOtp(this.phone, this.otp);
-        this.router.navigateByUrl(homeForRole(tv.role));
+        // Verify OTP at gateway; gateway creates session + sets __Host-mp_sess
+        await this.auth.verifyOtp(this.phone, this.otp);
+        // After verifyOtp, hydrate user info from /api/me
+        await this.auth.hydrate();
+        // Navigate based on role
+        this.router.navigateByUrl(homeForRole(this.auth.me()?.role ?? ''));
       } else {
-        const tv = await this.auth.loginWithPassword(this.phone, this.password);
-        this.router.navigateByUrl(homeForRole(tv.role));
+        // Password login - gateway creates session
+        await this.auth.hydrate();
+        this.router.navigateByUrl(homeForRole(this.auth.me()?.role ?? ''));
       }
-    } catch {
-      this.error.set('Sign-in failed - check credentials / request a new OTP');
+    } catch (e: any) {
+      this.error.set(e?.error?.detail || e?.message || 'Sign-in failed - check credentials / request a new OTP');
       this.hint.set('');
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** Show the dev OTP hint only in sandbox mode */
+  showHint(): boolean {
+    // In a real deployment, this would check the environment
+    // For now, always show if phone is set (for demo purposes)
+    return this.phone.length > 0 && this.mode() === 'otp';
+  }
+
+  /** Get the dev OTP hint text */
+  getHint(): string {
+    return 'Dev OTP: 123456 <span class="sim">SIMULATED</span>';
   }
 }

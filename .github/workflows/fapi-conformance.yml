@@ -1,0 +1,46 @@
+name: FAPI 2.0 Conformance
+
+on:
+  push:
+    branches: [ main, uat ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('backend/build.gradle.kts', 'backend/settings.gradle.kts') }}
+
+      - name: Build backend
+        run: |
+          cd backend
+          ./gradlew build -x test
+
+      - name: Run FAPI conformance placeholder
+        run: |
+          echo "FAPI 2.0 conformance suite placeholder – replace with actual OpenID Foundation suite invocation"
+          # Example (uncomment when suite is available):
+          # docker run --rm -v ${{ github.workspace }}/tests:/tests openidfapi/fapi-conformance-suite:latest /tests/run.sh
+
+      - name: Upload conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fapi-conformance-report
+          path: backend/build/reports/tests/

@@ -1,7 +1,5 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners, provideZoneChangeDetection } from '@angular/core';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
-import { authInterceptor } from './core/http';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -9,6 +7,8 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    // FAPI 2.0: Gateway handles authentication via __Host-mp_sess cookie
+    // No client-side auth interceptor needed - the BFF manages tokens server-side
+    // provideHttpClient(withInterceptors([authInterceptor])) removed
   ],
 };

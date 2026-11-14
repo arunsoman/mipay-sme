@@ -202,16 +202,63 @@ export const LIVE_SCREEN_ROUTES: Record<string, string> = {
 
 export const AVAILABLE_SCREEN_KEYS = new Set(Object.keys(LIVE_SCREEN_ROUTES));
 
+/**
+ * Menu cells (docs/plans/role-menu-builder.md, 2026-11-14): every submenu has its own RBAC
+ * row "nav.<portal>_<menu>_<screen>" with one verb, read. A role switches a submenu on by
+ * holding that cell. The cells grant no API access: they only decide what the sidebar
+ * draws, so each submenu can be switched on its own even when it shares permissions.
+ *
+ * Opt-in per portal: a user who holds no menu cell of a portal sees today's sidebar
+ * (permission-driven). Once any of their roles holds one, the portal shows only the
+ * submenus whose menu cell they hold (and whose permissions they have).
+ */
+export const NAV_AREA = 'nav';
+export function navRow(portal: BusinessPortal, menuId: string, screenId: string): string {
+  return `${NAV_AREA}.${portal.toLowerCase()}_${menuId}_${screenId}`.replace(/-/g, '_');
+}
+export function navRowOfKey(key: string): string {
+  const [portal, menuId, screenId] = key.split('/');
+  return navRow(portal as BusinessPortal, menuId, screenId);
+}
+/** The menu cell of every screen of every portal (the backend registers these rows). */
+export function allNavRows(): { id: string; description: string }[] {
+  const out: { id: string; description: string }[] = [];
+  for (const p of Object.keys(PORTAL_PERMISSION_CATALOGUE) as BusinessPortal[]) {
+    const portalLabel = p === 'PLATFORM' ? 'Admin' : p.charAt(0) + p.slice(1).toLowerCase();
+    for (const m of PORTAL_PERMISSION_CATALOGUE[p]) for (const s of m.screens) {
+      out.push({ id: navRow(p, m.id, s.id), description: `Menu: ${portalLabel} portal › ${m.label} › ${s.label}` });
+    }
+  }
+  return out;
+}
+/** Does the user pick this portal's submenus by menu cells (holds any of them)? */
+export function navScoped(portal: BusinessPortal, can: (rows: string[]) => boolean): boolean {
+  const rows = PORTAL_PERMISSION_CATALOGUE[portal].flatMap((m) => m.screens.map((s) => navRow(portal, m.id, s.id)));
+  return can(rows);
+}
+/** May the user open this route by its menu cells? True when the portal is not menu-scoped
+ *  for them, or a screen on the route has its menu cell held. Routes with no screen pass. */
+export function navAllows(portal: BusinessPortal, link: string, can: (rows: string[]) => boolean): boolean {
+  const rows: string[] = [];
+  for (const m of PORTAL_PERMISSION_CATALOGUE[portal]) for (const s of m.screens) {
+    if (LIVE_SCREEN_ROUTES[`${portal}/${m.id}/${s.id}`] === link) rows.push(navRow(portal, m.id, s.id));
+  }
+  return !rows.length || !navScoped(portal, can) || can(rows);
+}
+
 export interface LiveNavMenu { id: string; label: string; screens: { id: string; label: string; link: string }[] }
 /** Runtime navigation uses this same catalogue; a route and held backend cell
- * are both required. Planned screens never appear in a signed-in portal. */
+ * are both required, and - once the user is menu-scoped for the portal - the
+ * screen's menu cell. Planned screens never appear in a signed-in portal. */
 export function liveNavigation(portal: BusinessPortal, can: (resources: string[]) => boolean,
                                canRoute: (link: string) => boolean = () => true): LiveNavMenu[] {
+  const scoped = navScoped(portal, can);
   return PORTAL_PERMISSION_CATALOGUE[portal].map((m) => ({
     id: m.id, label: m.label,
     screens: m.screens.flatMap((s) => {
       const link = LIVE_SCREEN_ROUTES[`${portal}/${m.id}/${s.id}`];
       return link && s.resources.length && can(s.resources) && canRoute(link)
+        && (!scoped || can([navRow(portal, m.id, s.id)]))
         ? [{ id: s.id, label: s.label, link }] : [];
     }),
   })).filter((m) => m.screens.length);

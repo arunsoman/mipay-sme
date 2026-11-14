@@ -30,7 +30,7 @@ import { OpsApprovals, OpsRecon, OpsIncidents, OpsDesk, OpsReports, OpsAudit, Ad
  * per menu point, identical to every other portal. An unmapped path denies (fail-closed).
  */
 const pg = (path: string) =>
-  permGuard(menuPerms('admin').find(([link]) => link === path)?.[1] ?? ['__no_menu_point__']);
+  permGuard(menuPerms('admin').find(([link]) => link === path)?.[1] ?? ['__no_menu_point__'], { portal: 'PLATFORM', link: path });
 
 export const routes: Routes = [
   { path: 'login', component: Login },

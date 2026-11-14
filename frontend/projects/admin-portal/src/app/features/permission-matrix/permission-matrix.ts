@@ -9,7 +9,10 @@ import { MpPerm } from '../../../../../shared/web-core/perm-directive';
 import { MpTabs, TabOption } from '../../../../../../src/app/design-system/molecules/tabs';
 import { TableView, TABLE_TOOLS } from '../../../../../../src/app/design-system/molecules/table-view';
 import { AccessService } from '../../../../../shared/web-core/access';
-import { AVAILABLE_SCREEN_KEYS, BusinessPortal, PermissionMenu, PermissionScreen, PORTAL_PERMISSION_CATALOGUE } from '../../../../../shared/web-core/portal-permission-catalogue';
+import { BusinessPortal } from '../../../../../shared/web-core/portal-permission-catalogue';
+import { buildTree } from '../../../../../shared/rbac/role-menu-model';
+import type { PaletteRow } from '../../../../../shared/rbac/role-menu-model';
+import { RoleMenuBuilder } from '../../../../../../src/app/design-system/organisms/role-menu-builder';
 import {
   RbacResourceView, RbacRoleUpdate, RbacRoleView, RBAC_VERBS, RbacVerb, readProblem,
 } from '../../core/api';
@@ -45,6 +48,9 @@ interface Grant { verb: RbacVerb; label: string; kind: 'own' | 'inh'; from: stri
 interface Group { area: string; label: string; rows: RbacResourceView[] }
 type ChipState = 'own' | 'inh' | 'off';
 
+/** Org portals, in the order a tie picks them (the deployed portals first). */
+const ORG_PORTALS: ScopeId[] = ['SUPPLIER', 'MANUFACTURER', 'DISTRIBUTOR', 'MERCHANT', 'LENDER'];
+
 const SCOPES: Scope[] = [
   { id: 'MERCHANT', label: 'Merchant' },
   { id: 'SUPPLIER', label: 'Supplier' },
@@ -63,8 +69,9 @@ const VERB_LABEL: Record<RbacVerb, string> = {
 const AREA_LABEL: Record<string, string> = {
   merchant: 'Merchant business', supplier: 'Supplier business', lender: 'Lending',
   org: 'Organisation', kyc: 'KYC', rbac: 'Access control', ops: 'Operations', admin: 'Platform administration',
+  nav: 'Menus (what the sidebar shows)',
 };
-const AREA_ORDER = ['merchant', 'supplier', 'lender', 'org', 'kyc', 'rbac', 'ops', 'admin'];
+const AREA_ORDER = ['merchant', 'supplier', 'lender', 'org', 'kyc', 'rbac', 'ops', 'admin', 'nav'];
 
 const ROLE_LABEL: Record<string, string> = {
   kyc_applicant: 'KYC applicant', org_viewer: 'Viewer', org_staff: 'Staff', org_admin: 'Admin',
@@ -86,7 +93,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 @Component({
   selector: 'mpa-permission-matrix',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, MpPerm, ...TABLE_TOOLS],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, MpPerm, ...TABLE_TOOLS, RoleMenuBuilder],
   template: `
     @if (rbacMode() && rbacMode() !== 'enforce') {
       <div class="rbac-status" role="status">
@@ -102,18 +109,15 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     </page-header>
 
     <div class="toolbar">
-      <label class="small">Portal
-        <select [ngModel]="scope()" (ngModelChange)="setScope($event)">
-          @for (s of scopes; track s.id) {<option [value]="s.id">{{ s.label }}</option>}
-        </select>
-      </label>
-      <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event); ctlView.go(0); rowView.go(0)" placeholder="Filter rows (e.g. withdrawal)" />
-      <label class="small check"><input type="checkbox" [ngModel]="showAll()" (ngModelChange)="showAll.set($event)" /> show unused rows</label>
-      <span class="legend small">
-        <span><b class="chip-v own">view</b> on the role</span>
-        <span><b class="chip-v inh">view</b> inherited</span>
-        <span><b class="flag">⚑</b> sensitive (money or access)</span>
-      </span>
+      <input class="filter" name="q" [ngModel]="q()" (ngModelChange)="q.set($event); roleView.go(0); ctlView.go(0); rowView.go(0)" placeholder="Filter (e.g. cashier, withdrawal)" />
+      @if (view() !== 'role' || editing() || creating()) {
+        <label class="small check"><input type="checkbox" [ngModel]="showAll()" (ngModelChange)="showAll.set($event)" /> show unused rows</label>
+        <span class="legend small">
+          <span><b class="chip-v own">view</b> on the role</span>
+          <span><b class="chip-v inh">view</b> inherited</span>
+          <span><b class="flag">⚑</b> sensitive (money or access)</span>
+        </span>
+      }
     </div>
 
     @if (problem(); as p) {<mp-alert kind="bad">{{ p }}</mp-alert>}
@@ -122,13 +126,18 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     @if (creating()) {
       <!-- ============ create a role ============ -->
       <div class="panel create">
-        <div class="ptitle">New {{ scope() === 'PLATFORM' ? 'platform' : 'org' }} role</div>
+        <div class="ptitle">New role</div>
         <div class="muted small hint">
           @if (scope() === 'PLATFORM') {A platform role is held by TPTS staff and applies across all orgs.}
           @else {An org role can be given to users of any org whose ceiling allows it. Its rows only apply where they fit the org's type.}
-          After creating it you pick its actions row by row.
+          Pick the portal, then switch on the menus and submenus this role should see and the actions it may take on each screen.
         </div>
         <div class="form">
+          <label>Portal
+            <select name="nr-portal" [ngModel]="scope()" (ngModelChange)="setDraftPortal($event)">
+              @for (s of scopes; track s.id) {<option [value]="s.id">{{ s.label }}</option>}
+            </select>
+          </label>
           <label>Name
             <input name="nr-name" [ngModel]="draftName()" (ngModelChange)="draftName.set($event)" placeholder="e.g. KYC Approver" autocomplete="off" />
             @if (draftName().trim()) {<span class="muted small">saved as <span class="mono">{{ roleId() || '—' }}</span></span>}
@@ -145,14 +154,18 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             </div>
           </div>
           <label>Start from a copy of
-            <select name="nr-copy" [ngModel]="draftCopy()" (ngModelChange)="draftCopy.set($event)">
+            <select name="nr-copy" [ngModel]="draftCopy()" (ngModelChange)="setDraftCopy($event)">
               <option value="">nothing (blank)</option>
               @for (x of creatableBases(); track x.name) {<option [value]="x.name">{{ roleLabel(x.name) }}'s own actions</option>}
             </select>
           </label>
         </div>
+        <div class="ptitle">{{ scopeLabel() }} portal: menus and screens</div>
+        <mp-role-menu-builder [portal]="scope()" [palette]="palette()" [selected]="draftCells()"
+                              [inherited]="draftInherited()" [disabled]="busy()" [nav]="navEnabled()" (selectedChange)="draftCells.set($event)" />
         @if (createError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         <div class="actions">
+          <span class="muted small">{{ draftCells().size }} action(s) picked</span>
           <button class="ghost" (click)="creating.set(false)" [disabled]="busy()">Cancel</button>
           <button class="primary" (click)="create()" [disabled]="busy() || !validName()">Create role</button>
         </div>
@@ -161,13 +174,13 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
       <!-- ============ edit one role ============ -->
       <div class="panel">
         <div class="edit-head">
-          <button class="ghost" (click)="closeEditor()">← All {{ scopeLabel() }} roles</button>
+          <button class="ghost" (click)="closeEditor()">← All roles</button>
           <div class="ttl">
             <span class="rname">{{ roleLabel(r.name) }}</span>
             <span class="mono muted small">{{ r.name }}</span>
           </div>
           <select class="role-pick" [ngModel]="r.name" (ngModelChange)="openRole($event)" aria-label="Role">
-            @for (x of scopeRoles(); track x.name) {<option [value]="x.name">{{ roleLabel(x.name) }}</option>}
+            @for (x of allRoles(); track x.name) {<option [value]="x.name">{{ roleLabel(x.name) }}</option>}
           </select>
         </div>
         <div class="meta small">
@@ -184,51 +197,19 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
           <div class="danger-row"><button *mpPerm="'rbac.role:delete'" class="danger" (click)="deleteRole(r.name)" [disabled]="busy()">Delete this role</button>
             <span class="muted small">only while nobody holds it</span></div>
         }
-        <div class="muted small hint">Grant a menu or screen in one click, then adjust its backend actions. Multiple screens may share one backend permission, so changing that action affects every screen using it. Inherited permissions are changed on the role they come from. Planned screens cannot be granted yet.</div>
+        <div class="muted small hint">Switch menus and submenus on or off, then pick the actions on each screen. A switch gives the screen's view action; switching it off takes every action on that screen away. Actions shared with other screens say so. Inherited actions are changed on the role they come from.</div>
 
         <div class="business-tree">
-          <div class="ptitle">Portal menus and screens</div>
-          @for (portal of cataloguePortals(); track portal) {
-            <h3>{{ portalLabel(portal) }} portal</h3>
-            @for (m of catalogue[portal]; track m.id) {
-              <section class="menu-node">
-                <div class="menu-head">
-                  <b>{{ m.label }}</b>
-                  <span class="muted small">{{ enabledCount(menuCells(portal, m)) }}/{{ menuCells(portal, m).length }} actions</span>
-                  <button type="button" class="ghost" (click)="setCells(menuCells(portal, m), true)"
-                    [disabled]="!canEditTree() || !menuCells(portal, m).length">Enable menu</button>
-                  <button type="button" class="ghost" (click)="setCells(menuCells(portal, m), false)"
-                    [disabled]="!canEditTree() || !menuCells(portal, m).length">Disable menu</button>
-                </div>
-                @for (s of m.screens; track s.id) {
-                  <div class="screen-node">
-                    <div class="screen-head">
-                      <span>{{ s.label }}</span>
-                      @if (screenStatus(portal, m, s) === 'unavailable') {<span class="tag amber">Not available today</span>}
-                      @else {
-                        @if (screenStatus(portal, m, s) === 'partial') {<span class="tag amber">Partly available</span>}
-                        <button type="button" class="ghost" (click)="setCells(screenCells(portal, m, s), true)"
-                          [disabled]="!canEditTree()">Enable screen</button>
-                        <button type="button" class="ghost" (click)="setCells(screenCells(portal, m, s), false)"
-                          [disabled]="!canEditTree()">Disable screen</button>
-                      }
-                    </div>
-                    @if (screenCells(portal, m, s).length) {
-                      <div class="chips">
-                        @for (cell of screenCells(portal, m, s); track cell) {
-                          <button type="button" class="chip-v" [class.own]="states().get(cell) === 'own'"
-                            [class.inh]="states().get(cell) === 'inh'" [class.off]="states().get(cell) === 'off'"
-                            [attr.aria-pressed]="states().get(cell) !== 'off'"
-                            [disabled]="!canEditTree() || states().get(cell) === 'inh'"
-                            [title]="cell" (click)="toggleCell(cell)">{{ cellLabel(cell) }}</button>
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-              </section>
-            }
-          }
+          <div class="ptitle">
+            @if (lensScopes(r).length > 1) {
+              <label class="small lens">Menus of the
+                <select name="ed-portal" [ngModel]="scope()" (ngModelChange)="scope.set($event)">
+                  @for (s of lensScopes(r); track s.id) {<option [value]="s.id">{{ s.label }}</option>}
+                </select> portal</label>
+            } @else { {{ scopeLabel() }} portal: menus and screens }
+          </div>
+          <mp-role-menu-builder [portal]="scope()" [palette]="palette()" [selected]="work()"
+                                [inherited]="inheritedCells()" [disabled]="!canEditTree()" [nav]="navEnabled()" (selectedChange)="setWork($event)" />
         </div>
 
         <details><summary>All backend permissions (technical view)</summary>
@@ -277,26 +258,56 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     } @else if (roles().length) {
       <!-- ============ overview: rows × roles of this org type ============ -->
       <div class="panel">
-        @if (scopeNote(); as n) {<div class="muted small note">{{ n }}</div>}
         <div class="viewbar">
           <mp-tabs [options]="viewOpts" [value]="view()" (valueChange)="view.set($event)" label="View" />
-          @if (view() === 'controller') {
-            <span class="muted small">{{ controllers().length }} controllers · {{ endpointCount() }} endpoints × {{ scopeRoles().length }} roles</span>
+          @if (view() === 'role') {
+            <span class="muted small">{{ roleRows().length }} roles · click a role to edit it</span>
+          } @else if (view() === 'controller') {
+            <span class="muted small">{{ controllers().length }} controllers · {{ endpointCount() }} endpoints × {{ allRoles().length }} roles</span>
             <span class="grow"></span>
             <button type="button" class="ghost sm" (click)="expandAll()">Expand all</button>
             <button type="button" class="ghost sm" (click)="collapseAll()">Collapse all</button>
           } @else {
-            <span class="muted small">{{ rowCount() }} rows × {{ scopeRoles().length }} roles · click a role to edit it</span>
+            <span class="muted small">{{ rowCount() }} rows × {{ allRoles().length }} roles · click a role to edit it</span>
           }
         </div>
-        @if (view() === 'controller') {
+        @if (view() === 'role') {
+        <div class="overview-wrap">
+          <table class="overview roles">
+            <thead>
+              <tr><th class="resource-col">Role</th><th>Kind</th><th>Builds on</th><th>Actions</th><th>Shows</th></tr>
+            </thead>
+            <tbody>
+              @for (x of roleView.rows(); track x.role.name) {
+                <tr class="rrow" (click)="openRole(x.role.name)">
+                  <td class="resource-cell">
+                    <button type="button" class="rolebtn"><span>{{ roleLabel(x.role.name) }}</span></button>
+                    <span class="muted small">{{ x.role.description }}</span>
+                    <span class="mono muted small">{{ x.role.name }}</span>
+                  </td>
+                  <td>{{ x.role.kind === 'PLATFORM' ? 'Platform' : 'Organization' }}
+                    @if (x.role.locked) {<span class="tag amber">built-in · read-only</span>}
+                    @else if (x.role.seeded) {<span class="tag amber">built-in</span>}</td>
+                  <td>{{ x.role.inherits.length ? labels(x.role.inherits) : '—' }}</td>
+                  <td>{{ x.role.own.length }} own@if (x.role.permissions.length > x.role.own.length) {<span class="muted"> · {{ x.role.permissions.length }} in all</span>}</td>
+                  <td>@if (x.screens) { {{ x.portalLabel }} portal · {{ x.menus }} menu{{ x.menus === 1 ? '' : 's' }}, {{ x.screens }} screen{{ x.screens === 1 ? '' : 's' }} }
+                      @else {<span class="none">no menus</span>}</td>
+                </tr>
+              } @empty {
+                <tr><td class="muted pad" colspan="5">No roles match.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <mp-pager class="pg" [view]="roleView" />
+        } @else if (view() === 'controller') {
         <div class="overview-wrap">
           <table class="overview ctl">
             <thead>
               <tr>
                 <th class="resource-col">Screen action (API)</th>
                 <th class="perm-col">Needs permission</th>
-                @for (r of scopeRoles(); track r.name) {
+                @for (r of allRoles(); track r.name) {
                   <th class="rolehead" [title]="r.name + ': ' + r.description">
                     <button type="button" class="rolebtn" (click)="openRole(r.name)"><span>{{ roleLabel(r.name) }}</span></button>
                   </th>
@@ -307,7 +318,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
               @for (c of ctlView.rows(); track c.name) {
                 @let open = openCtl().has(c.name) || !!q().trim();
                 <tr class="ctlhead" (click)="toggleCtl(c.name)" [attr.aria-expanded]="open">
-                  <td [attr.colspan]="scopeRoles().length + 2">
+                  <td [attr.colspan]="allRoles().length + 2">
                     <span class="caret">{{ open ? '▾' : '▸' }}</span>
                     <b>{{ ctlLabel(c.name) }}</b>
                     <span class="muted small"> · {{ c.endpoints.length }} endpoint{{ c.endpoints.length === 1 ? '' : 's' }}</span>
@@ -322,14 +333,14 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
                       <td class="perm-cell"><span class="rdesc">{{ e.rowDesc }}</span>
                         <span class="chip-v own">{{ verbLabel($any(e.verb)) }}</span>
                         <span class="mono muted small">{{ e.cell }}</span></td>
-                      @for (r of scopeRoles(); track r.name) {
+                      @for (r of allRoles(); track r.name) {
                         <td class="ov-cell">@if (r.permissions.includes(e.cell)) {<span class="tick">✓</span>} @else {<span class="none">—</span>}</td>
                       }
                     </tr>
                   }
                 }
               } @empty {
-                <tr><td class="muted pad" [attr.colspan]="scopeRoles().length + 2">No endpoints match.</td></tr>
+                <tr><td class="muted pad" [attr.colspan]="allRoles().length + 2">No endpoints match.</td></tr>
               }
             </tbody>
           </table>
@@ -341,7 +352,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             <thead>
               <tr>
                 <th class="resource-col">What</th>
-                @for (r of scopeRoles(); track r.name) {
+                @for (r of allRoles(); track r.name) {
                   <th class="rolehead" [title]="r.name + ': ' + r.description">
                     <button type="button" class="rolebtn" (click)="openRole(r.name)">
                       <span>{{ roleLabel(r.name) }}</span>
@@ -355,14 +366,14 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
               @for (x of rowView.rows(); track x.row.id; let i = $index) {
                 @let row = x.row;
                 @if (x.first || i === 0) {
-                  <tr class="grow"><td [attr.colspan]="scopeRoles().length + 1">{{ x.label }}@if (!x.first) {<span class="muted small"> (continued)</span>}</td></tr>
+                  <tr class="grow"><td [attr.colspan]="allRoles().length + 1">{{ x.label }}@if (!x.first) {<span class="muted small"> (continued)</span>}</td></tr>
                 }
                   <tr>
                     <td class="resource-cell">
                       <span class="rdesc">{{ row.description || row.id }}</span>
                       <span class="mono muted small">{{ row.id }}</span>
                     </td>
-                    @for (r of scopeRoles(); track r.name) {
+                    @for (r of allRoles(); track r.name) {
                       <td class="ov-cell">
                         @for (c of grants(r, row); track c.verb) {
                           <span class="chip-v {{ c.kind }}" [title]="c.kind === 'own' ? 'on ' + r.name : 'inherited from ' + c.from">@if (c.privileged) {<b class="flag">⚑</b>}{{ c.label }}</span>
@@ -371,7 +382,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
                     }
                   </tr>
               } @empty {
-                <tr><td class="muted pad" [attr.colspan]="scopeRoles().length + 1">No rows match.</td></tr>
+                <tr><td class="muted pad" [attr.colspan]="allRoles().length + 1">No rows match.</td></tr>
               }
             </tbody>
           </table>
@@ -444,6 +455,13 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
     .ttl { flex: 1; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
     .rname { font-size: 19px; font-weight: 700; }
     .role-pick { max-width: 220px; }
+    .lens { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; font-weight: 600; }
+    .lens select { width: auto; }
+    .overview.roles td { white-space: normal; }
+    .overview.roles th { text-align: left; }
+    .overview.roles .resource-cell span { display: block; }
+    .rrow { cursor: pointer; }
+    .rrow:hover td { background: var(--a-panel-2); }
     .business-tree { display: grid; gap: 10px; padding: 16px; }
     .business-tree h3 { margin: 14px 0 2px; }
     .menu-node { border: 1px solid var(--a-border); border-radius: 8px; overflow: hidden; }
@@ -478,12 +496,6 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 export class PermissionMatrix implements OnInit {
   private readonly http = inject(HttpClient);
   readonly scopes = SCOPES;
-  readonly catalogue = PORTAL_PERMISSION_CATALOGUE;
-  readonly cataloguePortals = computed<BusinessPortal[]>(() => this.scope() === 'PLATFORM'
-    ? ['PLATFORM', 'LENDER', 'MERCHANT', 'MANUFACTURER', 'DISTRIBUTOR', 'SUPPLIER', 'CUSTOMER']
-    : [this.scope()]);
-  portalLabel(id: BusinessPortal) { return id === 'PLATFORM' ? 'Admin' : id.charAt(0) + id.slice(1).toLowerCase(); }
-
   readonly roles = signal<RbacRoleView[]>([]);
   readonly resources = signal<RbacResourceView[]>([]);
   /** No org-type tabs: one matrix of every standard role over every row from the code. */
@@ -493,9 +505,9 @@ export class PermissionMatrix implements OnInit {
   readonly q = signal('');
   readonly showAll = signal(false);
   /** Overview: grouped by controller (each expandable) or the permission grid. */
-  readonly view = signal<'controller' | 'permission'>('controller');
-  readonly viewOpts: TabOption<'controller' | 'permission'>[] = [
-    { value: 'controller', label: 'By controller' }, { value: 'permission', label: 'By permission' }];
+  readonly view = signal<'role' | 'controller' | 'permission'>('role');
+  readonly viewOpts: TabOption<'role' | 'controller' | 'permission'>[] = [
+    { value: 'role', label: 'By role' }, { value: 'controller', label: 'By controller' }, { value: 'permission', label: 'By permission' }];
   readonly openCtl = signal<Set<string>>(new Set());
   readonly controllers = computed(() => {
     const q = this.q().trim().toLowerCase();
@@ -544,7 +556,15 @@ export class PermissionMatrix implements OnInit {
   readonly draftDesc = signal('');
   readonly draftBases = signal<Set<string>>(new Set());
   readonly draftCopy = signal('');
+  /** The new role's own cells, picked in the builder. */
+  readonly draftCells = signal<Set<string>>(new Set());
   readonly createError = signal('');
+  /** What the new role gets from the roles it builds on. */
+  readonly draftInherited = computed(() => {
+    const out = new Set<string>();
+    for (const n of this.draftBases()) for (const c of this.byName().get(n)?.permissions ?? []) out.add(c);
+    return out;
+  });
   /** Any name the admin types ("KYC Approver") becomes the role id RBAC needs ("kyc_approver"). */
   readonly roleId = computed(() => {
     let id = this.draftName().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -560,40 +580,16 @@ export class PermissionMatrix implements OnInit {
   readonly editing = computed(() => this.byName().get(this.editingName() ?? '') ?? null);
   readonly scopeLabel = computed(() => SCOPES.find((s) => s.id === this.scope())!.label);
   private readonly rowById = computed(() => new Map(this.resources().map((r) => [r.id, r])));
-  /** A screen's actions are exactly the cells registered by backend endpoints. */
-  screenCells(portal: BusinessPortal, m: PermissionMenu, s: PermissionScreen): string[] {
-    if (!AVAILABLE_SCREEN_KEYS.has(`${portal}/${m.id}/${s.id}`)) return [];
-    return [...new Set(s.resources.flatMap((id) => {
-      const row = this.rowById().get(id);
-      return row?.used.map((verb) => `${id}:${verb}`) ?? [];
-    }))];
-  }
-  menuCells(portal: BusinessPortal, m: PermissionMenu): string[] {
-    return [...new Set(m.screens.flatMap((s) => this.screenCells(portal, m, s)))];
-  }
-  screenStatus(portal: BusinessPortal, m: PermissionMenu, s: PermissionScreen): 'available' | 'partial' | 'unavailable' {
-    if (!AVAILABLE_SCREEN_KEYS.has(`${portal}/${m.id}/${s.id}`)) return 'unavailable';
-    const live = s.resources.filter((id) => this.rowById().get(id)?.used.length);
-    return !live.length ? 'unavailable' : live.length < s.resources.length ? 'partial' : 'available';
-  }
-  enabledCount(cells: string[]): number { return cells.filter((c) => this.states().get(c) !== 'off').length; }
+  /** The rows the builder may give: every row some endpoint uses, with its verbs. */
+  /** RBAC knows the menu cells (nav.* rows): each submenu then switches on its own. */
+  readonly navEnabled = computed(() => this.resources().some((r) => r.id.startsWith('nav.') && r.used.length));
+  readonly palette = computed<PaletteRow[]>(() => this.resources().filter((r) => r.used.length)
+    .map((r) => ({ id: r.id, description: r.description || r.id, verbs: r.used })));
   canEditTree(): boolean { return !!this.editing() && !this.editing()!.locked && this.access.can('rbac.role:modify') && !this.busy(); }
-  cellLabel(c: string): string {
-    const [row, verb] = c.split(':');
-    const endpoints = this.rowById().get(row)?.endpoints?.filter((e) => e.verb === verb) ?? [];
-    return `${this.verbLabel(verb)} ${this.rowById().get(row)?.description || row}${endpoints.length ? ` (${endpoints.length} API)` : ''}`;
-  }
-  toggleCell(c: string) {
-    const [row, verb] = c.split(':');
-    if (this.states().get(c) !== 'inh') this.toggle(row, verb as RbacVerb);
-  }
-  setCells(cells: string[], enabled: boolean) {
+  /** The edited role's inherited cells (shown in the builder, changed on their source role). */
+  readonly inheritedCells = computed(() => new Set([...this.states()].filter(([, st]) => st === 'inh').map(([c]) => c)));
+  setWork(next: Set<string>) {
     if (!this.canEditTree()) return;
-    const next = new Set(this.work());
-    for (const c of cells) {
-      if (this.states().get(c) === 'inh') continue;
-      if (enabled) next.add(c); else next.delete(c);
-    }
     this.work.set(next);
     this.saved.set(false);
   }
@@ -618,16 +614,53 @@ export class PermissionMatrix implements OnInit {
       .sort((a, b) => this.rank(a) - this.rank(b) || a.name.localeCompare(b.name));
   });
 
-  /** Row ids some role of the org type holds. */
+  /** The landing page shows every role (the portal is chosen per role, in its editor). */
+  readonly allRoles = computed(() => [...this.roles()].sort((a, b) =>
+    (a.kind === 'PLATFORM' ? 0 : 1) - (b.kind === 'PLATFORM' ? 0 : 1) || this.rank(a) - this.rank(b) || a.name.localeCompare(b.name)));
+
+  /** The portal a role is meant for: Admin for platform roles; for org roles the org
+   *  portal where its cells draw the most screens (one portal per role). */
+  portalFor(r: RbacRoleView): ScopeId {
+    if (r.kind === 'PLATFORM') return 'PLATFORM';
+    let best: ScopeId = 'SUPPLIER', most = -1;
+    for (const p of ORG_PORTALS) {
+      const n = this.shownScreens(p, r);
+      if (n > most) { best = p; most = n; }
+    }
+    return best;
+  }
+  private shownScreens(p: ScopeId, r: RbacRoleView): number {
+    return buildTree(p, this.palette(), new Set(r.permissions), undefined, { nav: this.navEnabled() }).reduce((n, m) => n + m.screens.filter((s) => s.visible).length, 0);
+  }
+  /** Portals the editor may draw a role in: Admin for platform roles, the org portals otherwise. */
+  lensScopes(r: RbacRoleView): Scope[] {
+    return SCOPES.filter((s) => (r.kind === 'PLATFORM') === (s.id === 'PLATFORM'));
+  }
+
+  /** "By role" rows: each role, its portal and how much of that portal it shows. */
+  readonly roleRows = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    return this.allRoles()
+      .filter((r) => !q || [r.name, r.description ?? '', this.roleLabel(r.name)].some((x) => x.toLowerCase().includes(q)))
+      .map((role) => {
+        const portal = this.portalFor(role);
+        const tree = buildTree(portal, this.palette(), new Set(role.permissions), undefined, { nav: this.navEnabled() });
+        return { role, portalLabel: SCOPES.find((s) => s.id === portal)!.label,
+          menus: tree.filter((m) => m.visible).length,
+          screens: tree.reduce((n, m) => n + m.screens.filter((s) => s.visible).length, 0) };
+      });
+  });
+
+  /** Row ids some role holds (in the editor: some role of the portal). */
   private readonly heldRows = computed(() => {
     const out = new Set<string>();
-    for (const r of this.scopeRoles()) for (const c of r.permissions) out.add(c.split(':')[0]);
+    for (const r of this.editing() ? this.scopeRoles() : this.allRoles()) for (const c of r.permissions) out.add(c.split(':')[0]);
     return out;
   });
 
   private readonly visibleRows = computed(() => {
-    const s = this.scope(), q = this.q().trim().toLowerCase(), held = this.heldRows(), all = this.showAll();
     const ed = this.editing();
+    const s = ed ? this.scope() : 'PLATFORM', q = this.q().trim().toLowerCase(), held = this.heldRows(), all = this.showAll();
     const own = ed ? new Set([...this.work()].map((c) => c.split(':')[0])) : new Set<string>();
     return this.liveRows().filter((row) => {
       if (s === 'PLATFORM') {
@@ -653,18 +686,12 @@ export class PermissionMatrix implements OnInit {
       .map(([area, rows]) => ({ area, label: AREA_LABEL[area] ?? area, rows: rows.sort((x, y) => x.id.localeCompare(y.id)) }));
   });
   /** the overviews page through their own filtered lists (the filter box above does the searching) */
+  readonly roleView = new TableView(() => this.roleRows(), undefined, 25);
   readonly ctlView = new TableView(() => this.controllers(), undefined, 25);
   readonly rowView = new TableView(
     () => this.groups().flatMap((g) => g.rows.map((row, k) => ({ label: g.label, row, first: k === 0 }))), undefined, 25);
 
   readonly rowCount = computed(() => this.visibleRows().length);
-
-  readonly scopeNote = computed(() => {
-    const s = this.scope();
-    if (s === 'PLATFORM') return '';
-    const own = this.liveRows().some((r) => r.tenantTypes.includes(s));
-    return own ? '' : `${this.scopeLabel()} orgs have no rows of their own yet: only the rows every org has (organisation, KYC, access).`;
-  });
 
   private readonly ownSaved = computed(() => new Set(this.editing()?.own ?? []));
   readonly dirtyCount = computed(() => {
@@ -703,19 +730,13 @@ export class PermissionMatrix implements OnInit {
     }
   }
 
-  setScope(s: ScopeId) {
-    if (this.dirtyCount() && !this.confirmDiscard()) return;
-    this.scope.set(s);
-    this.editingName.set(null);
-    this.creating.set(false);
-  }
-
   openRole(name: string) {
     if (this.editingName() === name) return;
     if (this.dirtyCount() && !this.confirmDiscard()) return;
     const r = this.byName().get(name);
     if (!r) return;
     this.creating.set(false);
+    this.scope.set(this.portalFor(r));
     this.editingName.set(name);
     this.work.set(new Set(r.own));
     this.saveError.set('');
@@ -725,6 +746,8 @@ export class PermissionMatrix implements OnInit {
   closeEditor() {
     if (this.dirtyCount() && !this.confirmDiscard()) return;
     this.editingName.set(null);
+    // no role open: nothing is pending (else the next role opened reads as "unsaved")
+    this.work.set(new Set());
   }
 
   private confirmDiscard() {
@@ -740,8 +763,25 @@ export class PermissionMatrix implements OnInit {
     this.draftDesc.set('');
     this.draftBases.set(new Set());
     this.draftCopy.set('');
+    this.draftCells.set(new Set());
     this.createError.set('');
     this.creating.set(true);
+  }
+
+  /** The new role's portal is the page's portal: switching it re-scopes the roles to build on. */
+  setDraftPortal(s: ScopeId) {
+    if (s === this.scope()) return;
+    if (this.draftCells().size && !confirm('Switching the portal clears the menus and actions picked so far. Continue?')) return;
+    this.scope.set(s);
+    this.draftBases.set(new Set());
+    this.draftCopy.set('');
+    this.draftCells.set(new Set());
+  }
+
+  /** Starting from a copy fills the builder with that role's own actions (still editable). */
+  setDraftCopy(name: string) {
+    this.draftCopy.set(name);
+    this.draftCells.set(new Set(this.byName().get(name)?.own ?? []));
   }
 
   toggleBase(name: string) {
@@ -754,14 +794,13 @@ export class PermissionMatrix implements OnInit {
     const name = this.roleId();
     if (!this.validName()) { this.createError.set('Give the role a name of at least 3 letters.'); return; }
     if (this.byName().has(name)) { this.createError.set(`A role called ${name} already exists.`); return; }
-    const copy = this.byName().get(this.draftCopy());
     const kind = this.scope() === 'PLATFORM' ? 'PLATFORM' : 'ORG';
     this.busy.set(true);
     this.createError.set('');
     try {
       await firstValueFrom(this.http.post<RbacRoleView>('/api/admin/rbac/roles', {
         name, description: this.draftDesc().trim(), kind,
-        inherits: [...this.draftBases()], permissions: copy ? [...copy.own] : [],
+        inherits: [...this.draftBases()], permissions: [...this.draftCells()],
       }));
       await this.reload();
       this.creating.set(false);

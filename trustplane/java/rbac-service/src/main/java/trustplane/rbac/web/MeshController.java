@@ -39,7 +39,7 @@ public class MeshController {
     }
 
     public record Catalog(String service, List<Map<String, String>> permissions, List<Map<String, Object>> endpoints,
-                          List<Map<String, String>> rows) {}
+                          List<Map<String, String>> rows, List<Map<String, String>> entitlements) {}
 
     @PublicEndpoint("mesh: a service registers its own grid cells and endpoints (certificate CN = service)")
     @PostMapping("/rbac/internal/permissions/register")
@@ -60,7 +60,7 @@ public class MeshController {
             }
         }
         return store.registerCatalog(c.service(), c.permissions() == null ? List.of() : c.permissions(), eps,
-                c.rows() == null ? List.of() : c.rows());
+                c.rows() == null ? List.of() : c.rows(), c.entitlements() == null ? List.of() : c.entitlements());
     }
 
     /** {closure:[{ancestor,descendant,depth}], orgs:[{id,name,type,parent,lifecycle,held,holds[]}]} (tenantMapping accepted too). */

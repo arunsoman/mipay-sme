@@ -72,10 +72,14 @@ public class OrgAccessMeshController {
     /**
      * A role built from picked permissions (no base roles) never exceeds its creator: every
      * ticked cell must be one the actor holds in this org (no escalation through a new role).
+     * Menu cells ("nav.*") are exempt: they open no endpoint.
      */
     private void holdsAll(String actor, String tenant, Map<String, Integer> grid) {
         List<String> missing = new java.util.ArrayList<>();
         for (var e : grid.entrySet()) {
+            // menu cells grant no endpoint (they only pick which submenus a sidebar draws):
+            // a manager may switch any submenu on or off without holding its menu cell
+            if (e.getKey().startsWith("nav.")) continue;
             for (String v : trustplane.rbac.core.Verbs.names(e.getValue())) {
                 String cell = e.getKey() + ":" + v;
                 if (!decisions.check(new Decisions.Request(actor, tenant, cell)).allowed()) missing.add(cell);

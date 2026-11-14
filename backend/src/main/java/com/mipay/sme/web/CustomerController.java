@@ -1,5 +1,7 @@
 package com.mipay.sme.web;
 
+import lombok.extern.slf4j.Slf4j;
+
 import com.mipay.sme.common.NotFoundException;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.domain.payments.ShortCode;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * "customer bank" is a simulated caller of the pay endpoints; every action is
  * labelled SIMULATED and audited.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/customer")
 @RequiredArgsConstructor
@@ -40,6 +43,7 @@ public class CustomerController {
     @GetMapping("/lookup")
     public CustomerLookup lookup(@RequestParam(required = false) String shortCode,
                                  @RequestParam(required = false) String qrPayload) {
+        log.info("Customer lookup requested: shortCode={}, qrPayload={}", shortCode, qrPayload);
         if (shortCode != null && !shortCode.isBlank()) {
             ShortCode sc = shortCodeRepo.findTopByShortCodeIgnoreCaseAndStatus(shortCode, Enums.QrStatus.ACTIVE)
                     .orElseThrow(() -> new NotFoundException("Short code not found"));
@@ -59,6 +63,7 @@ public class CustomerController {
     @PublicEndpoint(reason = "customer touchpoint payment - customer bank pays via short code or QR")
     @PostMapping("/pay")
     public Dtos.PaymentOpResult pay(@Valid @RequestBody Dtos.CustomerPayRequest req) {
+        log.info("Customer payment initiation requested: shortCode={}", req.shortCode());
         String merchantId;
         Enums.PaymentChannel channel;
         if (req.shortCode() != null && !req.shortCode().isBlank()) {

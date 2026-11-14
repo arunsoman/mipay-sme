@@ -588,6 +588,7 @@ func (s *Server) par(w http.ResponseWriter, r *http.Request) {
 		"nonce":                  r.FormValue("nonce"),
 		"client_auth_method":     authn.method,
 		"client_cert_thumbprint": authn.certThumb,
+		"authorization_details":  r.FormValue("authorization_details"),
 	}
 	pj, _ := json.Marshal(params)
 	requestURI := "urn:ietf:params:oauth:request_uri:" + jwtx.RandB64(24)

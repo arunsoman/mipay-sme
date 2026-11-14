@@ -16,3 +16,6 @@ __pycache__/
 
 # compiled Go test client (build output)
 /trustplane/fapi-client
+# locally built service executables
+/trustplane/gateway
+/trustplane/cmd/idp/idp

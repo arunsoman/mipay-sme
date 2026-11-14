@@ -1,6 +1,6 @@
 # Master plan: what is left, in order
 
-Status: **living document** · last updated 2026-11-12
+Status: **living document** · last updated 2026-11-14
 
 afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RBAC enforcing** with legacy-parity roles; deployed 2026-11-12, rollback tags `:pre-kycux-20261112` (portals) / `:pre-onbkyc-20261112` / `:pre-enforce-20261112`, or `APP_RBAC_MODE=shadow`), except comms, which stays on its previous image until `BrevoEmailSenderTest` passes. Only work still to do is listed here. Finished work, delivery notes and the old audit are in git history (`git show 953c2ab:docs/plans/master-plan.md`). Detail lives in each plan. This file only says **what comes next**.
 
@@ -14,6 +14,7 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | [`decision-permission-model.md`](decision-permission-model.md) | D-9 decision-effect model: frozen proposals, `return` outcome, supersession |
 | [`comms-design.md`](comms-design.md) | B1 real email/SMS, B2 push and in-app, B3 policy, B4 scale |
 | [`kyc-design.md`](kyc-design.md) | phase 0 (own service), 4 (cross-service go-live gate), 6 (EMI profile) |
+| [`role-menu-builder.md`](role-menu-builder.md) | New role by portal: menu/submenu visibility + per-screen actions (admin first, then org User management) |
 | [`inventory-plugin.md`](inventory-plugin.md), [`plugins/*`](plugins/README.md) | plugin framework, Inventory, then the plugins |
 
 ## 2. Rules for the order
@@ -31,6 +32,7 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 |---|---|---|
 | **1. Now** | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
 | | OA3 per-type onboarding rights in the UI ( OA2 roles live in `grid.yaml` + role pack regenerated; OA1 bootstrap built — `V18` + `POST /api/admin/bootstrap/tpts`) | org-access |
+| | Role builder by portal menu (admin Roles and permissions, then org User management) | role-menu-builder |
 | | Comms B1: Brevo email adapter done and tested (live send waits on the Brevo **API** key — the held `brevo` credential is SMTP-relay); SMS provider choice still open | comms P1 |
 | **2. Before 2026-12-31** | P4 gateway sessions · P5 portals on the BFF, with OA7 org-centred navigation | cut-over, org-access |
 | | P6/OA8 enforce is **on** (skipped the shadow week by decision, 2026-11-12). Left: shrink the `legacy_*` parity roles to the D9 split in the matrix, replace the hard-coded legacy checks (6.3), gateway enforcement (6.6), matrix test (6.7) | cut-over P6 |

@@ -4,71 +4,89 @@ import { firstValueFrom } from 'rxjs';
 import { MeView, OtpResult, TokenView } from './dto';
 
 /**
- * Auth store: signals for me/token/role. Login paths:
- * - merchants: phone + OTP (dev OTP 123456 hinted when sandbox, p.16)
- * - everyone else: phone + password
- * Token persisted in localStorage ('mp.token') and attached by authInterceptor.
+ * Auth store for FAPI 2.0 browser flow.
+ * 
+ * FAPI 2.0 browsers never handle tokens directly.
+ * The gateway (BFF) holds tokens server-side and provides
+ * identity through the __Host-mp_sess session cookie.
+ * 
+ * Portal signals:
+ * - me: current user info from /api/me
+ * - loggedIn: whether a session exists
+ * - Handles 401 login_required by coordinating with gateway
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
 
+  /** Current user profile from /api/me */
   readonly me = signal<MeView | null>(null);
-  readonly token = signal<string | null>(readStoredToken());
 
+  /** Whether a valid session exists (cookie present and session active) */
+  readonly loggedIn = computed(() => !!this.me());
+
+  /** User's role, derived from the me signal */
   readonly role = computed(() => this.me()?.role ?? '');
+
+  /** Merchant ID, if the user is a merchant */
   readonly merchantId = computed(() => this.me()?.merchantId ?? null);
+
+  /** Supplier ID, if the user is a supplier */
   readonly supplierId = computed(() => this.me()?.supplierId ?? null);
+
+  /** Lender ID, if the user is a lender */
   readonly lenderId = computed(() => this.me()?.lenderId ?? null);
-  readonly loggedIn = computed(() => !!this.me() && !!this.token());
 
-  async requestOtp(phone: string): Promise<OtpResult> {
-    return firstValueFrom(this.http.post<OtpResult>('/api/auth/otp', { phone }));
+  /**
+   * Initiate login with phone number.
+   * Gateway sets __Host-mp_sess cookie and redirects to IdP.
+   * Portal should then check /auth/session or wait for 401 handling.
+   */
+  async requestOtp(phone: string, authDetails: string | null = null): Promise<void> {
+    await firstValueFrom(this.http.post('/auth/login?return_to=/', { phone, auth_details: authDetails }));
   }
 
-  async verifyOtp(phone: string, code: string): Promise<TokenView> {
-    const tv = await firstValueFrom(this.http.post<TokenView>('/api/auth/otp/verify', { phone, code }));
-    this.adopt(tv);
-    return tv;
+  /**
+   * Verify OTP and complete login.
+   * Called after IdP redirects back with authorization code.
+   * Gateway creates session and sets __Host-mp_sess cookie.
+   */
+  async verifyOtp(phone: string, code: string): Promise<void> {
+    await firstValueFrom(this.http.post('/auth/otp/verify', { phone, code }));
+    // After verifyOtp, hydrate user info
+    await this.hydrate();
   }
 
-  async loginWithPassword(phone: string, password: string): Promise<TokenView> {
-    const tv = await firstValueFrom(this.http.post<TokenView>('/api/auth/login', { phone, password }));
-    this.adopt(tv);
-    return tv;
+  /**
+   * Log out.
+   * Gateway handles logout via /auth/logout and back-channel logout.
+   * Portal just clears local state.
+   */
+  logout(): Promise<void> {
+    // Inform the gateway to end the session
+    return firstValueFrom(this.http.post('/auth/logout', {})).then(() => {
+      // Clear local state regardless of gateway response
+      this.me.set(null);
+    }).catch(() => {
+      // Even if gateway call fails, clear local state
+      this.me.set(null);
+    });
   }
 
-  /** Hydrate /api/me after a stored token so reloads keep the session (X01). */
+  /**
+   * Hydrate user info from /api/me.
+   * Called after login to populate the me signal.
+   * The gateway validates the session cookie and returns user info.
+   */
   async hydrate(): Promise<MeView | null> {
-    if (!this.token()) return null;
     try {
       const me = await firstValueFrom(this.http.get<MeView>('/api/me'));
       this.me.set(me);
       return me;
     } catch {
-      this.logout();
+      // /api/me returns 401 if no valid session
+      this.me.set(null);
       return null;
     }
-  }
-
-  logout() {
-    localStorage.removeItem('mp.token');
-    this.token.set(null);
-    this.me.set(null);
-  }
-
-  private adopt(tv: TokenView) {
-    localStorage.setItem('mp.token', JSON.stringify(tv));
-    this.token.set(tv.token);
-  }
-}
-
-function readStoredToken(): string | null {
-  const raw = localStorage.getItem('mp.token');
-  if (!raw) return null;
-  try {
-    return (JSON.parse(raw) as TokenView).token ?? null;
-  } catch {
-    return null;
   }
 }

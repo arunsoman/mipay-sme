@@ -1,5 +1,7 @@
 package com.mipay.sme.web;
 
+import lombok.extern.slf4j.Slf4j;
+
 import com.mipay.sme.config.AppProperties;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.security.Current;
@@ -28,6 +30,7 @@ import java.util.List;
 import java.util.Set;
 
 /** TPTS operations console API (T01-T20). */
+@Slf4j
 @RestController
 @RequestMapping("/api/ops")
 @RequiredArgsConstructor
@@ -86,6 +89,7 @@ public class OpsController {
           description = "View merchant approval queue")
     @GetMapping("/approvals/merchants")
     public List<Dtos.MerchantApprovalRow> merchantQueue() {
+        log.info("Merchant approval queue requested");
         // legacy queue leaves out orgs onboarded through the tree (parent != root) [plan C1]
         return merchantRepoRef.findQueue(Enums.ApprovalStatus.PENDING).stream()
                 .filter(r -> isLegacyRow("MERCHANT", r.id()))
