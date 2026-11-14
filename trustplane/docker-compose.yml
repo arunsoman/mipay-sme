@@ -199,12 +199,12 @@ services:
       GATEWAY_DB_URL: postgres://platform:platform-dev@pg:5432/gateway?sslmode=disable
       GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:-}
     ports:
-      - "8443:8443"   # the ONLY published port: gateway is the single public entry
+      - "${GATEWAY_PUBLISH:-8443}:8443"   # production host nginx uses 127.0.0.1:19120
     volumes:
       - pki:/pki:ro
       - ./config:/config:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsSk --cacert /pki/platform-ca.pem -H 'Host: idp.fapi.local' https://127.0.0.1:8443/healthz -o /dev/null; curl -fsSk -H 'Host: idp.fapi.local' https://127.0.0.1:8443/.well-known/openid-configuration | grep -q idp.fapi.local"]
+      test: ["CMD-SHELL", "curl -fsSk --cacert /pki/platform-ca.pem -H 'Host: idp.fapi.local' https://127.0.0.1:8443/healthz -o /dev/null && curl -fsSk -H 'Host: idp.fapi.local' https://127.0.0.1:8443/.well-known/openid-configuration -o /dev/null"]
       interval: 5s
       timeout: 3s
       retries: 30
