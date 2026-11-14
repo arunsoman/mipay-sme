@@ -63,13 +63,13 @@ services:
       DB_URL: postgres://platform:platform-dev@pg:5432/idp?sslmode=disable
       # Demo credential accounts (dev/sandbox only): name:password:scopes[:uid[:phone[:mfa profile]]].
       # Their uids are the RBAC subjects of config/rbac/fixtures.e2e.yaml.
-      IDP_SEED_USERS: "rootadmin:rootadmin-pw:openid|uadmin2:uadmin2-pw:openid|alice:alice-pw:openid|mlro1:mlro1-pw:openid|selma:selma-pw:openid|tomas:tomas-pw:openid|jonas:jonas-pw:openid|carol:carol-pw:openid|mira:mira-pw:openid:mira:+264810000042:MERCHANT_OTP"
+      IDP_SEED_USERS: "${IDP_SEED_USERS-rootadmin:rootadmin-pw:openid|uadmin2:uadmin2-pw:openid|alice:alice-pw:openid|mlro1:mlro1-pw:openid|selma:selma-pw:openid|tomas:tomas-pw:openid|jonas:jonas-pw:openid|carol:carol-pw:openid|mira:mira-pw:openid:mira:+264810000042:MERCHANT_OTP}"
       IDP_ENVIRONMENT: ${IDP_ENVIRONMENT:-dev}
       # Required when the IdP accounts table is empty; never use a source-coded installer password.
       IDP_BOOTSTRAP_PASSWORD: ${IDP_BOOTSTRAP_PASSWORD:-}
       IDP_MFA_MODE: ${IDP_MFA_MODE:-off}
       IDP_MFA_KEY_FILE: /pki/idp-mfa-key
-      IDP_DEV_OTP: "123456"                                   # fixed phone OTP, dev/sandbox only (refused elsewhere)
+      IDP_DEV_OTP: "${IDP_DEV_OTP-123456}"                                   # fixed phone OTP, dev/sandbox only (refused elsewhere)
       IDP_COMMS_URL: https://comms:8443/comms/v1              # login OTP and reset links go through the comms plane
       IDP_CORE_CN: sme-mipay-mesh                             # the only caller of the enrolment API
       # IDP_CORE_EVENTS_URL: set when the core's POST /internal/auth/events exists (cut-over P3.6);

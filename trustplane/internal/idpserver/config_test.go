@@ -22,6 +22,8 @@ func TestValidateEnvironment(t *testing.T) {
 	}{
 		{"dev keeps demo users and a .local issuer", "dev", "https://idp.fapi.local:8443", seed, true},
 		{"sandbox keeps demo users", "sandbox", "https://idp.fapi.local:8443", seed, true},
+		{"dev refuses public issuer", "dev", "https://auth.afriqpay.com", "", false},
+		{"sandbox refuses public issuer", "sandbox", "https://auth.afriqpay.com", "", false},
 		{"production, public issuer, no seeds", "production", "https://auth.afriqpay.com", "", true},
 		{"uat, public issuer with port", "uat", "https://auth.uat.afriqpay.com:8443", "", true},
 		{"production refuses seed users", "production", "https://auth.afriqpay.com", seed, false},

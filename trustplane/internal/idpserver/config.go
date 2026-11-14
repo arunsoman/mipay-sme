@@ -184,6 +184,14 @@ func (c Config) validateEnvironment() error {
 		return fmt.Errorf("idp: IDP_ENVIRONMENT %q must be dev|sandbox|uat|production", c.Environment)
 	}
 	if devEnvironments[c.Environment] {
+		// A publicly reachable issuer must never silently inherit demo users,
+		// sandbox channels or fixed OTP when a compose default selects dev.
+		if u, err := url.Parse(c.Issuer); err == nil && u.Scheme == "https" {
+			host := strings.ToLower(u.Hostname())
+			if host != "" && host != "localhost" && !strings.HasSuffix(host, ".local") && net.ParseIP(host) == nil {
+				return fmt.Errorf("idp: public issuer requires uat or production environment")
+			}
+		}
 		return nil
 	}
 	if strings.TrimSpace(c.SeedUsers) != "" {
