@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { AdminAuthService } from '../../core/auth';
 
 /**
@@ -35,5 +36,6 @@ import { AdminAuthService } from '../../core/auth';
 })
 export class Login {
   private readonly auth = inject(AdminAuthService);
-  go() { this.auth.login(); }
+  private readonly route = inject(ActivatedRoute);
+  go() { this.auth.login(this.route.snapshot.queryParamMap.get('returnTo') || '/onboarding'); }
 }

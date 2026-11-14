@@ -38,7 +38,7 @@ export class AdminAuthService {
   readonly loggedIn = computed(() => !!this.session.current() && !!this.me());
 
   /** Start the gateway-owned FAPI authorization flow. */
-  login() { this.access.clear(); this.session.login('/onboarding'); }
+  login(returnTo = '/onboarding') { this.access.clear(); this.session.login(returnTo); }
 
   /** Hydrate /api/me after verifying the BFF session. */
   async hydrate(): Promise<MeView | null> {
