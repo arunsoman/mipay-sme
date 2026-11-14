@@ -115,6 +115,7 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
       } @else {
         <mp-tabs [options]="modeOpts()" [value]="mode()" (valueChange)="mode.set($event)" label="Role" />
       }
+      @if (roleLoadError(); as e) {<mp-alert kind="bad">Could not load all available roles: {{ e }}</mp-alert>}
 
       @if (mode() === 'existing' && !editing()) {
         <div class="roles">
@@ -155,9 +156,11 @@ const VERB_ORDER = ['read', 'create', 'modify', 'delete', 'submit', 'authorize',
           } @empty {<div class="sub">No permission matches.</div>}
         </div>
       }
-      @if (!editing()) {
+      @if (!editing() && !platformRoleSelected()) {
         <label class="check"><input type="checkbox" [(ngModel)]="subtree" />
           Also for the organizations below this one <span class="sub">(e.g. to review their KYC)</span></label>
+      } @else if (platformRoleSelected()) {
+        <p class="hint">Platform roles apply across all organizations and need platform approval.</p>
       }
       @if (modalError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
       <div modal-footer>
@@ -239,6 +242,7 @@ export class UserManagement implements OnInit {
   ];
   readonly assignments = signal<RoleAssignment[]>([]);
   readonly orgRoles = signal<RbacRole[]>([]);
+  readonly roleLoadError = signal('');
   readonly loadError = signal('');
   readonly flash = signal<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   readonly modalError = signal('');
@@ -279,6 +283,9 @@ export class UserManagement implements OnInit {
     ];
   }
   existing = '';
+  platformRoleSelected() {
+    return this.mode() === 'existing' && this.orgRoles().some((r) => r.name === this.existing && r.kind === 'PLATFORM');
+  }
   /** give the role over this org and every org below it (RBAC scope "subtree") */
   subtree = false;
   /** the org-defined role being edited, or null */
@@ -317,21 +324,29 @@ export class UserManagement implements OnInit {
 
   async load() {
     this.loadError.set('');
+    this.roleLoadError.set('');
     try {
       const a = await firstValueFrom(this.http.get<MyAccess>('/api/orgs/me/access'));
       this.access.set(a);
       if (!this.canManage()) return;
-      const [people, asg, roles] = await Promise.all([
+      const [people, asg, roles, platformRoles] = await Promise.all([
         firstValueFrom(this.http.get<Person[]>('/api/orgs/me/users')),
         firstValueFrom(this.http.get<RoleAssignment[]>(`/api/orgs/${a.orgId}/role-assignments`)).catch(() => []),
-        firstValueFrom(this.http.get<OrgRolesView>(`/api/orgs/${a.orgId}/roles`)).catch(() => null),
+        firstValueFrom(this.http.get<OrgRolesView>(`/api/orgs/${a.orgId}/roles`))
+          .catch((e) => { this.roleLoadError.set(this.refusal(e)); return null; }),
+        a.orgType?.toUpperCase() === 'PLATFORM'
+          ? firstValueFrom(this.http.get<RbacRole[]>('/api/admin/rbac/roles'))
+              .catch((e) => { this.roleLoadError.set(this.refusal(e)); return []; })
+          : Promise.resolve([]),
       ]);
       this.people.set(people);
       this.assignments.set(asg);
-      // the standard org-level roles it may use (e.g. admin_role, reseller_role), then its own roles
+      // Platform roles are assignable to users of a platform org with scope "all".
+      // Other orgs only see standard and org-owned roles inside their ceiling.
       this.orgRoles.set([
         ...(roles?.roles ?? []).filter((r) => r.kind === 'ORG' && r.in_ceiling !== false),
-        ...(roles?.org_roles ?? []),
+        ...(roles?.org_roles ?? []).filter((r) => r.in_ceiling !== false),
+        ...platformRoles.filter((r) => r.kind === 'PLATFORM'),
       ]);
     } catch (e) {
       this.loadError.set(this.refusal(e));
@@ -404,11 +419,13 @@ export class UserManagement implements OnInit {
         }));
         role = created.name;
       }
-      await firstValueFrom(this.http.post(`/api/orgs/${a.orgId}/role-assignments`,
-        { userId: p.id, role, scope: this.subtree ? 'subtree' : 'own' }));
+      const assignment = await firstValueFrom(this.http.post<RoleAssignment>(`/api/orgs/${a.orgId}/role-assignments`,
+        { userId: p.id, role, scope: this.platformRoleSelected() ? 'all' : (this.subtree ? 'subtree' : 'own') }));
       this.roleFor.set(null);
       await this.load();
-      this.flash.set({ kind: 'ok', text: `${p.name} now has the role ${this.label(role)}.` });
+      this.flash.set({ kind: 'ok', text: assignment.status === 'PENDING_APPROVAL'
+        ? `${this.label(role)} was requested for ${p.name} and is waiting for approval.`
+        : `${p.name} now has the role ${this.label(role)}.` });
     } catch (e) {
       this.modalError.set(this.refusal(e));
     } finally {
