@@ -151,7 +151,7 @@ public class InstallerService implements ApplicationRunner {
                     Enums.OrgMemberRole.ADMIN, INSTALLER + ":reviewer"));
         }
         ensureRbac(pending.getId());
-        ensureReviewerRbac(pendingReviewer.getId());
+        ensureReviewerRbac(pendingReviewer.getId(), pending.getId());
         String setupLink;
         if ("gateway".equals(props.getIdentityMode())) {
             setupLink = enrolFirstAdmin(pending);
@@ -168,10 +168,13 @@ public class InstallerService implements ApplicationRunner {
                 pendingReviewer.getId(), pendingReviewer.getUsername(), pendingReviewer.getStatus().name(), reviewerSetupLink);
     }
 
-    private void ensureReviewerRbac(String subject) {
+    private void ensureReviewerRbac(String subject, String maker) {
         if (!rbac.configured()) throw new IllegalStateException("RBAC is required for first admin bootstrap");
         if (rbac.platformRoles().stream().noneMatch(r -> REVIEWER_ROLE.equals(r.get("name")))) {
-            rbac.createPlatformRole(Map.of("actor", INSTALLER, "core_authorized", false,
+            // The temporary installer loses the clean-slate exception when the maker's
+            // organization_root assignment is created. The maker role can create roles,
+            // so it authorizes creation of the checker role after that point.
+            rbac.createPlatformRole(Map.of("actor", maker, "core_authorized", false,
                     "name", REVIEWER_ROLE, "description", "Platform access approval checker",
                     "kind", "PLATFORM", "grid", Map.of("rbac.assignment", List.of("read", "authorize"))));
         }
