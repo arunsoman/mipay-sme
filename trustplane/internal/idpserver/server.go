@@ -1114,6 +1114,18 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM sessions WHERE session_id=$1`, c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
+	clientID := r.URL.Query().Get("client_id")
+	returnTo := r.URL.Query().Get("post_logout_redirect_uri")
+	if clientID != "" && returnTo != "" && s.clients != nil {
+		if client := s.clients.ByID[clientID]; client != nil {
+			for _, allowed := range client.PostLogoutRedirectURIs {
+				if returnTo == allowed {
+					http.Redirect(w, r, returnTo, http.StatusSeeOther)
+					return
+				}
+			}
+		}
+	}
 	render(w, http.StatusOK, "message", pageData{Title: "Signed out", Sub: "You have signed out of MiPay."})
 }
 

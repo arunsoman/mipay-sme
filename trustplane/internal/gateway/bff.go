@@ -645,7 +645,11 @@ func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: "__Host-mp_sess", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
 	http.SetCookie(w, &http.Cookie{Name: "__Host-mp_tx", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
-	http.Redirect(w, r, g.bffIDPPublic+"/logout", http.StatusSeeOther)
+	logoutURL := g.bffIDPPublic + "/logout?" + url.Values{
+		"client_id":                {g.bffID},
+		"post_logout_redirect_uri": {"https://mipay.afriqpay.com/"},
+	}.Encode()
+	http.Redirect(w, r, logoutURL, http.StatusSeeOther)
 }
 
 func (g *Gateway) revokeRefresh(ctx context.Context, refreshToken string) {

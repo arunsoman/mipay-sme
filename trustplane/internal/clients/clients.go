@@ -22,14 +22,15 @@ const (
 )
 
 type Client struct {
-	ID           string   `yaml:"id"`
-	DisplayName  string   `yaml:"display_name"`
-	AuthMethod   string   `yaml:"auth_method"`
-	TokenAlg     string   `yaml:"token_alg"`
-	RedirectURIs []string `yaml:"redirect_uris"`
-	Scopes       []string `yaml:"scopes"`
-	JWKSFiles    []string `yaml:"jwks_files"`
-	CertFiles    []string `yaml:"cert_files"`
+	ID                     string   `yaml:"id"`
+	DisplayName            string   `yaml:"display_name"`
+	AuthMethod             string   `yaml:"auth_method"`
+	TokenAlg               string   `yaml:"token_alg"`
+	RedirectURIs           []string `yaml:"redirect_uris"`
+	PostLogoutRedirectURIs []string `yaml:"post_logout_redirect_uris"`
+	Scopes                 []string `yaml:"scopes"`
+	JWKSFiles              []string `yaml:"jwks_files"`
+	CertFiles              []string `yaml:"cert_files"`
 	// resolved at load time
 	JWTKeys    []map[string]any `yaml:"-"`
 	CertThumbs []string         `yaml:"-"`

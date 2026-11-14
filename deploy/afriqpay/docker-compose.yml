@@ -4,7 +4,7 @@
 #   manufacturer.afriqpay.com -> manufacturer  (19112)   + /api -> gateway -> backend
 #   distributor.afriqpay.com  -> distributor   (19113)   + /api -> gateway -> backend
 #   supplier.afriqpay.com     -> supplier      (19114)   + /api -> gateway -> backend
-#   mipay.afriqpay.com        -> 301 to admin.afriqpay.com
+#   mipay.afriqpay.com        -> admin-portal (19111) + /api -> gateway -> backend
 # Secrets come from ./.env (chmod 600, never committed): POSTGRES_PASSWORD, APP_JWT_SECRET,
 # APP_KYC_ENCRYPTION_KEY. Run from this directory:  docker compose up -d --build
 name: mipay-sme
@@ -39,13 +39,13 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:?set in .env}
       APP_INSTALLER_PASSWORD: ${APP_INSTALLER_PASSWORD:-}
       APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
-      APP_PUBLIC_BASE_URL: https://admin.afriqpay.com
+      APP_PUBLIC_BASE_URL: https://mipay.afriqpay.com
       APP_IDENTITY_MODE: ${APP_IDENTITY_MODE:-legacy}
       APP_AUTH_PROVIDER: ${APP_AUTH_PROVIDER:-none}
-      APP_AUTH_ISSUER: ${IDP_ISSUER:-https://idp.fapi.local:8443}
+      APP_AUTH_ISSUER: https://auth.afriqpay.com
       APP_AUTH_URL: https://idp:8443
       APP_MIGRATION_IDENTITY_BACKFILL_ONCE: ${APP_MIGRATION_IDENTITY_BACKFILL_ONCE:-false}
-      APP_CORS_ALLOWED_ORIGINS: https://admin.afriqpay.com,https://manufacturer.afriqpay.com,https://distributor.afriqpay.com,https://supplier.afriqpay.com
+      APP_CORS_ALLOWED_ORIGINS: https://mipay.afriqpay.com,https://admin.afriqpay.com,https://manufacturer.afriqpay.com,https://distributor.afriqpay.com,https://supplier.afriqpay.com
       POSTGRES_URL: jdbc:postgresql://db:5432/mipay
       POSTGRES_USER: mipay
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}

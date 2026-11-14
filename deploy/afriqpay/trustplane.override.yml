@@ -6,17 +6,21 @@
 # /api/* to it with Host: portal.fapi.local. IdP and RBAC stay on internal networks.
 services:
   gateway:
+    environment:
+      GATEWAY_ISSUER: https://auth.afriqpay.com
+      GATEWAY_IDP_PUBLIC_BASE: https://auth.afriqpay.com
     ports: !override
       - "127.0.0.1:19120:8443"
     restart: unless-stopped
   idp:
     restart: unless-stopped
     environment:
+      IDP_ISSUER: https://auth.afriqpay.com
       # Cut-over P0.3: still a sandbox deployment (demo seed users, internal issuer).
       # Moving to production needs DNS + a certificate for auth.afriqpay.com and its nginx
       # vhost first; then set IDP_ENVIRONMENT=production, IDP_ISSUER=https://auth.afriqpay.com
       # and remove IDP_SEED_USERS (the IdP refuses to start otherwise).
-      IDP_ENVIRONMENT: sandbox
+      IDP_ENVIRONMENT: uat
       IDP_SEED_USERS: ""               # 2026-11-12: every user deleted; no demo accounts either
   rbac:
     restart: unless-stopped
