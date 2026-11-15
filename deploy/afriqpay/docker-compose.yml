@@ -40,7 +40,7 @@ services:
       APP_INSTALLER_PASSWORD: ${APP_INSTALLER_PASSWORD:-}
       APP_KYC_ENCRYPTION_KEY: ${APP_KYC_ENCRYPTION_KEY:?set in .env}
       APP_PUBLIC_BASE_URL: https://mipay.afriqpay.com
-      APP_IDENTITY_MODE: ${APP_IDENTITY_MODE:-legacy}
+      APP_IDENTITY_MODE: ${APP_IDENTITY_MODE:-gateway}
       APP_AUTH_PROVIDER: ${APP_AUTH_PROVIDER:-none}
       APP_AUTH_ISSUER: https://auth.afriqpay.com
       APP_AUTH_URL: https://idp:8443
