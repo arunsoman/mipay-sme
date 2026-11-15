@@ -1,5 +1,6 @@
 # Trust plane on the afriqpay host, layered over ../../trustplane/docker-compose.yml:
-#   docker compose -p trustplane -f ../../trustplane/docker-compose.yml -f trustplane.override.yml up -d --build
+#   docker compose -p trustplane --env-file .env -f ../../trustplane/docker-compose.yml -f trustplane.override.yml up -d --build
+# Secrets come from ./.env (the same private file as the mipay stack): GATEWAY_SESSION_KEY.
 # The gateway is the single policy point for every /api call (route allowlist, per-IP rate
 # limits with the real client IP via limits.trusted_proxies, body limits, request ids).
 # It is published on loopback only; the host nginx terminates public TLS and forwards
@@ -9,6 +10,10 @@ services:
     environment:
       GATEWAY_ISSUER: https://auth.afriqpay.com
       GATEWAY_IDP_PUBLIC_BASE: https://auth.afriqpay.com
+      # Encrypts the browser sessions (tokens) the gateway stores. A public issuer refuses to start
+      # without it. 32 bytes, base64: `openssl rand -base64 32`. Keep it stable across deploys:
+      # a new key ends every signed-in session.
+      GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:?set in .env - generate with openssl rand -base64 32}
     ports: !override
       - "127.0.0.1:19120:8443"
     restart: unless-stopped
@@ -17,12 +22,10 @@ services:
     environment:
       IDP_ISSUER: https://auth.afriqpay.com
       # Cut-over P0.3: still a sandbox deployment (demo seed users, internal issuer).
-#      GATEWAY_SESSION_KEY must be a 32-byte base64-encoded value; set via env var or generated above. (demo seed users, internal issuer).
       # Moving to production needs DNS + a certificate for auth.afriqpay.com and its nginx
       # vhost first; then set IDP_ENVIRONMENT=production, IDP_ISSUER=https://auth.afriqpay.com
       # and remove IDP_SEED_USERS (the IdP refuses to start otherwise).
       IDP_ENVIRONMENT: uat
-      GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:-$(openssl rand -hex 16)}
       IDP_SEED_USERS: ""               # 2026-11-12: every user deleted; no demo accounts either
   rbac:
     restart: unless-stopped

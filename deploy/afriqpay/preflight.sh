@@ -8,7 +8,7 @@ set -eu
 VOL=trustplane_backend-pki
 if ! docker volume inspect "$VOL" >/dev/null 2>&1; then
   echo "[preflight] volume $VOL is missing: deploy trustplane first (its pki-init exports it), e.g." >&2
-  echo "  docker compose -f ../../trustplane/docker-compose.yml -f trustplane.override.yml up -d pki-init" >&2
+  echo "  docker compose -p trustplane --env-file .env -f ../../trustplane/docker-compose.yml -f trustplane.override.yml up -d pki-init" >&2
   exit 1
 fi
 missing=$(docker run --rm -v "$VOL":/v:ro alpine:3.20 sh -c \

@@ -2,6 +2,8 @@
 
 Run the manual **Build release images** workflow from the commit to release. It publishes nine GHCR images and writes their immutable `ghcr.io/...@sha256:...` references to the job summaries. Keep the workflow run URL, commit SHA and all nine references in the release record.
 
+The host's private `.env` (chmod 600, never committed) holds the secrets of both stacks: `POSTGRES_PASSWORD`, `APP_JWT_SECRET`, `APP_KYC_ENCRYPTION_KEY` (mipay) and `GATEWAY_SESSION_KEY` (trustplane: `openssl rand -base64 32`, kept stable across deploys - a new key ends every signed-in session). Compose refuses to start a stack whose secret is missing.
+
 On the host, copy those references into a private `release.env` alongside `.env`:
 
 ```dotenv
