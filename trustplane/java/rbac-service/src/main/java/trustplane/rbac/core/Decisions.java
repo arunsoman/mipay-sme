@@ -129,7 +129,10 @@ public class Decisions {
         Integer roles = null, asg = null;
         try {
             roles = db.queryForObject("SELECT count(*) FROM roles", Integer.class);
-            asg = db.queryForObject("SELECT count(*) FROM assignments", Integer.class);
+            // Revoked/expired assignments no longer grant access and must not strand a
+            // clean-slate install after a failed bootstrap attempt. Only an active
+            // assignment closes the installer window.
+            asg = db.queryForObject("SELECT count(*) FROM assignments WHERE status='ACTIVE'", Integer.class);
         } catch (Exception e) {
             log.warn("[rbac] bootstrap window probe failed (fail closed): {}", e.getMessage());
             return false;
