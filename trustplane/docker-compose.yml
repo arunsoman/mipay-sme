@@ -72,9 +72,8 @@ services:
       IDP_DEV_OTP: "${IDP_DEV_OTP-123456}"                                   # fixed phone OTP, dev/sandbox only (refused elsewhere)
       IDP_COMMS_URL: https://comms:8443/comms/v1              # login OTP and reset links go through the comms plane
       IDP_CORE_CN: sme-mipay-mesh                             # the only caller of the enrolment API
-      # IDP_CORE_EVENTS_URL: set when the core's POST /internal/auth/events exists (cut-over P3.6);
-      # until then auth events wait in the IdP's outbound queue and are delivered once it is set.
-      IDP_CORE_EVENTS_URL: ${IDP_CORE_EVENTS_URL:-}
+      # Auth events are self-authenticated with the IdP signing key and travel over the private mesh.
+      IDP_CORE_EVENTS_URL: ${IDP_CORE_EVENTS_URL:-http://backend:8080/internal/auth/events}
     volumes:
       - pki:/pki:ro
       - ./config:/config:ro

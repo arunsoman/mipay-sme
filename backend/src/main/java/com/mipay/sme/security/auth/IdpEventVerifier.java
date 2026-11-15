@@ -101,12 +101,38 @@ public class IdpEventVerifier {
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(key);
             verifier.update((headB64 + "." + payloadB64).getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-            if (!verifier.verify(signature)) throw new RejectedException("bad signature");
+            // JWS ES256 encodes ECDSA signatures as fixed-width R || S. Java's
+            // SHA256withECDSA provider expects the equivalent ASN.1 DER sequence.
+            if (!verifier.verify(joseEcdsaToDer(signature))) throw new RejectedException("bad signature");
         } catch (RejectedException e) {
             throw e;
         } catch (Exception e) {
             throw new RejectedException("signature verification failed: " + e.getMessage());
         }
+    }
+
+    private static byte[] joseEcdsaToDer(byte[] jose) {
+        if (jose == null || jose.length != 64) throw new RejectedException("invalid ES256 signature length");
+        byte[] r = derInteger(java.util.Arrays.copyOfRange(jose, 0, 32));
+        byte[] s = derInteger(java.util.Arrays.copyOfRange(jose, 32, 64));
+        int bodyLength = 2 + r.length + 2 + s.length;
+        byte[] der = new byte[2 + bodyLength];
+        int i = 0;
+        der[i++] = 0x30;
+        der[i++] = (byte) bodyLength;
+        der[i++] = 0x02;
+        der[i++] = (byte) r.length;
+        System.arraycopy(r, 0, der, i, r.length);
+        i += r.length;
+        der[i++] = 0x02;
+        der[i++] = (byte) s.length;
+        System.arraycopy(s, 0, der, i, s.length);
+        return der;
+    }
+
+    private static byte[] derInteger(byte[] raw) {
+        java.math.BigInteger value = new java.math.BigInteger(1, raw);
+        return value.toByteArray(); // includes a leading zero only when DER needs a positive sign bit
     }
 
     /** Resolves the kid from the IdP's JWKS, caching for JWKS_TTL and refreshing on an unknown kid. */
