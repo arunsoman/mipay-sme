@@ -48,8 +48,22 @@ public class EndpointManifestPublisher {
     public record Endpoint(String method, String path, String permission, String tenantSource,
                            String lookup, boolean isPublic, String reason, String handler) { }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void publish() {
+    /** What one scan of the handler mappings found. */
+    private record Scan(List<Endpoint> endpoints, List<String> missing, Map<String, String> catalogue) { }
+
+    private volatile List<Endpoint> discovered;
+
+    /**
+     * Every MiPay API endpoint with its @Perm cell (or @PublicEndpoint), as registered with RBAC.
+     * The UI widget registry checks each widget route against this list (portal-builder decision 6).
+     */
+    public List<Endpoint> endpoints() {
+        List<Endpoint> d = discovered;
+        if (d == null) discovered = d = List.copyOf(scan().endpoints());
+        return d;
+    }
+
+    private Scan scan() {
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         Map<String, String> catalogue = new TreeMap<>();
@@ -76,6 +90,16 @@ public class EndpointManifestPublisher {
                 }
             }
         }
+        return new Scan(endpoints, missing, catalogue);
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void publish() {
+        Scan scan = scan();
+        List<Endpoint> endpoints = scan.endpoints();
+        List<String> missing = scan.missing();
+        Map<String, String> catalogue = scan.catalogue();
+        discovered = List.copyOf(endpoints);
         log.info("[rbac] manifest: {} endpoints, {} permission cells, {} without @Perm/@PublicEndpoint",
                 endpoints.size(), catalogue.size(), missing.size());
         if (!missing.isEmpty()) {
