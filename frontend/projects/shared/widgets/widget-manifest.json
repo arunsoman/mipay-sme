@@ -297,6 +297,111 @@
    ]
   },
   {
+   "id": "kyc.orgs",
+   "version": "1.0.0",
+   "label": "KYC status board",
+   "description": "Organizations you can see, counted by KYC state, with a filter and a table; picking one opens its application.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "kyc.application:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "kyc.application:read"
+   ],
+   "actions": [],
+   "sources": [
+    "kyc.orgs.list"
+   ],
+   "commands": [],
+   "inputs": {},
+   "publishes": [
+    "orgId"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 50,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "kyc.orgs.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/orgs"
+    },
+    {
+     "name": "kyc.orgs.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/orgs"
+    },
+    {
+     "name": "kyc.orgs.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/orgs"
+    },
+    {
+     "name": "kyc.orgs.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/orgs"
+    }
+   ]
+  },
+  {
    "id": "kyc.tasks",
    "version": "1.0.0",
    "label": "KYC review queue",

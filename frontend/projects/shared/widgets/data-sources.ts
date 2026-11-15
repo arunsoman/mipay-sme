@@ -19,4 +19,7 @@ export const SOURCES = defineSources({
   // review queue (KycController#inbox, #decide)
   'kyc.tasks.list':           { '*': { method: 'GET',  path: '/api/kyc/tasks' } },
   'kyc.tasks.decide':         { '*': { method: 'POST', path: '/api/kyc/tasks/{taskId}/decision' } },
+  // <widget kyc.orgs>
+  'kyc.orgs.list': { '*': { method: 'GET', path: '/api/kyc/orgs', query: ['status', 'suspended'] } },
+  // </widget kyc.orgs>
 });
