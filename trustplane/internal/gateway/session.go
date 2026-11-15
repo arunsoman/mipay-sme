@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -323,12 +324,13 @@ type sessionRow struct {
 }
 
 // ensureSessionKey derives a 32-byte encryption key: base64(GATEWAY_SESSION_KEY)
-// if set, otherwise SHA-256(context_secret).
+// if set, otherwise SHA-256(context_secret). The key may be standard or URL-safe base64,
+// padded or not, so `openssl rand -base64 32` works as documented.
 func ensureSessionKey(sessionKeyB64 string, contextSecret []byte) ([]byte, error) {
-	if sessionKeyB64 != "" {
-		b, err := base64.RawURLEncoding.DecodeString(sessionKeyB64)
+	if k := strings.TrimSpace(sessionKeyB64); k != "" {
+		b, err := decodeSessionKey(k)
 		if err != nil {
-			return nil, err
+			return nil, errors.New("GATEWAY_SESSION_KEY is not base64 (generate one with: openssl rand -base64 32)")
 		}
 		if len(b) != 32 {
 			return nil, errors.New("GATEWAY_SESSION_KEY must decode to 32 bytes")
@@ -356,4 +358,17 @@ func (s *SessionStore) SetDPoPKey(ctx context.Context, sessionID, privatePEM str
 	_, err = s.pool.Exec(ctx, `UPDATE gw_sessions SET dpop_private_enc=$2 WHERE session_id=$1`,
 		sessionID, enc)
 	return err
+}
+
+// decodeSessionKey accepts the four base64 alphabets / padding styles a key may arrive in.
+func decodeSessionKey(k string) ([]byte, error) {
+	var last error
+	for _, enc := range []*base64.Encoding{base64.RawURLEncoding, base64.URLEncoding, base64.StdEncoding, base64.RawStdEncoding} {
+		b, err := enc.DecodeString(k)
+		if err == nil {
+			return b, nil
+		}
+		last = err
+	}
+	return nil, last
 }
