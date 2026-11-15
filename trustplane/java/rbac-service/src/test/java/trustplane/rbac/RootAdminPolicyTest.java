@@ -16,6 +16,7 @@ class RootAdminPolicyTest {
         assertEquals(Set.of("org.user", "rbac.role", "rbac.user", "rbac.assignment"), grid.keySet());
         assertEquals(Set.of("read", "create", "administer"), Set.copyOf(Verbs.names(grid.get("org.user"))));
         assertEquals(Set.of("read", "create", "modify", "delete"), Set.copyOf(Verbs.names(grid.get("rbac.role"))));
+        assertEquals(Set.of("read", "create", "authorize", "administer"), Set.copyOf(Verbs.names(grid.get("rbac.assignment"))));
         assertFalse(grid.containsKey("org.onboarding"));
         assertFalse(grid.containsKey("admin.access"));
     }

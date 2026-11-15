@@ -77,5 +77,7 @@ Since 2026-11-12 there are no standard org roles. A new org's people get org-def
 ## 5. Not yet
 
 - A platform-wide "who holds role X" list across all orgs. People are listed per org.
-- Platform roles that already pick submenus by menu cells must be given the new KYC menu cells (`nav.platform_kyc_*`) in Roles and permissions. `organization_root` holds every row, so the root admin is not affected.
+- Platform roles that already pick submenus by menu cells must be given the new KYC menu cells (`nav.platform_kyc_*`) in Roles and permissions.
+- `organization_root` only manages users, roles and assignments (since `26cc581`). A root admin therefore sees Platform users and Roles and permissions only. Organizations and KYC need a platform role that holds their rows (`admin.org_directory`, `kyc.application`, `kyc.task`, `org.rights`).
+- Switching features on gives an org at most what the person switching holds in that org. A platform admin who holds few business rows produces "partial" features, and the tab says so. Give the admins who set features a role that covers what orgs should get.
 - Orgs onboarded before this change show "Access not set". Pick a preset for each one on its What it can do tab.
