@@ -176,6 +176,11 @@ export default defineWidget<${cfg}>({
   // TODO(widget): the logical reads / writes the component calls (map them in data-sources.ts)
   sources: [],
   commands: [],
+  // TODO(widget): what the widget supports - one or more of 'view' | 'create' | 'modify' | 'approve'
+  // and nothing else ('view' for reads; approve = any other action: execute, schedule, approve,
+  // reject, withdraw…). Map every command to create / modify / approve in commandOperations.
+  operations: ['view'],
+  commandOperations: {},
   // where the org (or another entity) comes from: page selection first, then the user's own org
   inputs: { orgId: { from: ['selection.orgId', 'context.orgId'] } },
   config: {
@@ -258,6 +263,7 @@ describe('${id}', () => {
       'requires: the permission(s) that show it - rows or row:verb cells from shared/web-core/permissions.ts',
       'actions: every gated button - { id, label, cell, command }',
       'sources / commands: the logical reads and writes the component calls',
+      'operations: view / create / modify / approve only; commandOperations maps every command',
       'inputs: where the org / entity comes from (selection.<key>, context.<key>)',
       'size: the span per tier, phone first',
     ]],
@@ -458,6 +464,7 @@ async function generate() {
       id: def.id, version: def.version, label: def.label, description: def.description, category: def.category,
       contexts: def.contexts, requires: requiredList(def), requiresMode: Array.isArray(def.requires) ? 'any' : 'all',
       cells: cellsOf(def), actions: def.actions, sources: def.sources, commands: def.commands,
+      operations: def.operations, commandOperations: def.commandOperations,
       inputs: def.inputs ?? {}, publishes: def.publishes ?? [], config: def.config, size: def.size,
       minHeight: def.minHeight ?? null, hideOn: def.hideOn ?? ['forbidden'],
       scenarios: fixtures?.expect ?? {}, routes: routesOf(def).routes,
@@ -717,7 +724,11 @@ strictly - follow the rules and the output format exactly.
 ### Step 1 - the operations sheet
 List every operation the UI performs (each read and each write: load, save draft, submit, approve, …). For each:
 endpoint (METHOD /api/path), permission cell, the shape it RECEIVES (response), the shape it SENDS (request body / params),
-and what the UI does after success, a refusal (422 / 409) and 403.
+and what the UI does after success, a refusal (422 / 409) and 403, and its KIND - exactly one of View (every read), Create
+(makes a new record, including submitting a new one), Modify (changes an existing record: edit, save draft, submit) or
+Approve (every other action: execute, schedule, approve, reject, withdraw, cancel, …). Nothing else. The manifest's
+\`operations\` is the set of kinds (one or more of 'view' | 'create' | 'modify' | 'approve') and \`commandOperations\` maps
+every command to 'create' | 'modify' | 'approve'.
 - Use the "Endpoints for this widget" section when present: it is read from the real backend.
 - If an endpoint, a permission or a shape you need is missing or untyped, ASK the user once, showing your drafted sheet, and wait.
   Never invent an endpoint or a permission. (The user can generate a prompt with the endpoints resolved:

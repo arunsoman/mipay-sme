@@ -34,6 +34,12 @@ export default defineWidget<KycApplicationConfig>({
   ],
   sources: ['kyc.application.get', 'kyc.schema.get', 'kyc.list.get'],
   commands: ['kyc.application.save', 'kyc.application.submit', 'kyc.application.withdraw'],
+  operations: ['view', 'modify', 'approve'],
+  commandOperations: {
+    'kyc.application.save': 'modify',
+    'kyc.application.submit': 'modify',
+    'kyc.application.withdraw': 'approve',
+  },
   // what the server must send: every answer is checked, mismatches show in the harness
   contracts: {
     'kyc.application.get': KYC_APPLICATION_GET,

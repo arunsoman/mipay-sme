@@ -38,12 +38,25 @@ one read. A complex UI has several. For example, a KYC-like editor has:
 
 | # | operation | kind | trigger | then |
 |---|---|---|---|---|
-| 1 | load the record | read | open | show the form |
-| 2 | load the form definition | read | open | build the fields |
-| 3 | load a dependent list | read | pick a parent value | fill the child list |
-| 4 | save as draft | write | "Save draft" (and on every "Continue") | keep editing; send the version back |
-| 5 | submit | write | "Submit" | save first (op 4), then submit; the form locks |
-| 6 | withdraw | write | "Withdraw" | back to draft or closed |
+| 1 | load the record | View | open | show the form |
+| 2 | load the form definition | View | open | build the fields |
+| 3 | load a dependent list | View | pick a parent value | fill the child list |
+| 4 | save as draft | Modify | "Save draft" (and on every "Continue") | keep editing; send the version back |
+| 5 | submit | Modify | "Submit" | save first (op 4), then submit; the form locks |
+| 6 | withdraw | Approve | "Withdraw" | back to draft or closed |
+
+**The kind is always exactly one of four: View, Create, Modify, Approve. Nothing else.**
+
+| kind | what it covers |
+|---|---|
+| **View** | every read: records, lists, form definitions, dependent lists |
+| **Create** | makes a new record, including saving or **submitting** a new one |
+| **Modify** | changes an existing record: edit, save draft, **submit** an existing one |
+| **Approve** | every other action the UI supports: execute, schedule, approve, reject, **withdraw**, cancel, deactivate, issue a link… |
+
+Submit is never Approve: it is Create (a new record) or Modify (an existing one). Withdraw is
+always Approve. The widget supports the set of kinds its operations have: one or more of the
+four, never none and never anything else. The manifest records it (step 7).
 
 For each operation you need:
 - **the endpoint**: `METHOD /api/path`. **Never invent one.**
@@ -91,7 +104,7 @@ Stop and report instead of guessing when:
 Then **show the user the operations sheet**, one block per operation:
 
 ```
-2. Approve or reject a task          write · POST /api/kyc/tasks/{taskId}/decision · kyc.task:authorize
+2. Approve or reject a task          Approve · POST /api/kyc/tasks/{taskId}/decision · kyc.task:authorize
    sends    KycDecisionRequestV2 { outcome: string (required), note: string | null }
    receives KycApplicationView   { id, orgId, orgName, status, …, version: integer, canEdit: boolean, … }
    then     reload the queue; 422 → show the refusal; 403 → hide the decision
@@ -105,7 +118,9 @@ Then **show the user the operations sheet**, one block per operation:
    document on save) and fixed values (`outcome`: which values the UI offers).
 3. **The steps of a complex UI**: what is a draft, what submit does (save first?), what locks,
    what each refusal shows.
-4. Only if unknown: which portals, and where the org comes from (default
+4. **The kind of every operation** (View / Create / Modify / Approve), and so the widget's
+   operations. Ask when it is ambiguous, for example whether a submit creates or modifies.
+5. Only if unknown: which portals, and where the org comes from (default
    `selection.orgId` → `context.orgId`).
 
 The user can reply "as drafted". Record the confirmed sheet. It drives everything below and
@@ -184,6 +199,10 @@ Fill in everything:
 - `actions`: one per write in the sheet, with its exact cell and command. A chained write
   ("submit" = save + submit) is **one action**, `submit`, whose button sends both commands;
 - `sources`, `commands`;
+- `operations`: the widget's kinds from the sheet, one or more of `'view' | 'create' | 'modify' |
+  'approve'` and nothing else; `commandOperations`: every command mapped to `'create'`,
+  `'modify'` or `'approve'`. `defineWidget` refuses a fifth value, a command without a kind, and a
+  list that differs from `'view'` (when it has sources) plus the kinds of its commands;
 - `contracts`: every source and every command;
 - `requests`: every command that sends a body;
 - `inputs`, `publishes`;
@@ -285,6 +304,7 @@ Give the user:
 - **Where to see it**: fixtures at `npm run workbench` → `http://localhost:4300/w/<id>`; live as
   in step 12.
 - **The final code**: the manifest, the contract file and the component in full; the rest by path.
+- **What it supports**: its operations (View / Create / Modify / Approve) and the kind of each command.
 - **What it needs**: the cells it shows with, each action's cell, and the portals.
 - **How to publish**: PR (CI runs the four commands of step 11), then at deploy
   `WIDGET_REGISTRY_TOKEN=… npm run widgets:register -- --portal <P> --bundle <portal>@<sha> --url <backend>/internal/ui/widgets/register`.
@@ -311,6 +331,9 @@ pastes such an answer here, apply it with that command rather than copying files
 5. **Every operation in the sheet is built and tested**, including drafts, chained writes and
    every refusal the sheet names.
 6. **Every gated action** has its exact cell and `data-action`.
-7. **Mobile first.** A size for every tier, phone first; `@container`, never `@media`.
-8. **Done means** `widgets:check` says ready and `test:widgets` and `test:layout -g <id>` pass,
+7. **Operations are View, Create, Modify, Approve only.** Every operation in the sheet has
+   exactly one; the manifest's `operations` is one or more of them and nothing else. Submit is
+   Create or Modify; withdraw and every other action is Approve.
+8. **Mobile first.** A size for every tier, phone first; `@container`, never `@media`.
+9. **Done means** `widgets:check` says ready and `test:widgets` and `test:layout -g <id>` pass,
    all run by you, with the outputs reported faithfully.

@@ -25,6 +25,8 @@ export default defineWidget<KycTasksConfig>({
   ],
   sources: ['kyc.tasks.list'],
   commands: ['kyc.tasks.decide'],
+  operations: ['view', 'approve'],
+  commandOperations: { 'kyc.tasks.decide': 'approve' },
   contracts: {
     'kyc.tasks.list': KYC_TASKS_LIST,
     'kyc.tasks.decide': KYC_TASKS_DECIDE,

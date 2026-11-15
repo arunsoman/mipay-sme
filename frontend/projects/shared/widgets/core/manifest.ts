@@ -19,6 +19,18 @@ export type { Tier, TierSize } from './grid';
 /** Rows (any verb) or exact cells ("row:verb"), OR semantics like menu.ts - or ALL of a list. */
 export type Requires = readonly string[] | { readonly all: readonly string[] };
 
+/**
+ * The only operations a widget may support (the RBAC model's vocabulary):
+ *  - view:    every read (records, lists, form definitions, dependent lists)
+ *  - create:  makes a new record (including submitting a new one)
+ *  - modify:  changes an existing record (edit, save draft, submit an existing one)
+ *  - approve: every other action - execute, schedule, approve, reject, withdraw, cancel, …
+ */
+export const OPERATIONS = ['view', 'create', 'modify', 'approve'] as const;
+export type Operation = (typeof OPERATIONS)[number];
+/** What a command (a write) does: any operation except view. */
+export type WriteOperation = Exclude<Operation, 'view'>;
+
 /** A named, gated action inside the widget (shown by the RBAC screen as "<label>: allow"). */
 export interface WidgetAction {
   /** Stable id; the element carrying it has `data-action="<id>"`. */
@@ -71,6 +83,13 @@ export interface WidgetDef<C = Record<string, unknown>> {
   /** Logical writes. */
   readonly commands: readonly string[];
   /**
+   * The operations the widget supports: one or more of view / create / modify / approve and
+   * nothing else. Must equal 'view' (when it has sources) plus the operation of every command.
+   */
+  readonly operations: readonly Operation[];
+  /** The operation each command performs - one entry per command, no others. */
+  readonly commandOperations: Readonly<Record<string, WriteOperation>>;
+  /**
    * What the server must send for each source / command (shape.ts). Every answer is checked
    * against it at runtime and mismatches are shown in the test harness. Required for every
    * source (widgets:check); generate them with `npm run widgets:contract`.
@@ -110,6 +129,7 @@ export function manifestProblems(def: WidgetDef<any>): string[] {
   const req = requiredList(def);
   if (!req.length) p.push('requires is empty: every widget is gated by at least one permission');
   for (const r of req) if (!CELL.test(r) && !ROW.test(r)) p.push(`requires "${r}" is neither a row nor a row:verb cell`);
+  p.push(...operationProblems(def));
   const ids = new Set<string>();
   for (const a of def.actions) {
     if (ids.has(a.id)) p.push(`action id "${a.id}" is used twice`);
@@ -131,6 +151,28 @@ export function manifestProblems(def: WidgetDef<any>): string[] {
     if (!i.from.length) p.push(`inputs.${k}: from is empty`);
     for (const f of i.from) if (!/^(selection|context)\.[a-zA-Z]+$/.test(f)) p.push(`inputs.${k}: "${f}" must be selection.<key> or context.<key>`);
   }
+  return p;
+}
+
+/** The operations rule: only OPERATIONS, at least one, and exactly what the sources / commands do. */
+export function operationProblems(def: Pick<WidgetDef<any>, 'operations' | 'commandOperations' | 'sources' | 'commands'>): string[] {
+  const p: string[] = [];
+  const ops = def.operations ?? [];
+  const byCommand = def.commandOperations ?? {};
+  if (!ops.length) p.push(`operations is empty: name one or more of ${OPERATIONS.join(', ')}`);
+  for (const o of ops) if (!OPERATIONS.includes(o)) p.push(`operation "${o}" is not one of ${OPERATIONS.join(', ')}`);
+  if (new Set(ops).size !== ops.length) p.push('operations lists an operation twice');
+  for (const c of def.commands) {
+    const o = byCommand[c];
+    if (!o) p.push(`command "${c}" has no entry in commandOperations (create, modify or approve)`);
+    else if (o === ('view' as Operation) || !OPERATIONS.includes(o)) p.push(`command "${c}" operation "${o}" must be create, modify or approve`);
+  }
+  for (const c of Object.keys(byCommand)) if (!def.commands.includes(c)) p.push(`commandOperations "${c}" is not a command of the widget`);
+  const derived = new Set<string>([...(def.sources.length ? ['view'] : []), ...Object.values(byCommand)]);
+  const missing = [...derived].filter((o) => !ops.includes(o as Operation));
+  const extra = ops.filter((o) => OPERATIONS.includes(o) && !derived.has(o));
+  if (missing.length) p.push(`operations is missing ${missing.join(', ')} (from its sources / commands)`);
+  if (extra.length) p.push(`operations declares ${extra.join(', ')}, which no source or command performs`);
   return p;
 }
 

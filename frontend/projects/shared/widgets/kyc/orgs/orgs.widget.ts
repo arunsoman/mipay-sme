@@ -22,6 +22,8 @@ export default defineWidget<KycOrgsConfig>({
   actions: [],
   sources: ['kyc.orgs.list'],
   commands: [],
+  operations: ['view'],
+  commandOperations: {},
   contracts: { 'kyc.orgs.list': KYC_ORGS_LIST },
   publishes: ['orgId'],
   config: {

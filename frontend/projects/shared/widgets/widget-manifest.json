@@ -55,6 +55,16 @@
     "kyc.application.submit",
     "kyc.application.withdraw"
    ],
+   "operations": [
+    "view",
+    "modify",
+    "approve"
+   ],
+   "commandOperations": {
+    "kyc.application.save": "modify",
+    "kyc.application.submit": "modify",
+    "kyc.application.withdraw": "approve"
+   },
    "inputs": {
     "orgId": {
      "from": [
@@ -320,6 +330,10 @@
     "kyc.orgs.list"
    ],
    "commands": [],
+   "operations": [
+    "view"
+   ],
+   "commandOperations": {},
    "inputs": {},
    "publishes": [
     "orgId"
@@ -435,6 +449,13 @@
    "commands": [
     "kyc.tasks.decide"
    ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "kyc.tasks.decide": "approve"
+   },
    "inputs": {},
    "publishes": [
     "orgId"
