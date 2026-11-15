@@ -35,7 +35,7 @@ public final class DpopAuthFilter extends OncePerRequestFilter {
 
     private final AppProperties properties;
     private final ObjectMapper mapper;
-    // Simple replay cache: jti -> timestamp
+    // Simple replay cache: jti -> timestamp, evict entries older than JTI_TTL_SECONDS
     private final Map<String, Long> jtiCache = new ConcurrentHashMap<>();
 
     public DpopAuthFilter(AppProperties properties, ObjectMapper mapper) {
