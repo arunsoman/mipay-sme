@@ -397,6 +397,10 @@ public class RbacStore {
             if ("ORG".equals(kind) && e.getKey().startsWith("admin.")) {
                 throw new ApiException(400, "platform_permission_in_org_role", e.getKey() + " is reserved for platform roles");
             }
+            if (e.getKey().startsWith("nav.")) {
+                // nav cells are menu-only; they grant no endpoint and are exempt from used-verbs checks
+                continue; 
+            }
             int bad = e.getValue() & ~res.used();
             if (bad != 0) throw new ApiException(400, "cell_not_used", e.getKey() + ":" + String.join(",", Verbs.names(bad)) + " has no endpoint");
             int v = e.getValue();
