@@ -2,7 +2,7 @@ import {
   ChangeDetectionStrategy, Component, computed, contentChildren, Directive, effect, inject, input, output, TemplateRef,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { MpPager, MpTableSearch, TableView } from '../molecules/table-view';
+import { MpPager, MpTableSearch, ServerQuery, TableView } from '../molecules/table-view';
 import { MpSpinner } from '../atoms/mp-spinner';
 
 /**
@@ -20,6 +20,12 @@ import { MpSpinner } from '../atoms/mp-spinner';
  * mp-table draws money / status chips). Search reads `search(row)` when the
  * column has one, else what the cell shows. Pass rows as null while they load:
  * the table shows a spinner with `loading` text instead.
+ *
+ * Server mode: give `[server]="list"` (a ServerQuery) and `[rows]="list.rows()"`. The SERVER
+ * then searches, filters, sorts and pages: the search box, the pager and every column with a
+ * `sort` field write into the query, and the table shows exactly the rows the server sent.
+ *
+ *   <mp-data-table [server]="list" [rows]="list.rows()" [cols]="cols" placeholder="Search organizations" />
  */
 export interface DataCol<T = any> {
   key: string;
@@ -33,6 +39,8 @@ export interface DataCol<T = any> {
   search?: (row: T) => unknown;
   /** extra class on the cells (e.g. 'small', 'mono', 'muted') */
   cls?: string;
+  /** server mode: the server field this column sorts by (its header becomes a sort button) */
+  sort?: string;
 }
 
 /** A cell template: `<ng-template mpCell="key" let-row let-v="value">`. */
@@ -50,16 +58,24 @@ export class MpCell {
     @if (rows() == null) {
       <div class="loading"><mp-spinner [label]="loading()" /></div>
     } @else {
-    @if (searchable()) {<mp-table-search [view]="view" [placeholder]="placeholder()" />}
+    @if (searchable()) {<mp-table-search [view]="v()" [placeholder]="placeholder()" />}
     <div class="tbl">
       <table>
         <thead><tr>
           @for (c of cols(); track c.key) {
-            <th [style.width]="c.width" [class.right]="c.align === 'right'">{{ c.label }}</th>
+            @if (server() && c.sort; as field) {
+              <th [style.width]="c.width" [class.right]="c.align === 'right'" [attr.aria-sort]="ariaSort(field)">
+                <button type="button" class="sort" [class.on]="sortDir(field)" (click)="server()!.sortBy(field)">
+                  {{ c.label }}<span class="dir" aria-hidden="true">{{ sortDir(field) === 'desc' ? '▼' : sortDir(field) === 'asc' ? '▲' : '↕' }}</span>
+                </button>
+              </th>
+            } @else {
+              <th [style.width]="c.width" [class.right]="c.align === 'right'">{{ c.label }}</th>
+            }
           }
         </tr></thead>
         <tbody>
-          @for (r of view.rows(); track key(r, $index)) {
+          @for (r of v().rows(); track key(r, $index)) {
             <tr [class]="rowClass()?.(r) ?? ''" [class.clickable]="selectable()" (click)="rowClick.emit(r)">
               @for (c of cols(); track c.key) {
                 <td [class.right]="c.align === 'right'" [class]="c.cls ?? ''">
@@ -71,13 +87,13 @@ export class MpCell {
             </tr>
           } @empty {
             <tr><td class="none" [attr.colspan]="cols().length">
-              {{ view.hasSource() ? noMatch() : empty() }}
+              {{ v().hasSource() ? noMatch() : empty() }}
             </td></tr>
           }
         </tbody>
       </table>
     </div>
-    <mp-pager [view]="view" />
+    <mp-pager [view]="v()" />
     }
   `,
   styles: [`
@@ -100,6 +116,10 @@ export class MpCell {
     td.nowrap { white-space: nowrap; }
     .none { text-align: center; padding: 20px 12px; }
     .loading { padding: 14px 4px; }
+    button.sort { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    button.sort:focus-visible { outline: 2px solid var(--mp-accent); outline-offset: 2px; border-radius: 4px; }
+    button.sort .dir { opacity: .45; font-size: 9px; }
+    button.sort.on, button.sort.on .dir { color: var(--mp-text); opacity: 1; }
   `],
 })
 export class DataTable<T = any> {
@@ -117,6 +137,8 @@ export class DataTable<T = any> {
   readonly trackBy = input<(row: T, index: number) => unknown>();
   readonly rowClass = input<(row: T) => string>();
   readonly rowClick = output<T>();
+  /** server mode (see the class comment) */
+  readonly server = input<ServerQuery<T> | null>(null);
 
   private readonly cells = contentChildren(MpCell);
   private readonly tpls = computed(() => new Map(this.cells().map((c) => [c.name(), c.tpl])));
@@ -124,8 +146,21 @@ export class DataTable<T = any> {
   readonly view = new TableView<T>(() => [...(this.rows() ?? [])],
     (r) => this.cols().map((c) => (c.search ? c.search(r) : this.cell(r, c))));
 
+  /** the view the template draws: the server's, or the in-browser one */
+  readonly v = computed<TableView<T>>(() => this.server()?.view ?? this.view);
+
   constructor() {
-    effect(() => this.view.setSize(this.pageSize()));
+    effect(() => { if (!this.server()) this.view.setSize(this.pageSize()); });
+  }
+
+  sortDir(field: string): 'asc' | 'desc' | null {
+    const s = this.server()?.sort();
+    return s?.field === field ? s.dir : null;
+  }
+
+  ariaSort(field: string): string {
+    const d = this.sortDir(field);
+    return d === 'asc' ? 'ascending' : d === 'desc' ? 'descending' : 'none';
   }
 
   tplFor(c: DataCol<T>): TemplateRef<unknown> | null {

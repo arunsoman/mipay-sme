@@ -71,6 +71,7 @@ public class OrgOnboardingService {
     private final OnboardingService onboardingService;   // legacy guard coexistence (USE_ONBOARDING_REQUEST)
     private final OrgProvisioningService orgProvisioning;
     private final OrgRoleCeilingService roleCeilings;
+    private final OrgFeatureService orgFeatures;
     private final KycApplicationService kycApplications;
     private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
@@ -155,6 +156,8 @@ public class OrgOnboardingService {
         if (spec.roleCeiling() != null) {
             roleCeilings.set(org.getId(), spec.roleCeiling(), spec.roleDelegable(), caller.userId(), caller.role());
         }
+        // what it can do (admin-console.md): starts on the full preset, applied in RBAC at go-live
+        orgFeatures.saveAtOnboarding(org.getId(), childType, null, caller.userId());
 
         User admin = userLifecycle.create(new com.mipay.sme.security.auth.UserLifecycleService.Registration(
                 org.getId(), spec.ownerName() == null ? name : spec.ownerName(), spec.username(),

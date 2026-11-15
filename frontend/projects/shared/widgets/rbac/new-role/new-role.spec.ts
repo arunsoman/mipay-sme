@@ -27,10 +27,10 @@ async function createRole(w: W) {
 }
 
 describe('role-operations-model', () => {
-  const tasks = widgetCells(WIDGETS[0], 'PLATFORM/organizations/verification', true);
+  const tasks = widgetCells(WIDGETS[0], 'PLATFORM/kyc/reviews', true);
 
   it('grants requires (+ the submenu menu cell) for View, and the action cells plus View for the rest', () => {
-    expect(tasks.cells.view).toEqual(['kyc.task:read', 'nav.platform_organizations_verification:read']);
+    expect(tasks.cells.view).toEqual(['kyc.task:read', 'nav.platform_kyc_reviews:read']);
     expect(tasks.cells.approve).toEqual([...tasks.cells.view, 'kyc.task:authorize']);
     expect(tasks.supported).toEqual({ view: true, create: false, modify: false, approve: true });
   });
@@ -43,8 +43,11 @@ describe('role-operations-model', () => {
 
   it('places widgets under every submenu whose rows they require, and leaves empty submenus out', () => {
     const tree = buildOperationsTree('PLATFORM', WIDGETS);
-    const verification = tree.flatMap((m) => m.submenus).find((s) => s.key === 'PLATFORM/organizations/verification')!;
-    expect(verification.widgets.map((w) => w.id)).toEqual(['kyc.tasks', 'kyc.application', 'kyc.orgs']);
+    // the admin console's KYC menu: the queue under Review queue, the application widgets under Applications
+    const reviews = tree.flatMap((m) => m.submenus).find((s) => s.key === 'PLATFORM/kyc/reviews')!;
+    expect(reviews.widgets.map((w) => w.id)).toEqual(['kyc.tasks']);
+    const applications = tree.flatMap((m) => m.submenus).find((s) => s.key === 'PLATFORM/kyc/applications')!;
+    expect(applications.widgets.map((w) => w.id)).toEqual(['kyc.application', 'kyc.orgs']);
     expect(tree.every((m) => m.submenus.every((s) => s.widgets.length > 0))).toBe(true);
   });
 
@@ -106,12 +109,12 @@ describe('rbac.new-role', () => {
     const w = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: ALL });
     await type(w, 'name', 'KYC Approver');
     await type(w, 'description', 'Approves KYC applications');
-    await tick(w, 'kyc.tasks', 'approve', 'PLATFORM/organizations/verification');
+    await tick(w, 'kyc.tasks', 'approve', 'PLATFORM/kyc/reviews');
     await createRole(w);
     const c = w.lastCommand()!;
     expect(c.name).toBe('rbac.new-role.create');
     expect(c.params).toEqual({ body: { name: 'kyc_approver', description: 'Approves KYC applications', kind: 'PLATFORM', inherits: [],
-      permissions: ['kyc.task:authorize', 'kyc.task:read', 'nav.platform_organizations_verification:read'] } });
+      permissions: ['kyc.task:authorize', 'kyc.task:read', 'nav.platform_kyc_reviews:read'] } });
     expect(c.request).toEqual([]);
     expect(w.text('mp-alert')).toContain('Role Kyc approver created with 3 permission(s)');
   });

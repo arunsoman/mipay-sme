@@ -35,12 +35,12 @@ describe('widget port self-diagnosis', () => {
 
   it('flags an answer that breaks the response contract', async () => {
     const base = new FixtureDataPort();
-    base.use(fixtures, 'default', { 'kyc.tasks.list': [{ id: 1 }] });
+    base.use(fixtures, 'default', { 'kyc.tasks.search': { items: [{ id: 1 }], total: 1, page: 0, size: 10 } });
     const state = new WidgetStateRef();
-    await firstValueFrom(new ScopedDataPort(base, tasks, state, null, () => '').query('kyc.tasks.list'));
+    await firstValueFrom(new ScopedDataPort(base, tasks, state, null, () => '').query('kyc.tasks.search'));
     const d = state.diagnostics()[0];
     expect(d.kind).toBe('contract');
-    expect(d.issues![0]).toEqual({ path: '$[0].id', level: 'error', expected: 'string | null', got: '1 (number)' });
+    expect(d.issues![0]).toEqual({ path: '$.items[0].id', level: 'error', expected: 'string | null', got: '1 (number)' });
   });
 
   it('refuses names the manifest does not declare, and says so', async () => {

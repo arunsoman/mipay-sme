@@ -1,0 +1,1315 @@
+{
+ "MANUFACTURER": [
+  {
+   "id": "home",
+   "label": "Home",
+   "screens": [
+    {
+     "id": "dashboard",
+     "label": "Manufacturer dashboard",
+     "resources": [],
+     "nav": "nav.manufacturer_home_dashboard"
+    }
+   ]
+  },
+  {
+   "id": "products",
+   "label": "Products and prices",
+   "screens": [
+    {
+     "id": "catalogue",
+     "label": "Product catalogue",
+     "resources": [
+      "supplier.catalogue"
+     ],
+     "nav": "nav.manufacturer_products_catalogue"
+    },
+    {
+     "id": "price-lists",
+     "label": "Price lists",
+     "resources": [],
+     "nav": "nav.manufacturer_products_price_lists"
+    }
+   ]
+  },
+  {
+   "id": "network",
+   "label": "Distributor network",
+   "screens": [
+    {
+     "id": "directory",
+     "label": "Distributors",
+     "resources": [
+      "org.tree"
+     ],
+     "nav": "nav.manufacturer_network_directory"
+    },
+    {
+     "id": "onboarding",
+     "label": "Add distributor",
+     "resources": [
+      "org.onboarding"
+     ],
+     "nav": "nav.manufacturer_network_onboarding"
+    }
+   ]
+  },
+  {
+   "id": "sales",
+   "label": "Sales orders",
+   "screens": [
+    {
+     "id": "orders",
+     "label": "Orders",
+     "resources": [
+      "supplier.order"
+     ],
+     "nav": "nav.manufacturer_sales_orders"
+    },
+    {
+     "id": "returns",
+     "label": "Returns",
+     "resources": [],
+     "nav": "nav.manufacturer_sales_returns"
+    }
+   ]
+  },
+  {
+   "id": "fulfillment",
+   "label": "Fulfillment",
+   "screens": [
+    {
+     "id": "pick-pack",
+     "label": "Pick and pack",
+     "resources": [],
+     "nav": "nav.manufacturer_fulfillment_pick_pack"
+    },
+    {
+     "id": "delivery",
+     "label": "Delivery tracking",
+     "resources": [],
+     "nav": "nav.manufacturer_fulfillment_delivery"
+    }
+   ]
+  },
+  {
+   "id": "invoices",
+   "label": "Invoices and receivables",
+   "screens": [
+    {
+     "id": "invoices",
+     "label": "Invoices",
+     "resources": [
+      "supplier.invoice"
+     ],
+     "nav": "nav.manufacturer_invoices_invoices"
+    },
+    {
+     "id": "receivables",
+     "label": "Receivables",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.manufacturer_invoices_receivables"
+    }
+   ]
+  },
+  {
+   "id": "money",
+   "label": "Money and reports",
+   "screens": [
+    {
+     "id": "accounts",
+     "label": "Receiving accounts",
+     "resources": [
+      "supplier.bank_account"
+     ],
+     "nav": "nav.manufacturer_money_accounts"
+    },
+    {
+     "id": "statements",
+     "label": "Statements",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.manufacturer_money_statements"
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "label": "Onboarding",
+   "screens": [
+    {
+     "id": "application",
+     "label": "Organization application",
+     "resources": [
+      "org.onboarding",
+      "kyc.application"
+     ],
+     "nav": "nav.manufacturer_onboarding_application"
+    },
+    {
+     "id": "documents",
+     "label": "KYC and documents",
+     "resources": [
+      "kyc.application",
+      "kyc.task"
+     ],
+     "nav": "nav.manufacturer_onboarding_documents"
+    },
+    {
+     "id": "status",
+     "label": "Verification status",
+     "resources": [
+      "kyc.application"
+     ],
+     "nav": "nav.manufacturer_onboarding_status"
+    },
+    {
+     "id": "first-admin",
+     "label": "First administrator setup",
+     "resources": [],
+     "nav": "nav.manufacturer_onboarding_first_admin"
+    }
+   ]
+  },
+  {
+   "id": "team",
+   "label": "Team and access",
+   "screens": [
+    {
+     "id": "people",
+     "label": "People and invitations",
+     "resources": [
+      "org.user"
+     ],
+     "nav": "nav.manufacturer_team_people"
+    },
+    {
+     "id": "roles",
+     "label": "Roles and assignments",
+     "resources": [
+      "rbac.role",
+      "rbac.assignment"
+     ],
+     "nav": "nav.manufacturer_team_roles"
+    },
+    {
+     "id": "security",
+     "label": "Security settings",
+     "resources": [],
+     "nav": "nav.manufacturer_team_security"
+    }
+   ]
+  },
+  {
+   "id": "help",
+   "label": "Help and support",
+   "screens": [
+    {
+     "id": "cases",
+     "label": "Support cases",
+     "resources": [
+      "ops.complaint"
+     ],
+     "nav": "nav.manufacturer_help_cases"
+    }
+   ]
+  }
+ ],
+ "DISTRIBUTOR": [
+  {
+   "id": "home",
+   "label": "Home",
+   "screens": [
+    {
+     "id": "dashboard",
+     "label": "Distributor dashboard",
+     "resources": [],
+     "nav": "nav.distributor_home_dashboard"
+    }
+   ]
+  },
+  {
+   "id": "buying",
+   "label": "Buying",
+   "screens": [
+    {
+     "id": "catalogue",
+     "label": "Manufacturer catalogue",
+     "resources": [
+      "supplier.catalogue"
+     ],
+     "nav": "nav.distributor_buying_catalogue"
+    },
+    {
+     "id": "orders",
+     "label": "Purchase orders",
+     "resources": [
+      "supplier.order"
+     ],
+     "nav": "nav.distributor_buying_orders"
+    }
+   ]
+  },
+  {
+   "id": "inventory",
+   "label": "Inventory",
+   "screens": [
+    {
+     "id": "stock",
+     "label": "Stock",
+     "resources": [],
+     "nav": "nav.distributor_inventory_stock"
+    },
+    {
+     "id": "transfers",
+     "label": "Stock transfers",
+     "resources": [],
+     "nav": "nav.distributor_inventory_transfers"
+    }
+   ]
+  },
+  {
+   "id": "selling",
+   "label": "Selling",
+   "screens": [
+    {
+     "id": "catalogue",
+     "label": "Sales catalogue",
+     "resources": [
+      "supplier.catalogue"
+     ],
+     "nav": "nav.distributor_selling_catalogue"
+    },
+    {
+     "id": "orders",
+     "label": "Customer orders",
+     "resources": [
+      "supplier.order"
+     ],
+     "nav": "nav.distributor_selling_orders"
+    }
+   ]
+  },
+  {
+   "id": "fulfillment",
+   "label": "Fulfillment",
+   "screens": [
+    {
+     "id": "delivery",
+     "label": "Deliveries",
+     "resources": [],
+     "nav": "nav.distributor_fulfillment_delivery"
+    },
+    {
+     "id": "returns",
+     "label": "Returns",
+     "resources": [],
+     "nav": "nav.distributor_fulfillment_returns"
+    }
+   ]
+  },
+  {
+   "id": "invoices",
+   "label": "Invoices",
+   "screens": [
+    {
+     "id": "invoices",
+     "label": "Invoices",
+     "resources": [
+      "supplier.invoice"
+     ],
+     "nav": "nav.distributor_invoices_invoices"
+    },
+    {
+     "id": "receivables",
+     "label": "Receivables",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.distributor_invoices_receivables"
+    }
+   ]
+  },
+  {
+   "id": "money",
+   "label": "Money",
+   "screens": [
+    {
+     "id": "accounts",
+     "label": "Receiving accounts",
+     "resources": [
+      "supplier.bank_account"
+     ],
+     "nav": "nav.distributor_money_accounts"
+    },
+    {
+     "id": "statements",
+     "label": "Statements",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.distributor_money_statements"
+    }
+   ]
+  },
+  {
+   "id": "network",
+   "label": "Network and reports",
+   "screens": [
+    {
+     "id": "directory",
+     "label": "Retailer network",
+     "resources": [
+      "org.tree"
+     ],
+     "nav": "nav.distributor_network_directory"
+    },
+    {
+     "id": "reports",
+     "label": "Sales reports",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.distributor_network_reports"
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "label": "Onboarding",
+   "screens": [
+    {
+     "id": "application",
+     "label": "Organization application",
+     "resources": [
+      "org.onboarding",
+      "kyc.application"
+     ],
+     "nav": "nav.distributor_onboarding_application"
+    },
+    {
+     "id": "documents",
+     "label": "KYC and documents",
+     "resources": [
+      "kyc.application",
+      "kyc.task"
+     ],
+     "nav": "nav.distributor_onboarding_documents"
+    },
+    {
+     "id": "status",
+     "label": "Verification status",
+     "resources": [
+      "kyc.application"
+     ],
+     "nav": "nav.distributor_onboarding_status"
+    },
+    {
+     "id": "first-admin",
+     "label": "First administrator setup",
+     "resources": [],
+     "nav": "nav.distributor_onboarding_first_admin"
+    }
+   ]
+  },
+  {
+   "id": "team",
+   "label": "Team and access",
+   "screens": [
+    {
+     "id": "people",
+     "label": "People and invitations",
+     "resources": [
+      "org.user"
+     ],
+     "nav": "nav.distributor_team_people"
+    },
+    {
+     "id": "roles",
+     "label": "Roles and assignments",
+     "resources": [
+      "rbac.role",
+      "rbac.assignment"
+     ],
+     "nav": "nav.distributor_team_roles"
+    },
+    {
+     "id": "security",
+     "label": "Security settings",
+     "resources": [],
+     "nav": "nav.distributor_team_security"
+    }
+   ]
+  },
+  {
+   "id": "help",
+   "label": "Help and support",
+   "screens": [
+    {
+     "id": "cases",
+     "label": "Support cases",
+     "resources": [
+      "ops.complaint"
+     ],
+     "nav": "nav.distributor_help_cases"
+    }
+   ]
+  }
+ ],
+ "SUPPLIER": [
+  {
+   "id": "home",
+   "label": "Home",
+   "screens": [
+    {
+     "id": "dashboard",
+     "label": "Supplier dashboard",
+     "resources": [
+      "supplier.account"
+     ],
+     "nav": "nav.supplier_home_dashboard"
+    }
+   ]
+  },
+  {
+   "id": "buying",
+   "label": "Buying",
+   "screens": [
+    {
+     "id": "purchase-orders",
+     "label": "Purchase orders",
+     "resources": [],
+     "nav": "nav.supplier_buying_purchase_orders"
+    },
+    {
+     "id": "receipts",
+     "label": "Goods received",
+     "resources": [],
+     "nav": "nav.supplier_buying_receipts"
+    }
+   ]
+  },
+  {
+   "id": "catalogue",
+   "label": "Catalogue and stock",
+   "screens": [
+    {
+     "id": "items",
+     "label": "Catalogue",
+     "resources": [
+      "supplier.catalogue"
+     ],
+     "nav": "nav.supplier_catalogue_items"
+    },
+    {
+     "id": "stock",
+     "label": "Stock",
+     "resources": [],
+     "nav": "nav.supplier_catalogue_stock"
+    }
+   ]
+  },
+  {
+   "id": "orders",
+   "label": "Merchant orders",
+   "screens": [
+    {
+     "id": "queue",
+     "label": "Order queue",
+     "resources": [
+      "supplier.order"
+     ],
+     "nav": "nav.supplier_orders_queue"
+    },
+    {
+     "id": "detail",
+     "label": "Order detail",
+     "resources": [
+      "supplier.order"
+     ],
+     "nav": "nav.supplier_orders_detail"
+    }
+   ]
+  },
+  {
+   "id": "fulfillment",
+   "label": "Fulfillment",
+   "screens": [
+    {
+     "id": "dispatch",
+     "label": "Dispatch",
+     "resources": [],
+     "nav": "nav.supplier_fulfillment_dispatch"
+    },
+    {
+     "id": "returns",
+     "label": "Returns",
+     "resources": [],
+     "nav": "nav.supplier_fulfillment_returns"
+    }
+   ]
+  },
+  {
+   "id": "invoices",
+   "label": "Invoices",
+   "screens": [
+    {
+     "id": "invoices",
+     "label": "Invoices",
+     "resources": [
+      "supplier.invoice"
+     ],
+     "nav": "nav.supplier_invoices_invoices"
+    },
+    {
+     "id": "payments",
+     "label": "Invoice payments",
+     "resources": [
+      "supplier.invoice"
+     ],
+     "nav": "nav.supplier_invoices_payments"
+    }
+   ]
+  },
+  {
+   "id": "money",
+   "label": "Money",
+   "screens": [
+    {
+     "id": "accounts",
+     "label": "Receiving accounts",
+     "resources": [
+      "supplier.bank_account"
+     ],
+     "nav": "nav.supplier_money_accounts"
+    },
+    {
+     "id": "statements",
+     "label": "Statements",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.supplier_money_statements"
+    }
+   ]
+  },
+  {
+   "id": "network",
+   "label": "Merchant network and reports",
+   "screens": [
+    {
+     "id": "merchants",
+     "label": "Merchant network",
+     "resources": [
+      "org.tree"
+     ],
+     "nav": "nav.supplier_network_merchants"
+    },
+    {
+     "id": "reports",
+     "label": "Sales reports",
+     "resources": [
+      "supplier.statement"
+     ],
+     "nav": "nav.supplier_network_reports"
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "label": "Onboarding",
+   "screens": [
+    {
+     "id": "application",
+     "label": "Organization application",
+     "resources": [
+      "org.onboarding",
+      "kyc.application"
+     ],
+     "nav": "nav.supplier_onboarding_application"
+    },
+    {
+     "id": "documents",
+     "label": "KYC and documents",
+     "resources": [
+      "kyc.application",
+      "kyc.task"
+     ],
+     "nav": "nav.supplier_onboarding_documents"
+    },
+    {
+     "id": "status",
+     "label": "Verification status",
+     "resources": [
+      "kyc.application"
+     ],
+     "nav": "nav.supplier_onboarding_status"
+    },
+    {
+     "id": "first-admin",
+     "label": "First administrator setup",
+     "resources": [],
+     "nav": "nav.supplier_onboarding_first_admin"
+    }
+   ]
+  },
+  {
+   "id": "team",
+   "label": "Team and access",
+   "screens": [
+    {
+     "id": "people",
+     "label": "People and invitations",
+     "resources": [
+      "org.user"
+     ],
+     "nav": "nav.supplier_team_people"
+    },
+    {
+     "id": "roles",
+     "label": "Roles and assignments",
+     "resources": [
+      "rbac.role",
+      "rbac.assignment"
+     ],
+     "nav": "nav.supplier_team_roles"
+    },
+    {
+     "id": "security",
+     "label": "Security settings",
+     "resources": [],
+     "nav": "nav.supplier_team_security"
+    }
+   ]
+  },
+  {
+   "id": "help",
+   "label": "Help and support",
+   "screens": [
+    {
+     "id": "cases",
+     "label": "Support cases",
+     "resources": [
+      "ops.complaint"
+     ],
+     "nav": "nav.supplier_help_cases"
+    }
+   ]
+  }
+ ],
+ "MERCHANT": [
+  {
+   "id": "home",
+   "label": "Home",
+   "screens": [
+    {
+     "id": "dashboard",
+     "label": "Business dashboard",
+     "resources": [
+      "merchant.account"
+     ],
+     "nav": "nav.merchant_home_dashboard"
+    }
+   ]
+  },
+  {
+   "id": "collect",
+   "label": "Collect payments",
+   "screens": [
+    {
+     "id": "accept",
+     "label": "Accept payment",
+     "resources": [
+      "merchant.payment"
+     ],
+     "nav": "nav.merchant_collect_accept"
+    },
+    {
+     "id": "links",
+     "label": "Payment links",
+     "resources": [],
+     "nav": "nav.merchant_collect_links"
+    },
+    {
+     "id": "refunds",
+     "label": "Refunds",
+     "resources": [
+      "merchant.payment"
+     ],
+     "nav": "nav.merchant_collect_refunds"
+    }
+   ]
+  },
+  {
+   "id": "transactions",
+   "label": "Transactions",
+   "screens": [
+    {
+     "id": "payments",
+     "label": "Payments",
+     "resources": [
+      "merchant.payment"
+     ],
+     "nav": "nav.merchant_transactions_payments"
+    },
+    {
+     "id": "disputes",
+     "label": "Disputes",
+     "resources": [
+      "ops.dispute"
+     ],
+     "nav": "nav.merchant_transactions_disputes"
+    }
+   ]
+  },
+  {
+   "id": "money",
+   "label": "Money",
+   "screens": [
+    {
+     "id": "balance",
+     "label": "Balance",
+     "resources": [
+      "merchant.account"
+     ],
+     "nav": "nav.merchant_money_balance"
+    },
+    {
+     "id": "withdrawals",
+     "label": "Withdrawals",
+     "resources": [
+      "merchant.withdrawal"
+     ],
+     "nav": "nav.merchant_money_withdrawals"
+    },
+    {
+     "id": "statements",
+     "label": "Statements",
+     "resources": [
+      "merchant.statement"
+     ],
+     "nav": "nav.merchant_money_statements"
+    }
+   ]
+  },
+  {
+   "id": "suppliers",
+   "label": "Suppliers and purchases",
+   "screens": [
+    {
+     "id": "catalogue",
+     "label": "Supplier catalogue",
+     "resources": [
+      "merchant.order"
+     ],
+     "nav": "nav.merchant_suppliers_catalogue"
+    },
+    {
+     "id": "orders",
+     "label": "Purchase orders",
+     "resources": [
+      "merchant.order"
+     ],
+     "nav": "nav.merchant_suppliers_orders"
+    },
+    {
+     "id": "invoices",
+     "label": "Supplier invoices",
+     "resources": [
+      "merchant.invoice"
+     ],
+     "nav": "nav.merchant_suppliers_invoices"
+    }
+   ]
+  },
+  {
+   "id": "stock",
+   "label": "Stock",
+   "screens": [
+    {
+     "id": "inventory",
+     "label": "Inventory",
+     "resources": [
+      "merchant.inventory"
+     ],
+     "nav": "nav.merchant_stock_inventory"
+    },
+    {
+     "id": "adjustments",
+     "label": "Stock adjustments",
+     "resources": [
+      "merchant.inventory"
+     ],
+     "nav": "nav.merchant_stock_adjustments"
+    }
+   ]
+  },
+  {
+   "id": "customers",
+   "label": "Customers and tabs",
+   "screens": [
+    {
+     "id": "customers",
+     "label": "Customers",
+     "resources": [
+      "merchant.khata"
+     ],
+     "nav": "nav.merchant_customers_customers"
+    },
+    {
+     "id": "tabs",
+     "label": "Tabs",
+     "resources": [
+      "merchant.tab"
+     ],
+     "nav": "nav.merchant_customers_tabs"
+    },
+    {
+     "id": "collections",
+     "label": "Tab collections",
+     "resources": [
+      "merchant.khata"
+     ],
+     "nav": "nav.merchant_customers_collections"
+    }
+   ]
+  },
+  {
+   "id": "financing",
+   "label": "Financing",
+   "screens": [
+    {
+     "id": "applications",
+     "label": "Cash advance applications",
+     "resources": [
+      "merchant.advance"
+     ],
+     "nav": "nav.merchant_financing_applications"
+    },
+    {
+     "id": "offers",
+     "label": "Offers",
+     "resources": [
+      "merchant.advance"
+     ],
+     "nav": "nav.merchant_financing_offers"
+    },
+    {
+     "id": "repayments",
+     "label": "Repayments",
+     "resources": [
+      "merchant.advance"
+     ],
+     "nav": "nav.merchant_financing_repayments"
+    }
+   ]
+  },
+  {
+   "id": "reports",
+   "label": "Reports",
+   "screens": [
+    {
+     "id": "sales",
+     "label": "Sales reports",
+     "resources": [
+      "merchant.statement"
+     ],
+     "nav": "nav.merchant_reports_sales"
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "label": "Onboarding",
+   "screens": [
+    {
+     "id": "application",
+     "label": "Organization application",
+     "resources": [
+      "org.onboarding",
+      "kyc.application"
+     ],
+     "nav": "nav.merchant_onboarding_application"
+    },
+    {
+     "id": "documents",
+     "label": "KYC and documents",
+     "resources": [
+      "kyc.application",
+      "kyc.task"
+     ],
+     "nav": "nav.merchant_onboarding_documents"
+    },
+    {
+     "id": "status",
+     "label": "Verification status",
+     "resources": [
+      "kyc.application"
+     ],
+     "nav": "nav.merchant_onboarding_status"
+    },
+    {
+     "id": "first-admin",
+     "label": "First administrator setup",
+     "resources": [],
+     "nav": "nav.merchant_onboarding_first_admin"
+    }
+   ]
+  },
+  {
+   "id": "team",
+   "label": "Team and access",
+   "screens": [
+    {
+     "id": "people",
+     "label": "People and invitations",
+     "resources": [
+      "org.user"
+     ],
+     "nav": "nav.merchant_team_people"
+    },
+    {
+     "id": "roles",
+     "label": "Roles and assignments",
+     "resources": [
+      "rbac.role",
+      "rbac.assignment"
+     ],
+     "nav": "nav.merchant_team_roles"
+    },
+    {
+     "id": "security",
+     "label": "Security settings",
+     "resources": [],
+     "nav": "nav.merchant_team_security"
+    }
+   ]
+  },
+  {
+   "id": "help",
+   "label": "Help and support",
+   "screens": [
+    {
+     "id": "cases",
+     "label": "Support cases",
+     "resources": [
+      "ops.complaint"
+     ],
+     "nav": "nav.merchant_help_cases"
+    }
+   ]
+  }
+ ],
+ "LENDER": [
+  {
+   "id": "overview",
+   "label": "Overview",
+   "screens": [
+    {
+     "id": "dashboard",
+     "label": "Lender dashboard",
+     "resources": [
+      "lender.portfolio"
+     ],
+     "nav": "nav.lender_overview_dashboard"
+    }
+   ]
+  },
+  {
+   "id": "programmes",
+   "label": "Funding programmes",
+   "screens": [
+    {
+     "id": "products",
+     "label": "Products and eligibility",
+     "resources": [],
+     "nav": "nav.lender_programmes_products"
+    },
+    {
+     "id": "limits",
+     "label": "Funding limits",
+     "resources": [],
+     "nav": "nav.lender_programmes_limits"
+    }
+   ]
+  },
+  {
+   "id": "applications",
+   "label": "Applications",
+   "screens": [
+    {
+     "id": "pipeline",
+     "label": "Application pipeline",
+     "resources": [
+      "lender.advance"
+     ],
+     "nav": "nav.lender_applications_pipeline"
+    },
+    {
+     "id": "borrower",
+     "label": "Borrower onboarding and consent",
+     "resources": [
+      "lender.assessment"
+     ],
+     "nav": "nav.lender_applications_borrower"
+    },
+    {
+     "id": "documents",
+     "label": "Application documents",
+     "resources": [],
+     "nav": "nav.lender_applications_documents"
+    }
+   ]
+  },
+  {
+   "id": "underwriting",
+   "label": "Underwriting",
+   "screens": [
+    {
+     "id": "assessment",
+     "label": "Assessments",
+     "resources": [
+      "lender.assessment"
+     ],
+     "nav": "nav.lender_underwriting_assessment"
+    },
+    {
+     "id": "decisions",
+     "label": "Credit decisions",
+     "resources": [
+      "lender.assessment"
+     ],
+     "nav": "nav.lender_underwriting_decisions"
+    }
+   ]
+  },
+  {
+   "id": "offers",
+   "label": "Offers and funding",
+   "screens": [
+    {
+     "id": "offers",
+     "label": "Offers",
+     "resources": [
+      "lender.advance"
+     ],
+     "nav": "nav.lender_offers_offers"
+    },
+    {
+     "id": "disbursement",
+     "label": "Disbursements",
+     "resources": [
+      "lender.advance"
+     ],
+     "nav": "nav.lender_offers_disbursement"
+    }
+   ]
+  },
+  {
+   "id": "portfolio",
+   "label": "Portfolio",
+   "screens": [
+    {
+     "id": "accounts",
+     "label": "Loan accounts",
+     "resources": [
+      "lender.portfolio"
+     ],
+     "nav": "nav.lender_portfolio_accounts"
+    },
+    {
+     "id": "performance",
+     "label": "Portfolio performance",
+     "resources": [
+      "lender.portfolio"
+     ],
+     "nav": "nav.lender_portfolio_performance"
+    }
+   ]
+  },
+  {
+   "id": "repayments",
+   "label": "Repayments",
+   "screens": [
+    {
+     "id": "schedule",
+     "label": "Schedules",
+     "resources": [],
+     "nav": "nav.lender_repayments_schedule"
+    },
+    {
+     "id": "receipts",
+     "label": "Receipts",
+     "resources": [
+      "lender.collection"
+     ],
+     "nav": "nav.lender_repayments_receipts"
+    }
+   ]
+  },
+  {
+   "id": "collections",
+   "label": "Collections",
+   "screens": [
+    {
+     "id": "queue",
+     "label": "Collection queue",
+     "resources": [
+      "lender.collection"
+     ],
+     "nav": "nav.lender_collections_queue"
+    },
+    {
+     "id": "cases",
+     "label": "Collection cases",
+     "resources": [
+      "lender.collection"
+     ],
+     "nav": "nav.lender_collections_cases"
+    }
+   ]
+  },
+  {
+   "id": "risk",
+   "label": "Risk and exceptions",
+   "screens": [
+    {
+     "id": "watchlist",
+     "label": "Watchlist",
+     "resources": [],
+     "nav": "nav.lender_risk_watchlist"
+    },
+    {
+     "id": "exceptions",
+     "label": "Exceptions",
+     "resources": [],
+     "nav": "nav.lender_risk_exceptions"
+    }
+   ]
+  },
+  {
+   "id": "settlement",
+   "label": "Settlement and ledger",
+   "screens": [
+    {
+     "id": "settlements",
+     "label": "Settlements",
+     "resources": [],
+     "nav": "nav.lender_settlement_settlements"
+    },
+    {
+     "id": "ledger",
+     "label": "Ledger",
+     "resources": [],
+     "nav": "nav.lender_settlement_ledger"
+    }
+   ]
+  },
+  {
+   "id": "reports",
+   "label": "Reports",
+   "screens": [
+    {
+     "id": "portfolio",
+     "label": "Portfolio reports",
+     "resources": [
+      "lender.portfolio"
+     ],
+     "nav": "nav.lender_reports_portfolio"
+    },
+    {
+     "id": "collections",
+     "label": "Collections reports",
+     "resources": [
+      "lender.collection"
+     ],
+     "nav": "nav.lender_reports_collections"
+    }
+   ]
+  },
+  {
+   "id": "onboarding",
+   "label": "Onboarding",
+   "screens": [
+    {
+     "id": "application",
+     "label": "Organization application",
+     "resources": [
+      "org.onboarding",
+      "kyc.application"
+     ],
+     "nav": "nav.lender_onboarding_application"
+    },
+    {
+     "id": "documents",
+     "label": "KYC and documents",
+     "resources": [
+      "kyc.application",
+      "kyc.task"
+     ],
+     "nav": "nav.lender_onboarding_documents"
+    },
+    {
+     "id": "status",
+     "label": "Verification status",
+     "resources": [
+      "kyc.application"
+     ],
+     "nav": "nav.lender_onboarding_status"
+    },
+    {
+     "id": "first-admin",
+     "label": "First administrator setup",
+     "resources": [],
+     "nav": "nav.lender_onboarding_first_admin"
+    }
+   ]
+  },
+  {
+   "id": "team",
+   "label": "Team and access",
+   "screens": [
+    {
+     "id": "people",
+     "label": "People and invitations",
+     "resources": [
+      "org.user"
+     ],
+     "nav": "nav.lender_team_people"
+    },
+    {
+     "id": "roles",
+     "label": "Roles and assignments",
+     "resources": [
+      "rbac.role",
+      "rbac.assignment"
+     ],
+     "nav": "nav.lender_team_roles"
+    },
+    {
+     "id": "security",
+     "label": "Security settings",
+     "resources": [],
+     "nav": "nav.lender_team_security"
+    }
+   ]
+  },
+  {
+   "id": "help",
+   "label": "Help and support",
+   "screens": [
+    {
+     "id": "cases",
+     "label": "Support cases",
+     "resources": [
+      "ops.complaint"
+     ],
+     "nav": "nav.lender_help_cases"
+    }
+   ]
+  }
+ ]
+}

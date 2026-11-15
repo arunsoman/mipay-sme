@@ -10,6 +10,7 @@ import { Injectable, computed, signal } from '@angular/core';
 export class FixedAccess {
   private readonly held = signal<ReadonlySet<string>>(new Set());
   readonly ready = signal(true);
+  readonly orgId = signal('');
   readonly orgName = signal('Fixture org');
   readonly orgType = signal('');
   readonly roles = signal<string[]>([]);

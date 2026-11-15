@@ -3,6 +3,7 @@ package com.mipay.sme.repository;
 import com.mipay.sme.domain.Enums;
 import com.mipay.sme.domain.kyc.KycApplication;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 /** KYC applications (V7 model, extended V8). */
 
@@ -13,7 +14,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface KycApplicationRepository extends JpaRepository<KycApplication, String> {
+public interface KycApplicationRepository extends JpaRepository<KycApplication, String>,
+        JpaSpecificationExecutor<KycApplication> {
 
     /** Legacy single-row lookup (pre-V10 rows keep their org_id uniqueness in practice). */
     Optional<KycApplication> findByOrgId(String orgId);

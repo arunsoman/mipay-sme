@@ -21,13 +21,13 @@ test('kyc.tasks against a live API through the gateway session', async ({ page }
     if (url.pathname === '/api/orgs/me/access') return r.fulfill({ json: { orgId: 'org-root', orgName: 'MiPay', orgType: 'PLATFORM', roles: [],
       permissions: ['kyc.task:read', 'kyc.task:authorize'].map((id) => ({ id, row: id.split(':')[0], verb: id.split(':')[1] })) } });
     if (url.pathname === '/api/me') return r.fulfill({ json: { orgId: 'org-root', orgType: 'PLATFORM', name: 'Reviewer' } });
-    if (url.pathname === '/api/kyc/tasks') return r.fulfill({ json: [
+    if (url.pathname === '/api/kyc/tasks/search') return r.fulfill({ json: { total: 2, page: 0, size: 10, items: [
       { id: 'task-1', orgId: 'org-a', orgName: 'Etosha Traders', kind: 'KYC_REVIEW', stageKey: 'COMPLIANCE_REVIEW', stageSeq: 2,
         actorRule: 'PLATFORM_FUNCTION:kyc_reviewer', applicationStatus: 'IN_REVIEW', createdAt: '2026-11-14T08:00:00Z', openNote: null },
       // the "server" sends a string where KycTaskRow has an int: the widget must say so
       { id: 'task-2', orgId: 'org-b', orgName: 'Rundu Fresh', kind: 'KYC_REVIEW', stageKey: 'ENTRY_CHECK', stageSeq: '1',
         actorRule: 'ORG_ADMIN:other', applicationStatus: 'ENTRY_CHECK', createdAt: '2026-11-13T08:00:00Z', openNote: null },
-    ] });
+    ] } });
     if (/\/api\/kyc\/tasks\/[^/]+\/decision$/.test(url.pathname)) {
       writes.push({ headers: req.headers(), body: req.postDataJSON() });
       return r.fulfill({ json: { id: 'k-1', orgId: 'org-a', orgType: 'SUPPLIER', orgName: 'Etosha Traders', parentOrgId: null, treePath: [],
@@ -46,8 +46,8 @@ test('kyc.tasks against a live API through the gateway session', async ({ page }
 
   // self-diagnosis of the live answer, in the widget
   const diag = page.locator('[data-diagnostics]');
-  await expect(diag).toContainText('kyc.tasks.list');
-  await expect(diag).toContainText('$[1].stageSeq expected integer, got "1" (string)');
+  await expect(diag).toContainText('kyc.tasks.search');
+  await expect(diag).toContainText('$.items[1].stageSeq expected integer, got "1" (string)');
 
   // a write: the gateway session's CSRF value, never a token
   await page.locator('mp-data-table tbody tr', { hasText: 'Etosha Traders' }).click();

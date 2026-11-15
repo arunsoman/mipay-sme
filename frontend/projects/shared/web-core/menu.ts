@@ -63,6 +63,13 @@ export interface MenuItem {
  * platform admin surface and compliance.
  */
 export const MENU_ITEMS: MenuItem[] = [
+  // ---------------- the admin console (admin-console.md): the admin sidebar's only pages, first so
+  // the admin portal opens on Organizations. Older admin pages below keep their routes and guards.
+  { id: 'console-organizations', label: 'All organizations', icon: '◈', link: '/organizations', perm: ['admin.org_directory'], portals: ['admin'] },
+  { id: 'console-kyc-applications', label: 'Applications', icon: '◈', link: '/kyc/applications', perm: ['kyc.application'], portals: ['admin'] },
+  { id: 'console-kyc-reviews', label: 'Review queue', icon: '◈', link: '/kyc/reviews', perm: ['kyc.task'], portals: ['admin'] },
+  { id: 'console-platform-users', label: 'Platform users', icon: '☰', link: '/access/users', perm: ['org.user'], portals: ['admin'] },
+
   // ---------------- governance (admin + org portals)
   { id: 'platform-overview', label: 'Overview', icon: '◫', link: '/overview', perm: ['rbac.role', 'admin.platform_ops', 'org.user'], portals: ['admin'] },
   { id: 'platform-organizations', label: 'Organizations', icon: '◈', link: '/orgs', perm: ['admin.org_directory'], portals: ['admin'] },

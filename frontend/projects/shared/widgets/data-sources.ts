@@ -16,12 +16,29 @@ export const SOURCES = defineSources({
   'kyc.application.save':     { '*': { method: 'PUT',  path: '/api/kyc/orgs/{orgId}', query: ['expectedVersion'] } },
   'kyc.application.submit':   { '*': { method: 'POST', path: '/api/kyc/orgs/{orgId}/submit' } },
   'kyc.application.withdraw': { '*': { method: 'POST', path: '/api/kyc/orgs/{orgId}/withdraw' } },
-  // review queue (KycController#inbox, #decide)
-  'kyc.tasks.list':           { '*': { method: 'GET',  path: '/api/kyc/tasks' } },
+  // review queue (KycController#searchInbox, #decide): ListQuery (q, sort, filters, page, size)
+  'kyc.tasks.search':         { '*': { method: 'GET',  path: '/api/kyc/tasks/search',
+                                       query: ['q', 'sort', 'applicationStatus', 'kind', 'stageKey', 'page', 'size'] } },
   'kyc.tasks.decide':         { '*': { method: 'POST', path: '/api/kyc/tasks/{taskId}/decision' } },
   // <widget kyc.orgs>
-  'kyc.orgs.list': { '*': { method: 'GET', path: '/api/kyc/orgs', query: ['status', 'suspended'] } },
+  // KycController#searchV2: ListQuery (q, sort, filters, page, size)
+  'kyc.orgs.search': { '*': { method: 'GET', path: '/api/kyc/orgs/search',
+                              query: ['q', 'sort', 'orgType', 'status', 'isSuspended', 'page', 'size'] } },
   // </widget kyc.orgs>
+
+  // ---------------- Admin console (AdminConsoleController): every list is a ListQuery ----------------
+  // <widget admin.organizations>
+  'admin.organizations.search': { PLATFORM: { method: 'GET', path: '/api/admin/organizations/search',
+                                              query: ['q', 'sort', 'type', 'status', 'kycStatus', 'preset', 'warnings', 'page', 'size'] } },
+  // </widget admin.organizations>
+  // <widget org.access>
+  'org.features.get': { '*': { method: 'GET', path: '/api/orgs/{orgId}/features' } },
+  'org.features.set': { '*': { method: 'PUT', path: '/api/orgs/{orgId}/features' } },
+  // </widget org.access>
+  // <widget org.people>
+  'org.people.search': { '*': { method: 'GET', path: '/api/orgs/{orgId}/people',
+                                query: ['q', 'sort', 'orgRole', 'status', 'roles', 'page', 'size'] } },
+  // </widget org.people>
 
   // ---------------- Organization users (OrgController / ActivationController) ----------------
   // <widget users.organization-users>

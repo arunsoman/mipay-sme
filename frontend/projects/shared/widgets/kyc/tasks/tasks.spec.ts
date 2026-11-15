@@ -14,9 +14,9 @@ async function pick(w: Awaited<ReturnType<typeof renderWidget>>, name: string) {
 }
 
 describe('kyc.tasks', () => {
-  it('reads the caller’s inbox (no params) and lists the tasks', async () => {
+  it('asks the server for the first page of the caller’s inbox, oldest first, and lists it', async () => {
     const w = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: READ });
-    expect(w.callList()).toEqual([['kyc.tasks.list', {}]]);
+    expect(w.callList()).toEqual([['kyc.tasks.search', { sort: 'createdAt,asc', page: '0', size: '10' }]]);
     expect(w.state()).toBe('ready');
     expect(w.text('mp-data-table')).toContain('Kalahari Supplies');
     expect(w.text('mp-data-table')).toContain('Compliance review (step 2)');
@@ -24,7 +24,7 @@ describe('kyc.tasks', () => {
 
   it('shows who and where it stands on a phone; stage and date from tablet up', async () => {
     const phone = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: READ, tier: 'xs' });
-    expect(phone.queryAll('mp-data-table th').map((h) => h.textContent!.trim())).toEqual(['Organization', 'Status']);
+    expect(phone.queryAll('mp-data-table th').map((h) => h.textContent!.replace(/[▲▼↕]/g, '').trim())).toEqual(['Organization', 'Status']);
     const laptop = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: READ, tier: 'md' });
     expect(laptop.queryAll('mp-data-table th').length).toBe(4);
   });
@@ -58,7 +58,31 @@ describe('kyc.tasks', () => {
     expect(c.name).toBe('kyc.tasks.decide');
     expect(c.params).toEqual({ taskId: 'task-101', body: { outcome: 'APPROVE', note: 'Bank letter verified' } });
     expect(w.text('mp-alert')).toContain('Approved: Kalahari Supplies is now Approved');
-    expect(w.callList().filter(([n]) => n === 'kyc.tasks.list').length).toBe(2);
+    expect(w.callList().filter(([n]) => n === 'kyc.tasks.search').length).toBe(2);
+  });
+
+  it('searches, filters and sorts on the server, not in the browser', async () => {
+    const w = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: READ });
+    const box = w.query<HTMLInputElement>('mp-table-search input')!;
+    box.value = 'swakop';
+    box.dispatchEvent(new Event('input'));
+    await w.settle();
+    expect(w.callList().at(-1)).toEqual(['kyc.tasks.search', { q: 'swakop', sort: 'createdAt,asc', page: '0', size: '10' }]);
+    expect(w.text('mp-data-table tbody')).toContain('Swakop Foods Manufacturing');
+    expect(w.text('mp-data-table tbody')).not.toContain('Kalahari Supplies');
+
+    box.value = '';
+    box.dispatchEvent(new Event('input'));
+    await w.settle();
+    w.queryAll<HTMLButtonElement>('mp-tabs button').find((b) => b.textContent!.includes('Entry check'))!.click();
+    await w.settle();
+    expect(w.callList().at(-1)![1]).toMatchObject({ applicationStatus: 'ENTRY_CHECK', page: '0' });
+    expect(w.text('mp-data-table tbody')).toContain('Namib Distribution');
+    expect(w.text('mp-data-table tbody')).not.toContain('Kalahari Supplies');
+
+    w.queryAll<HTMLButtonElement>('mp-data-table th button.sort').find((b) => b.textContent!.includes('Organization'))!.click();
+    await w.settle();
+    expect(w.callList().at(-1)![1]).toMatchObject({ sort: 'orgName,asc' });
   });
 
   it('is empty, with the empty state, when nothing waits', async () => {
@@ -78,11 +102,11 @@ describe('kyc.tasks', () => {
 
   it('self-diagnoses an inbox answer that breaks the contract', async () => {
     const w = await renderWidget(def, fixtures, { portal: 'PLATFORM', cells: READ,
-      override: { 'kyc.tasks.list': [{ id: 'task-9', orgName: 'Etosha Traders', stageSeq: 'two' }] } });
+      override: { 'kyc.tasks.search': { items: [{ id: 'task-9', orgName: 'Etosha Traders', stageSeq: 'two' }], total: 1, page: 0, size: 10 } } });
     const panel = w.text('[data-diagnostics]');
-    expect(panel).toContain('kyc.tasks.list');
-    expect(panel).toContain('$[0].stageSeq expected integer, got "two" (string)');
-    expect(panel).toContain('$[0].orgId expected string | null, got nothing (field missing)');
+    expect(panel).toContain('kyc.tasks.search');
+    expect(panel).toContain('$.items[0].stageSeq expected integer, got "two" (string)');
+    expect(panel).toContain('$.items[0].orgId expected string | null, got nothing (field missing)');
   });
 
   it('hides itself on 403 and is not created without kyc.task:read', async () => {

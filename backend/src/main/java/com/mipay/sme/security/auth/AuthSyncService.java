@@ -52,6 +52,7 @@ public class AuthSyncService {
     private final RbacMeshClient rbac;
     private final AppProperties properties;
     private final JdbcTemplate jdbc;
+    private final com.mipay.sme.service.OrgFeatureService orgFeatures;
 
     // lazy: suspend/lift depend on AuthSyncService for the post-commit reconcile (§3.3b),
     // while lapse placement (rare) reuses the suspension service — the loop would not resolve
@@ -303,6 +304,8 @@ public class AuthSyncService {
             log.debug("rbac sync disabled: go-live role swap for {} skipped", adminUid);
             return;
         }
+        // the org's features (admin-console.md): its access role, built and given to the new admin
+        orgFeatures.grantAtGoLive(orgId, adminUid);
         // Since 2026-11-12 there are no standard org roles (org_admin, kyc_applicant are gone): the
         // new org's people get org-defined roles from its user manager (User management).
         if (true) {

@@ -16,6 +16,7 @@ import { Permissions } from './features/permissions/permissions';
 import { Kyc } from './features/kyc/kyc';
 import { PermissionMatrix } from './features/permission-matrix/permission-matrix';
 import { PermInventory } from '../../../shared/web-core/permission-inventory';
+import { WidgetPage } from '../../../shared/web-core/widget-page';
 // operations and compliance screens (shared with sme-ui), each behind its permission rows
 import { OpsApprovals, OpsRecon, OpsIncidents, OpsDesk, OpsReports, OpsAudit, AdminCompliance, AdminConnectors, AdminConfig, AdminAccess } from '../../../../src/app/screens';
 
@@ -40,7 +41,32 @@ export const routes: Routes = [
     component: Shell,
     canActivate: [adminGuard],
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      { path: '', pathMatch: 'full', redirectTo: 'organizations' },
+      // ---- the admin console (docs/plans/admin-console.md): pages made of registered widgets
+      { path: 'organizations', component: WidgetPage, canActivate: [pg('/organizations')], data: {
+        portal: 'PLATFORM', title: 'Organizations',
+        subtitle: 'Every organization, what needs attention, and what each one can do. Pick one to open it.',
+        main: { widget: 'admin.organizations' },
+        detail: [
+          { label: 'What it can do', widget: 'org.access' },
+          { label: 'People', widget: 'org.people' },
+          { label: 'KYC', widget: 'kyc.application', config: { mode: 'review' } },
+        ],
+      } },
+      { path: 'kyc/applications', component: WidgetPage, canActivate: [pg('/kyc/applications')], data: {
+        portal: 'PLATFORM', title: 'KYC applications', subtitle: 'Every KYC application. Pick one to open it.',
+        main: { widget: 'kyc.orgs' },
+        detail: [{ label: 'Application', widget: 'kyc.application' }],
+      } },
+      { path: 'kyc/reviews', component: WidgetPage, canActivate: [pg('/kyc/reviews')], data: {
+        portal: 'PLATFORM', title: 'Review queue', subtitle: 'KYC reviews waiting for you. Pick one to read it and decide.',
+        main: { widget: 'kyc.tasks' },
+        detail: [{ label: 'Application', widget: 'kyc.application', config: { mode: 'review' } }],
+      } },
+      { path: 'access/users', component: WidgetPage, canActivate: [pg('/access/users')], data: {
+        portal: 'PLATFORM', title: 'Platform users', subtitle: 'The people of the platform organization.',
+        main: { widget: 'users.organization-users' },
+      } },
       { path: 'no-access', component: EmptyAccessShell },
       { path: 'install', component: Install },
       { path: 'overview', component: Overview, canActivate: [pg('/overview')] },

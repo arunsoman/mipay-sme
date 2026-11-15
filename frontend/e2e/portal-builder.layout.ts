@@ -13,7 +13,8 @@ test('build a supplier screen with the KYC widget, in two locales', async ({ pag
 
   // the palette offers what the registry has for SUPPLIER
   await expect(page.locator('.bd-top select').first()).toHaveValue('SUPPLIER');   // dropdowns show the real state
-  const kyc = page.locator('.pal', { hasText: 'KYC application' });
+  // by widget id: "KYC application" is also the start of "KYC applications" (kyc.orgs)
+  const kyc = page.locator('.pal', { hasText: 'kyc.application@' });
   await expect(kyc).toBeVisible();
 
   // today's menus are seeded: open Onboarding › KYC and documents

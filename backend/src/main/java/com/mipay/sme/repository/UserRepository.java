@@ -43,4 +43,8 @@ public interface UserRepository extends JpaRepository<User, String> {
             where u.phone = :identifier or u.username = :identifier
             """)
     List<User> findAllByIdentifier(@Param("identifier") String identifier);
+
+    /** [orgId, user count] for every org with users (the admin console's organizations list). */
+    @org.springframework.data.jpa.repository.Query("select u.orgId, count(u) from User u where u.orgId is not null group by u.orgId")
+    List<Object[]> countByOrg();
 }

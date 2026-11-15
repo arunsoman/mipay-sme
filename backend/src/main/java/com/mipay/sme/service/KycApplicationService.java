@@ -122,6 +122,64 @@ public class KycApplicationService {
                 .toList();
     }
 
+    /** The searchable columns of the KYC applications list (ListQuery contract). */
+    public static final com.mipay.sme.common.ListQuery.Fields<KycApplication> APPLICATION_FIELDS =
+            com.mipay.sme.common.ListQuery.Fields.<KycApplication>of()
+                    .text("orgName", "orgName", KycApplication::getOrgName)
+                    .field("orgType", "orgType", KycApplication::getOrgType)
+                    .field("status", "status", KycApplication::getStatus)
+                    .field("isSuspended", "suspended", KycApplication::isSuspended)
+                    .field("submittedAt", "submittedAt", KycApplication::getSubmittedAt)
+                    .field("decidedAt", "decidedAt", KycApplication::getDecidedAt)
+                    .field("updatedAt", "updatedAt", KycApplication::getUpdatedAt)
+                    .searchOnly("orgId", "orgId", KycApplication::getOrgId)
+                    .defaultSort("updatedAt", false);
+
+    /**
+     * Search, filter, sort and page KYC applications in the database. Platform staff see every
+     * application; anyone else sees their own org's subtree only (the same scope as {@link #list}).
+     */
+    @Transactional(readOnly = true)
+    public com.mipay.sme.common.ListQuery.Page<Dtos.KycSummaryRow> search(Current.Principal caller,
+                                                                          com.mipay.sme.common.ListQuery query) {
+        org.springframework.data.jpa.domain.Specification<KycApplication> spec = query.specification(APPLICATION_FIELDS);
+        if (!callerService.platformStaff(caller)) {
+            Organization own = callerService.orgOf(caller);
+            if (own == null) throw new NotFoundException("Caller has no organization");
+            List<String> ids = closureRepo.findSubtree(own.getId()).stream().map(r -> r.getOrg().getId()).toList();
+            spec = spec.and((root, q, cb) -> root.get("orgId").in(ids));
+        }
+        return com.mipay.sme.common.ListQuery.Page.of(repo.findAll(spec, query.pageable(APPLICATION_FIELDS)))
+                .map(KycApplicationService::summary);
+    }
+
+    private static Dtos.KycSummaryRow summary(KycApplication a) {
+        return new Dtos.KycSummaryRow(a.getId(), a.getOrgId(), a.getOrgType().name(), a.getOrgName(),
+                a.getParentOrgId(), a.getTreePath(), a.getDepth(), a.isSuspended(), a.getStatus().name(),
+                a.getSubmittedAt(), a.getDecidedAt(), a.getUpdatedAt());
+    }
+
+    /** The searchable columns of the review queue (ListQuery contract, answered in memory). */
+    public static final com.mipay.sme.common.ListQuery.Fields<Dtos.KycTaskRow> TASK_FIELDS =
+            com.mipay.sme.common.ListQuery.Fields.<Dtos.KycTaskRow>of()
+                    .text("orgName", null, Dtos.KycTaskRow::orgName)
+                    .text("kind", null, Dtos.KycTaskRow::kind)
+                    .text("stageKey", null, Dtos.KycTaskRow::stageKey)
+                    .field("applicationStatus", null, Dtos.KycTaskRow::applicationStatus)
+                    .field("createdAt", null, Dtos.KycTaskRow::createdAt)
+                    .searchOnly("openNote", null, Dtos.KycTaskRow::openNote)
+                    .defaultSort("createdAt", true);
+
+    /**
+     * The review queue with search, filter, sort and paging. The workflow engine decides which
+     * tasks the caller may act on, so the set is assembled by the server and then queried in memory.
+     */
+    @Transactional(readOnly = true)
+    public com.mipay.sme.common.ListQuery.Page<Dtos.KycTaskRow> searchInbox(Current.Principal caller,
+                                                                           com.mipay.sme.common.ListQuery query) {
+        return query.apply(inbox(caller), TASK_FIELDS);
+    }
+
     // ------------------------------------------------------------------ writes
 
     @Transactional

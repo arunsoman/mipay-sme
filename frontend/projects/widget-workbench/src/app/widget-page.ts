@@ -168,7 +168,16 @@ export class WidgetPage {
     return c.split(',').filter(Boolean);
   });
   readonly scenarios = computed(() => Object.keys(this.fixtures()?.scenarios ?? { default: {} }));
-  readonly scenario = computed(() => this.q().get('scenario') ?? 'default');
+  /**
+   * The sidebar keeps the query string when switching widgets, so ?scenario= may name a scenario of
+   * the PREVIOUS widget (kyc.application's `masked`, say). An unknown name would hand this widget an
+   * empty answer set (NO_FIXTURE on every source) while the dropdown shows "default": fall back.
+   */
+  readonly scenario = computed(() => {
+    const asked = this.q().get('scenario') ?? 'default';
+    const known = this.fixtures()?.scenarios;
+    return known && !(asked in known) ? 'default' : asked;
+  });
   readonly latency = computed(() => Number(this.q().get('latency') ?? 0));
   readonly live = computed(() => this.q().get('data') === 'live');
   readonly grid = computed(() => this.q().get('grid') !== '0');

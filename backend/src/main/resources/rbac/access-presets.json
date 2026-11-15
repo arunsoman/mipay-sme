@@ -1,0 +1,20 @@
+[
+ {
+  "code": "full",
+  "label": "Full access",
+  "description": "Every menu of the organization's portal.",
+  "features": ["*"]
+ },
+ {
+  "code": "essentials",
+  "label": "Essentials",
+  "description": "Home, onboarding and KYC, team and access, help. Business menus are switched on later.",
+  "features": ["home", "overview", "onboarding", "team", "help"]
+ },
+ {
+  "code": "kyc_only",
+  "label": "KYC only",
+  "description": "Onboarding and KYC, and help. The admin cannot add users.",
+  "features": ["onboarding", "help"]
+ }
+]

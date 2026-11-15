@@ -43,6 +43,8 @@ export class AccessService {
   private inflight: Promise<void> | null = null;
   private generation = 0;
 
+  /** The signed-in user's own org (widget pages place their widgets in it). */
+  readonly orgId = computed(() => this.access()?.orgId ?? '');
   readonly orgName = computed(() => this.access()?.orgName ?? '');
   readonly orgType = computed(() => this.access()?.orgType ?? '');
   readonly roles = computed(() => this.access()?.roles ?? []);

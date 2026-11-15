@@ -99,6 +99,19 @@ public class KycController {
         return kyc.list(Current.get(), status, suspended);
     }
 
+    /**
+     * KYC applications with search, filter, sort and paging done by the server
+     * (ListQuery: q, sort=field,asc|desc, orgType, status, isSuspended, page, size).
+     */
+    @Perm(resource = "kyc.application", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Search KYC applications (caller's org subtree; platform: all)")
+    @GetMapping("/api/kyc/orgs/search")
+    public com.mipay.sme.common.ListQuery.Page<Dtos.KycSummaryRow> searchV2(
+            @RequestParam java.util.Map<String, String> params) {
+        return kyc.search(Current.get(), com.mipay.sme.common.ListQuery.parse(params,
+                com.mipay.sme.service.KycApplicationService.APPLICATION_FIELDS));
+    }
+
     /** Resolves the profile and returns sections, fields, conditions and rules for client hints. */
     @Perm(resource = "kyc.form", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
           description = "Get KYC schema for caller's org")
@@ -164,6 +177,16 @@ public class KycController {
     @GetMapping("/api/kyc/tasks")
     public List<Dtos.KycTaskRow> inbox() {
         return kyc.inbox(Current.get());
+    }
+
+    /** The review queue with search, filter, sort and paging done by the server (ListQuery). */
+    @Perm(resource = "kyc.task", verb = Verb.READ, tenantSource = TenantSource.SELF, tenant = "null",
+          description = "Search open KYC review tasks for caller")
+    @GetMapping("/api/kyc/tasks/search")
+    public com.mipay.sme.common.ListQuery.Page<Dtos.KycTaskRow> searchInbox(
+            @RequestParam java.util.Map<String, String> params) {
+        return kyc.searchInbox(Current.get(), com.mipay.sme.common.ListQuery.parse(params,
+                com.mipay.sme.service.KycApplicationService.TASK_FIELDS));
     }
 
     /** §7 provider callbacks — signature verified, deduped by provider_ref. */

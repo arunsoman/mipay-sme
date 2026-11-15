@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal, Signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, signal, Signal, WritableSignal } from '@angular/core';
 
 /**
  * Search + paging state used inside mp-data-table (data-table.ts). Screens use
@@ -34,10 +34,28 @@ export class TableView<T> {
   readonly rows: Signal<T[]>;
   /** whether any rows exist before searching (an empty table vs. no match) */
   readonly hasSource: Signal<boolean>;
+  /** rows, total and paging come from the server (see {@link ServerQuery}) */
+  readonly server: boolean = false;
 
-  constructor(source: () => T[] | null | undefined, text?: (row: T) => unknown, size = 10) {
+  /**
+   * @param serverTotal given = server mode: `source` is already the server's page of rows for
+   *   the current query; nothing is filtered or sliced here, the total is the server's, and
+   *   search / page / size changes are only recorded (a {@link ServerQuery} sends them).
+   */
+  constructor(source: () => T[] | null | undefined, text?: (row: T) => unknown, size = 10,
+              serverTotal?: () => number | null) {
     this.size.set(size);
     const all = computed(() => source() ?? []);
+    if (serverTotal) {
+      this.server = true;
+      this.hasSource = computed(() => (serverTotal() ?? 0) > 0 || this.query() !== '');
+      this.filtered = all;
+      this.total = computed(() => serverTotal() ?? 0);
+      this.pages = computed(() => Math.max(1, Math.ceil(this.total() / this.size())));
+      this.page = this.pageIx.asReadonly();
+      this.rows = all;
+      return;
+    }
     this.hasSource = computed(() => all().length > 0);
     this.filtered = computed(() => {
       const words = this.query().toLowerCase().split(/\s+/).filter(Boolean);
@@ -59,6 +77,64 @@ export class TableView<T> {
   search(q: string): void { this.query.set(q); this.pageIx.set(0); }
   go(p: number): void { this.pageIx.set(Math.max(0, Math.min(p, this.pages() - 1))); }
   setSize(n: number): void { this.size.set(n); this.pageIx.set(0); }
+}
+
+/** A sort on a server field. */
+export interface SortBy { field: string; dir: 'asc' | 'desc' }
+
+/** One page of a server list: the backend's ListQuery.Page. */
+export interface ServerPage<T> { items: T[]; total: number; page: number; size: number }
+
+/**
+ * The state of a list the SERVER searches, filters, sorts and pages (backend ListQuery:
+ * q, sort=field,asc|desc, filters, page, size → {items, total, page, size}). Give it to
+ * `<mp-data-table [server]="list">`: the table draws `list.view`, its search box, sortable
+ * headers and pager write into it, and whoever owns the list sends `params()` and puts the
+ * answer in `result`. Changing a filter, the search or the sort goes back to the first page.
+ *
+ *   readonly list = new ServerQuery<Row>(20, { field: 'name', dir: 'asc' });
+ *   effect → GET …?{list.params()} → list.result.set(page)
+ */
+export class ServerQuery<T> {
+  /** the server's latest page; null while the first one loads */
+  readonly result = signal<ServerPage<T> | null>(null);
+  readonly sort: WritableSignal<SortBy | null>;
+  readonly filters = signal<Readonly<Record<string, string>>>({});
+  readonly view: TableView<T>;
+  /** the query to send (q, sort, filters, page, size), without empty values */
+  readonly params: Signal<Record<string, string>>;
+
+  constructor(size = 20, sort: SortBy | null = null) {
+    this.sort = signal<SortBy | null>(sort);
+    this.view = new TableView<T>(() => this.result()?.items ?? null, undefined, size, () => this.result()?.total ?? null);
+    this.params = computed(() => {
+      const p: Record<string, string> = {};
+      const q = this.view.query().trim();
+      if (q) p['q'] = q;
+      const s = this.sort();
+      if (s) p['sort'] = `${s.field},${s.dir}`;
+      for (const [k, v] of Object.entries(this.filters())) if (v) p[k] = v;
+      p['page'] = String(this.view.page());
+      p['size'] = String(this.view.size());
+      return p;
+    });
+  }
+
+  /** null while the first page loads (the table shows its spinner) */
+  readonly rows = computed(() => this.result()?.items ?? null);
+
+  /** Set (or clear, with '') one filter; back to the first page. */
+  setFilter(key: string, value: string) {
+    this.filters.update((f) => ({ ...f, [key]: value }));
+    this.view.go(0);
+  }
+
+  /** Click a header: ascending, then descending, on that field. */
+  sortBy(field: string) {
+    const s = this.sort();
+    this.sort.set({ field, dir: s?.field === field && s.dir === 'asc' ? 'desc' : 'asc' });
+    this.view.go(0);
+  }
 }
 
 function flat(v: unknown, depth: number): string {

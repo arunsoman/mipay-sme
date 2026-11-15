@@ -1,175 +1,23 @@
 [
  {
-  "id": "nav.platform_overview_dashboard",
-  "description": "Menu: Admin portal › Overview › Platform dashboard"
- },
- {
-  "id": "nav.platform_work_approvals",
-  "description": "Menu: Admin portal › Work queue › Approvals"
- },
- {
-  "id": "nav.platform_work_exceptions",
-  "description": "Menu: Admin portal › Work queue › Exceptions"
- },
- {
-  "id": "nav.platform_work_service",
-  "description": "Menu: Admin portal › Work queue › Complaints and disputes"
- },
- {
   "id": "nav.platform_organizations_directory",
-  "description": "Menu: Admin portal › Organizations › Directory and hierarchy"
+  "description": "Menu: Admin portal › Organizations › All organizations"
  },
  {
-  "id": "nav.platform_organizations_applications",
-  "description": "Menu: Admin portal › Organizations › Onboarding applications"
+  "id": "nav.platform_kyc_applications",
+  "description": "Menu: Admin portal › KYC › Applications"
  },
  {
-  "id": "nav.platform_organizations_verification",
-  "description": "Menu: Admin portal › Organizations › KYC review"
- },
- {
-  "id": "nav.platform_organizations_suspensions",
-  "description": "Menu: Admin portal › Organizations › Suspensions"
- },
- {
-  "id": "nav.platform_work_as_org_context",
-  "description": "Menu: Admin portal › Work as organization › Select organization and reason"
- },
- {
-  "id": "nav.platform_work_as_org_actions",
-  "description": "Menu: Admin portal › Work as organization › Organization actions"
- },
- {
-  "id": "nav.platform_work_as_org_history",
-  "description": "Menu: Admin portal › Work as organization › Delegated action history"
- },
- {
-  "id": "nav.platform_payments_transactions",
-  "description": "Menu: Admin portal › Payments and money › Transactions"
- },
- {
-  "id": "nav.platform_payments_reconciliation",
-  "description": "Menu: Admin portal › Payments and money › Reconciliation"
- },
- {
-  "id": "nav.platform_payments_settlements",
-  "description": "Menu: Admin portal › Payments and money › Settlements"
- },
- {
-  "id": "nav.platform_payments_disputes",
-  "description": "Menu: Admin portal › Payments and money › Disputes"
- },
- {
-  "id": "nav.platform_trade_catalogues",
-  "description": "Menu: Admin portal › Trade › Catalogues"
- },
- {
-  "id": "nav.platform_trade_orders",
-  "description": "Menu: Admin portal › Trade › Orders"
- },
- {
-  "id": "nav.platform_trade_invoices",
-  "description": "Menu: Admin portal › Trade › Invoices"
- },
- {
-  "id": "nav.platform_credit_applications",
-  "description": "Menu: Admin portal › Credit › Applications"
- },
- {
-  "id": "nav.platform_credit_portfolio",
-  "description": "Menu: Admin portal › Credit › Portfolio"
- },
- {
-  "id": "nav.platform_credit_collections",
-  "description": "Menu: Admin portal › Credit › Collections"
- },
- {
-  "id": "nav.platform_compliance_aml",
-  "description": "Menu: Admin portal › Compliance › AML alerts"
- },
- {
-  "id": "nav.platform_compliance_sar",
-  "description": "Menu: Admin portal › Compliance › Suspicious activity reports"
- },
- {
-  "id": "nav.platform_compliance_data",
-  "description": "Menu: Admin portal › Compliance › Data requests"
+  "id": "nav.platform_kyc_reviews",
+  "description": "Menu: Admin portal › KYC › Review queue"
  },
  {
   "id": "nav.platform_access_users",
-  "description": "Menu: Admin portal › People and access › Users"
+  "description": "Menu: Admin portal › People and access › Platform users"
  },
  {
   "id": "nav.platform_access_roles",
   "description": "Menu: Admin portal › People and access › Roles and permissions"
- },
- {
-  "id": "nav.platform_access_assignments",
-  "description": "Menu: Admin portal › People and access › Assignments"
- },
- {
-  "id": "nav.platform_access_rights",
-  "description": "Menu: Admin portal › People and access › Onboarding rights"
- },
- {
-  "id": "nav.platform_access_inventory",
-  "description": "Menu: Admin portal › People and access › All permissions"
- },
- {
-  "id": "nav.platform_access_security",
-  "description": "Menu: Admin portal › People and access › Sessions and access"
- },
- {
-  "id": "nav.platform_settings_connectors",
-  "description": "Menu: Admin portal › Platform settings › Connectors"
- },
- {
-  "id": "nav.platform_settings_configuration",
-  "description": "Menu: Admin portal › Platform settings › Configuration"
- },
- {
-  "id": "nav.platform_settings_api",
-  "description": "Menu: Admin portal › Platform settings › API clients"
- },
- {
-  "id": "nav.platform_reports_reports",
-  "description": "Menu: Admin portal › Reports and audit › Operations reports"
- },
- {
-  "id": "nav.platform_reports_audit",
-  "description": "Menu: Admin portal › Reports and audit › Audit trail"
- },
- {
-  "id": "nav.platform_onboarding_application",
-  "description": "Menu: Admin portal › Onboarding › Organization application"
- },
- {
-  "id": "nav.platform_onboarding_documents",
-  "description": "Menu: Admin portal › Onboarding › KYC and documents"
- },
- {
-  "id": "nav.platform_onboarding_status",
-  "description": "Menu: Admin portal › Onboarding › Verification status"
- },
- {
-  "id": "nav.platform_onboarding_first_admin",
-  "description": "Menu: Admin portal › Onboarding › First administrator setup"
- },
- {
-  "id": "nav.platform_team_people",
-  "description": "Menu: Admin portal › Team and access › People and invitations"
- },
- {
-  "id": "nav.platform_team_roles",
-  "description": "Menu: Admin portal › Team and access › Roles and assignments"
- },
- {
-  "id": "nav.platform_team_security",
-  "description": "Menu: Admin portal › Team and access › Security settings"
- },
- {
-  "id": "nav.platform_help_cases",
-  "description": "Menu: Admin portal › Help and support › Support cases"
  },
  {
   "id": "nav.lender_overview_dashboard",
