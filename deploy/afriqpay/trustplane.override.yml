@@ -17,10 +17,12 @@ services:
     environment:
       IDP_ISSUER: https://auth.afriqpay.com
       # Cut-over P0.3: still a sandbox deployment (demo seed users, internal issuer).
+#      GATEWAY_SESSION_KEY must be a 32-byte base64-encoded value; set via env var or generated above. (demo seed users, internal issuer).
       # Moving to production needs DNS + a certificate for auth.afriqpay.com and its nginx
       # vhost first; then set IDP_ENVIRONMENT=production, IDP_ISSUER=https://auth.afriqpay.com
       # and remove IDP_SEED_USERS (the IdP refuses to start otherwise).
       IDP_ENVIRONMENT: uat
+      GATEWAY_SESSION_KEY: ${GATEWAY_SESSION_KEY:-$(openssl rand -hex 16)}
       IDP_SEED_USERS: ""               # 2026-11-12: every user deleted; no demo accounts either
   rbac:
     restart: unless-stopped
