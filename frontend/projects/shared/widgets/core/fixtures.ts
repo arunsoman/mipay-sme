@@ -9,7 +9,15 @@
  */
 import type { WidgetState } from './manifest';
 
-export interface FixtureFail { readonly __fail: number; readonly problem?: { code?: string; title?: string; detail?: string } }
+export interface FixtureFail {
+  readonly __fail: number;
+  readonly problem?: {
+    code?: string;
+    title?: string;
+    detail?: string;
+    fields?: Record<string, string>;
+  };
+}
 export type FixtureAnswer = object | string | number | boolean | null;
 export type FixtureFn = (params: Readonly<Record<string, unknown>>) => FixtureAnswer;
 /** Data, fail(…), or a function of the call's params (path params, query params and `body`). */

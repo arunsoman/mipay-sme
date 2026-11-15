@@ -4,6 +4,8 @@ import type { FixtureSet } from './core/fixtures';
 import w0 from './kyc/application/kyc-application.widget';
 import w1 from './kyc/orgs/orgs.widget';
 import w2 from './kyc/tasks/tasks.widget';
+import w3 from './rbac/new-role/new-role.widget';
+import w4 from './users/organization-users/organization-users.widget';
 
 export interface RegisteredWidget { readonly def: WidgetDef<any>; readonly fixtures: () => Promise<FixtureSet> }
 
@@ -11,4 +13,6 @@ export const WIDGETS: readonly RegisteredWidget[] = [
   { def: w0, fixtures: () => import('./kyc/application/kyc-application.fixtures').then((m) => m.default) },
   { def: w1, fixtures: () => import('./kyc/orgs/orgs.fixtures').then((m) => m.default) },
   { def: w2, fixtures: () => import('./kyc/tasks/tasks.fixtures').then((m) => m.default) },
+  { def: w3, fixtures: () => import('./rbac/new-role/new-role.fixtures').then((m) => m.default) },
+  { def: w4, fixtures: () => import('./users/organization-users/organization-users.fixtures').then((m) => m.default) },
 ];

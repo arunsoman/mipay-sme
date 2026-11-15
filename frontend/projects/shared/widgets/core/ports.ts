@@ -28,10 +28,15 @@ function problemOf(e: unknown): ApiProblem {
   if (e instanceof HttpErrorResponse) {
     const body = (e.error && typeof e.error === 'object' ? e.error : {}) as Record<string, unknown>;
     const code = typeof body['code'] === 'string' ? body['code'] : undefined;
+    const rawFields = body['fields'];
+    const fields = rawFields && typeof rawFields === 'object'
+      ? Object.fromEntries(Object.entries(rawFields as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
+      : undefined;
     return {
       title: String(body['title'] ?? e.statusText ?? 'Error'),
       detail: String(body['detail'] ?? 'Request failed'),
       ...(code ? { code } : {}),
+      ...(fields ? { fields } : {}),
       status: e.status,
     };
   }
@@ -128,7 +133,8 @@ export class FixtureDataPort extends WidgetDataPort {
       const v = typeof raw === 'function' ? (raw as (p: typeof params) => unknown)(params) : raw;
       if (isFail(v)) {
         return throwError(() => new WidgetProblem({ status: v.__fail, title: v.problem?.title ?? `HTTP ${v.__fail}`,
-          detail: v.problem?.detail ?? `fixture answered ${v.__fail}`, ...(v.problem?.code ? { code: v.problem.code } : {}) }));
+          detail: v.problem?.detail ?? `fixture answered ${v.__fail}`, ...(v.problem?.code ? { code: v.problem.code } : {}),
+          ...(v.problem?.fields ? { fields: v.problem.fields } : {}) }));
       }
       return of(structuredClone(v) as T);
     });

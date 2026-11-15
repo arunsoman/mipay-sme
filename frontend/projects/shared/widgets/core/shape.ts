@@ -22,6 +22,7 @@ export type Shape =
   | { readonly kind: 'map'; readonly of: Shape }
   | { readonly kind: 'object'; readonly name?: string; readonly fields: Readonly<Record<string, Shape>> }
   | { readonly kind: 'nullable'; readonly of: Shape }
+  | { readonly kind: 'oneOf'; readonly options: readonly Shape[] }
   | { readonly kind: 'any' };
 
 interface StringS { readonly kind: 'string'; readonly format?: 'date-time' | 'date' }
@@ -32,11 +33,13 @@ interface ArrayS<T extends Shape> { readonly kind: 'array'; readonly of: T }
 interface MapS<T extends Shape> { readonly kind: 'map'; readonly of: T }
 interface ObjectS<F extends Record<string, Shape>> { readonly kind: 'object'; readonly name?: string; readonly fields: F }
 interface NullableS<T extends Shape> { readonly kind: 'nullable'; readonly of: T }
+interface OneOfS<O extends readonly Shape[]> { readonly kind: 'oneOf'; readonly options: O }
 interface AnyS { readonly kind: 'any' }
 
 /** The TypeScript type a shape describes. */
 export type Infer<S> =
-  S extends NullableS<infer T> ? Infer<T> | null
+  S extends OneOfS<infer O> ? Infer<O[number]>
+    : S extends NullableS<infer T> ? Infer<T> | null
     : S extends StringS ? string
       : S extends NumberS ? number
         : S extends BooleanS ? boolean
@@ -59,6 +62,8 @@ export const s = {
   map: <T extends Shape>(of: T): MapS<T> => ({ kind: 'map', of }),
   object: <F extends Record<string, Shape>>(name: string, fields: F): ObjectS<F> => ({ kind: 'object', name, fields }),
   nullable: <T extends Shape>(of: T): NullableS<T> => ({ kind: 'nullable', of }),
+  /** One of several server response shapes (for example legacy and gateway modes). */
+  oneOf: <O extends readonly Shape[]>(...options: O): OneOfS<O> => ({ kind: 'oneOf', options }),
   /** Free-form JSON (a Map<String,Object> or JsonNode on the server): only "present" is checked. */
   any: (): AnyS => ({ kind: 'any' }),
 };
@@ -83,6 +88,7 @@ export function describe(sh: Shape): string {
     case 'array': return `array of ${describe(sh.of)}`;
     case 'map': return `map of ${describe(sh.of)}`;
     case 'object': return sh.name ? `object ${sh.name}` : 'object';
+    case 'oneOf': return `one of ${sh.options.map(describe).join(' | ')}`;
     default: return sh.kind;
   }
 }
@@ -110,6 +116,20 @@ export function check(sh: Shape, value: unknown, path = '$', out: ContractIssue[
     return out;
   }
   if (sh.kind === 'any') { if (value === undefined) err('a value'); return out; }
+  if (sh.kind === 'oneOf') {
+    const attempts = sh.options.map((option) => {
+      const issues: ContractIssue[] = [];
+      check(option, value, path, issues);
+      return issues;
+    });
+    const match = attempts.find((issues) => !issues.some((issue) => issue.level === 'error'));
+    if (match) {
+      for (const issue of match) if (issue.level === 'warning') out.push(issue);
+      return out;
+    }
+    err(describe(sh));
+    return out;
+  }
   if (value === null || value === undefined) { err(describe(sh)); return out; }
   switch (sh.kind) {
     case 'string':
@@ -154,6 +174,7 @@ export function check(sh: Shape, value: unknown, path = '$', out: ContractIssue[
 export function sample(sh: Shape, field = '', i = 1): unknown {
   switch (sh.kind) {
     case 'nullable': return sample(sh.of, field, i);
+    case 'oneOf': return sample(sh.options[0], field, i);
     case 'any': return {};
     case 'boolean': return /^(is|can|has)/.test(field) ? i % 2 === 0 : false;
     case 'number': return /seq|depth|count|version/i.test(field) ? i : 100 * i;

@@ -23,7 +23,14 @@ export interface PortalAwarePort {
 }
 
 /** A server problem (ProblemDetail + machine code), as every portal screen reads it. */
-export interface ApiProblem { title: string; detail: string; code?: string; status: number }
+export interface ApiProblem {
+  title: string;
+  detail: string;
+  code?: string;
+  status: number;
+  /** Field-level validation messages from a ProblemDetail response. */
+  fields?: Record<string, string>;
+}
 
 /** What a port throws: always this, never a raw HttpErrorResponse. */
 export class WidgetProblem extends Error {

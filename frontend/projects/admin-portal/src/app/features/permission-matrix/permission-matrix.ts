@@ -13,6 +13,9 @@ import { BusinessPortal } from '../../../../../shared/web-core/portal-permission
 import { buildTree } from '../../../../../shared/rbac/role-menu-model';
 import type { PaletteRow } from '../../../../../shared/rbac/role-menu-model';
 import { RoleMenuBuilder } from '../../../../../../src/app/design-system/organisms/role-menu-builder';
+import { OperationsGrid } from '../../../../../../src/app/design-system/organisms/operations-grid';
+import { buildOperationsTree } from '../../../../../shared/rbac/role-operations-model';
+import type { RegisteredWidgetInfo } from '../../../../../shared/rbac/role-operations-model';
 import {
   RbacResourceView, RbacRoleUpdate, RbacRoleView, RBAC_VERBS, RbacVerb, readProblem,
 } from '../../core/api';
@@ -93,7 +96,7 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
 @Component({
   selector: 'mpa-permission-matrix',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, MpPerm, ...TABLE_TOOLS, RoleMenuBuilder],
+  imports: [PageHeader, MpSpinner, MpAlert, MpTabs, FormsModule, MpPerm, ...TABLE_TOOLS, RoleMenuBuilder, OperationsGrid],
   template: `
     @if (rbacMode() && rbacMode() !== 'enforce') {
       <div class="rbac-status" role="status">
@@ -130,7 +133,8 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
         <div class="muted small hint">
           @if (scope() === 'PLATFORM') {A platform role is held by TPTS staff and applies across all orgs.}
           @else {An org role can be given to users of any org whose ceiling allows it. Its rows only apply where they fit the org's type.}
-          Pick the portal, then switch on the menus and submenus this role should see and the actions it may take on each screen.
+          Pick the portal, then tick what the role may do on each widget, menu by menu: View, Create, Modify or Approve.
+          Only the operations a widget supports can be ticked.
         </div>
         <div class="form">
           <label>Portal
@@ -160,9 +164,10 @@ const ACCESS_ROWS = new Set(['org.user', 'org.rights', 'org.suspension', 'org.on
             </select>
           </label>
         </div>
-        <div class="ptitle">{{ scopeLabel() }} portal: menus and screens</div>
-        <mp-role-menu-builder [portal]="scope()" [palette]="palette()" [selected]="draftCells()"
-                              [inherited]="draftInherited()" [disabled]="busy()" [nav]="navEnabled()" (selectedChange)="draftCells.set($event)" />
+        <div class="ptitle">{{ scopeLabel() }} portal: widgets and what the role may do on them</div>
+        <mp-operations-grid [menus]="draftGrid()" [selected]="draftCells()" [inherited]="draftInherited()" [disabled]="busy()"
+                            [empty]="draftWidgets() === null ? 'Loading widgets…' : 'No widgets are registered for this portal yet.'"
+                            (selectedChange)="draftCells.set($event)" />
         @if (createError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
         <div class="actions">
           <span class="muted small">{{ draftCells().size }} action(s) picked</span>
@@ -559,6 +564,10 @@ export class PermissionMatrix implements OnInit {
   /** The new role's own cells, picked in the builder. */
   readonly draftCells = signal<Set<string>>(new Set());
   readonly createError = signal('');
+  /** The widgets the selected portal's build registered (GET /api/ui/widgets), for the new-role grid. */
+  readonly draftWidgets = signal<RegisteredWidgetInfo[] | null>(null);
+  /** Menus › submenus › widgets of the portal, each with View / Create / Modify / Approve. */
+  readonly draftGrid = computed(() => buildOperationsTree(this.scope(), this.draftWidgets() ?? [], { nav: this.navEnabled() }));
   /** What the new role gets from the roles it builds on. */
   readonly draftInherited = computed(() => {
     const out = new Set<string>();
@@ -766,6 +775,19 @@ export class PermissionMatrix implements OnInit {
     this.draftCells.set(new Set());
     this.createError.set('');
     this.creating.set(true);
+    void this.loadDraftWidgets();
+  }
+
+  private async loadDraftWidgets() {
+    const portal = this.scope();
+    this.draftWidgets.set(null);
+    try {
+      const w = await firstValueFrom(this.http.get<RegisteredWidgetInfo[]>('/api/ui/widgets', { params: { portal } }));
+      if (this.scope() === portal) this.draftWidgets.set(w);
+    } catch {
+      this.draftWidgets.set([]);
+      this.createError.set('The widget registry could not be read; no widgets to pick from.');
+    }
   }
 
   /** The new role's portal is the page's portal: switching it re-scopes the roles to build on. */
@@ -776,6 +798,7 @@ export class PermissionMatrix implements OnInit {
     this.draftBases.set(new Set());
     this.draftCopy.set('');
     this.draftCells.set(new Set());
+    if (this.creating()) void this.loadDraftWidgets();
   }
 
   /** Starting from a copy fills the builder with that role's own actions (still editable). */

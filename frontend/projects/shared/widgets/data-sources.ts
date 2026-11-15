@@ -22,4 +22,29 @@ export const SOURCES = defineSources({
   // <widget kyc.orgs>
   'kyc.orgs.list': { '*': { method: 'GET', path: '/api/kyc/orgs', query: ['status', 'suspended'] } },
   // </widget kyc.orgs>
+
+  // ---------------- Organization users (OrgController / ActivationController) ----------------
+  // <widget users.organization-users>
+  'users.organization.list': { '*': { method: 'GET', path: '/api/orgs/me/users' } },
+  'users.organization.create': { '*': { method: 'POST', path: '/api/orgs/me/users' } },
+  'users.organization.setup-link': { '*': { method: 'POST', path: '/api/orgs/users/{id}/resend-activation' } },
+  'users.organization.deactivate': { '*': { method: 'POST', path: '/api/orgs/users/{id}/deactivate' } },
+  // </widget users.organization-users>
+
+  // ---------------- New role by widget (UiWidgetController / PlatformRbacController / OrgAccessController)
+  // PLATFORM builds standard roles; the org portals build org-defined roles for the org in context.
+  // <widget rbac.new-role>
+  'rbac.new-role.widgets': {
+    PLATFORM: { method: 'GET', path: '/api/ui/widgets', query: ['portal'] },
+    '*': { method: 'GET', path: '/api/orgs/{id}/ui/widgets', query: ['portal'] },
+  },
+  'rbac.new-role.roles': {
+    PLATFORM: { method: 'GET', path: '/api/admin/rbac/roles' },
+    '*': { method: 'GET', path: '/api/orgs/{id}/roles' },
+  },
+  'rbac.new-role.create': {
+    PLATFORM: { method: 'POST', path: '/api/admin/rbac/roles' },
+    '*': { method: 'POST', path: '/api/orgs/{id}/roles' },
+  },
+  // </widget rbac.new-role>
 });

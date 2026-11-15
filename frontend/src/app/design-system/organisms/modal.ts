@@ -24,6 +24,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (open()) {
+      <div class="layer">
       <div class="backdrop" (click)="requestClose()"></div>
       <div class="modal" [class.wide]="size() === 'wide'" [class.narrow]="size() === 'narrow'"
            role="dialog" aria-modal="true" [attr.aria-label]="title()"
@@ -46,9 +47,12 @@ import {
         <div class="mbody"><ng-content /></div>
         <footer class="mfoot"><ng-content select="[modal-footer]" /></footer>
       </div>
+      </div>
     }
   `,
   styles: [`
+    /* the viewport-sized query container: the phone layout follows the screen, with no @media */
+    .layer { position: fixed; inset: 0; z-index: 90; container-type: inline-size; }
     .backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .62);
                 backdrop-filter: blur(3px); animation: fade .15s ease; }
     .modal { position: fixed; z-index: 91; left: 50%; top: 5vh; transform: translateX(-50%);
@@ -74,7 +78,7 @@ import {
     .mfoot:empty { display: none; }
     @keyframes fade { from { opacity: 0; } }
     @keyframes pop { from { opacity: 0; transform: translate(-50%, 8px) scale(.985); } }
-    @media (max-width: 700px) {
+    @container (max-width: 700px) {
       .modal, .modal.wide, .modal.narrow { top: 0; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
     }
   `],

@@ -160,7 +160,7 @@ _None resolved for this prompt._ Ask the user for each endpoint (METHOD /api/pat
 
 ## API catalogue (every endpoint the backend serves - reuse these first)
 
-251 endpoints, 55 permission rows. A row's cells are `<row>:<verb>`. Types: `string|null` may be null; `integer`, `number`, `boolean`, `date-time` (ISO string), `date` (yyyy-mm-dd), `X[]` list, `map<string, X>`, `any` (free-form JSON: ask the user for its shape).
+252 endpoints, 55 permission rows. A row's cells are `<row>:<verb>`. Types: `string|null` may be null; `integer`, `number`, `boolean`, `date-time` (ISO string), `date` (yyyy-mm-dd), `X[]` list, `map<string, X>`, `any` (free-form JSON: ask the user for its shape).
 
 #### admin.access
 
@@ -623,6 +623,7 @@ _None resolved for this prompt._ Ask the user for each endpoint (METHOD /api/pat
 | `POST /api/orgs/{id}/roles` | `create` | Create an org-defined role within the org's ceiling (PATH tenant) | org in path | {id} | OrgRoleBody → map<string, any> |
 | `DELETE /api/orgs/{id}/roles/{name}` | `delete` | Delete an org-defined role with no assignments (PATH tenant) | org in path | {id} {name} | - → map<string, any> |
 | `PUT /api/orgs/{id}/roles/{name}` | `modify` | Change an org-defined role (PATH tenant) | org in path | {id} {name} | OrgRoleBody → map<string, any> |
+| `GET /api/orgs/{id}/ui/widgets` | `read` | View the UI widgets a portal carries, to build an org's roles (PATH tenant) | org in path | {id} portal | - → map<string, any>[] |
 
 #### rbac.user
 
@@ -1199,6 +1200,7 @@ export type Shape =
   | { readonly kind: 'map'; readonly of: Shape }
   | { readonly kind: 'object'; readonly name?: string; readonly fields: Readonly<Record<string, Shape>> }
   | { readonly kind: 'nullable'; readonly of: Shape }
+  | { readonly kind: 'oneOf'; readonly options: readonly Shape[] }
   | { readonly kind: 'any' };
 
 interface StringS { readonly kind: 'string'; readonly format?: 'date-time' | 'date' }
@@ -1209,11 +1211,13 @@ interface ArrayS<T extends Shape> { readonly kind: 'array'; readonly of: T }
 interface MapS<T extends Shape> { readonly kind: 'map'; readonly of: T }
 interface ObjectS<F extends Record<string, Shape>> { readonly kind: 'object'; readonly name?: string; readonly fields: F }
 interface NullableS<T extends Shape> { readonly kind: 'nullable'; readonly of: T }
+interface OneOfS<O extends readonly Shape[]> { readonly kind: 'oneOf'; readonly options: O }
 interface AnyS { readonly kind: 'any' }
 
 /** The TypeScript type a shape describes. */
 export type Infer<S> =
-  S extends NullableS<infer T> ? Infer<T> | null
+  S extends OneOfS<infer O> ? Infer<O[number]>
+    : S extends NullableS<infer T> ? Infer<T> | null
     : S extends StringS ? string
       : S extends NumberS ? number
         : S extends BooleanS ? boolean
@@ -1236,6 +1240,8 @@ export const s = {
   map: <T extends Shape>(of: T): MapS<T> => ({ kind: 'map', of }),
   object: <F extends Record<string, Shape>>(name: string, fields: F): ObjectS<F> => ({ kind: 'object', name, fields }),
   nullable: <T extends Shape>(of: T): NullableS<T> => ({ kind: 'nullable', of }),
+  /** One of several server response shapes (for example legacy and gateway modes). */
+  oneOf: <O extends readonly Shape[]>(...options: O): OneOfS<O> => ({ kind: 'oneOf', options }),
   /** Free-form JSON (a Map<String,Object> or JsonNode on the server): only "present" is checked. */
   any: (): AnyS => ({ kind: 'any' }),
 };
@@ -1260,6 +1266,7 @@ export function describe(sh: Shape): string {
     case 'array': return `array of ${describe(sh.of)}`;
     case 'map': return `map of ${describe(sh.of)}`;
     case 'object': return sh.name ? `object ${sh.name}` : 'object';
+    case 'oneOf': return `one of ${sh.options.map(describe).join(' | ')}`;
     default: return sh.kind;
   }
 }
@@ -1287,6 +1294,20 @@ export function check(sh: Shape, value: unknown, path = '$', out: ContractIssue[
     return out;
   }
   if (sh.kind === 'any') { if (value === undefined) err('a value'); return out; }
+  if (sh.kind === 'oneOf') {
+    const attempts = sh.options.map((option) => {
+      const issues: ContractIssue[] = [];
+      check(option, value, path, issues);
+      return issues;
+    });
+    const match = attempts.find((issues) => !issues.some((issue) => issue.level === 'error'));
+    if (match) {
+      for (const issue of match) if (issue.level === 'warning') out.push(issue);
+      return out;
+    }
+    err(describe(sh));
+    return out;
+  }
   if (value === null || value === undefined) { err(describe(sh)); return out; }
   switch (sh.kind) {
     case 'string':
@@ -1331,6 +1352,7 @@ export function check(sh: Shape, value: unknown, path = '$', out: ContractIssue[
 export function sample(sh: Shape, field = '', i = 1): unknown {
   switch (sh.kind) {
     case 'nullable': return sample(sh.of, field, i);
+    case 'oneOf': return sample(sh.options[0], field, i);
     case 'any': return {};
     case 'boolean': return /^(is|can|has)/.test(field) ? i % 2 === 0 : false;
     case 'number': return /seq|depth|count|version/i.test(field) ? i : 100 * i;
@@ -1365,7 +1387,15 @@ export function sample(sh: Shape, field = '', i = 1): unknown {
  */
 import type { WidgetState } from './manifest';
 
-export interface FixtureFail { readonly __fail: number; readonly problem?: { code?: string; title?: string; detail?: string } }
+export interface FixtureFail {
+  readonly __fail: number;
+  readonly problem?: {
+    code?: string;
+    title?: string;
+    detail?: string;
+    fields?: Record<string, string>;
+  };
+}
 export type FixtureAnswer = object | string | number | boolean | null;
 export type FixtureFn = (params: Readonly<Record<string, unknown>>) => FixtureAnswer;
 /** Data, fail(…), or a function of the call's params (path params, query params and `body`). */
@@ -1493,6 +1523,7 @@ export interface RenderedWidget {
 | atoms | `currency-amount` | CurrencyAmount | src/app/design-system/atoms/currency-amount | amount*: number \| string; dim = false; title = '' | - | Atom: NAD money rendering (server sends numeric strings/numbers). |
 | atoms | `mp-button` | MpButton | src/app/design-system/atoms/mp-button | variant: 'primary' \| 'ghost' \| 'danger' = 'primary'; type: 'button' \| 'submit' \| 'reset' = 'button'; disabled = false; loading = false | onClick | Atom: the one button. variant + size typed; danger = destructive. |
 | atoms | `mp-card` | MpCard | src/app/design-system/atoms/mp-card | title = ''; subtitle = '' | - | Atom: surface card. Used by every screen panel; nothing else draws boxes. |
+| atoms | `mp-checkbox` | MpCheckbox | src/app/design-system/atoms/mp-checkbox | checked = false; disabled = false; locked = false; label = ''; ariaLabel = ''; title = '' | - | Atom: THE checkbox. A real native checkbox (keyboard, screen readers, forms) drawn the same in every portal: ticked, unticked, disabled (greyed, not clickable) and `locked` (ticked and not changeable here, e.g. a cell inherited from another role). Every tick box goes through mp-checkbox, never a bare <input type="ch… |
 | atoms | `mp-input` | MpInput | src/app/design-system/atoms/mp-input | value: string = ''; type = 'text'; placeholder = ''; disabled = false; emits: 'text' \| 'number' = 'text' | - | THE text input. Every form goes through mp-input (or mp-select), so a11y, invalid styling and placeholder conventions exist exactly once. |
 | atoms | `mp-select` | MpSelect | src/app/design-system/atoms/mp-select | value: string = ''; options*: { value: string; label?: string }[]; placeholder = ''; disabled = false | - | Atom: The select. options = [{value,label}]; values are wire strings only. |
 | atoms | `mp-spinner` | MpSpinner | src/app/design-system/atoms/mp-spinner | label = '' | - | Atom: inline loading state for pages and tables. |
@@ -1512,6 +1543,7 @@ export interface RenderedWidget {
 | organisms | `mp-data-table` | DataTable | src/app/design-system/organisms/data-table | cols*: DataCol<T>[]; rows*: readonly T[] \| T[] \| null \| undefined; empty = 'Nothing here yet.'; loading = 'Loading…'; noMatch = 'Nothing matches your search.'; searchable = true; placeholder = 'Search'; pageSize = 10; selectable = false | rowClick |  |
 | organisms | `mp-entity-form` | MpEntityForm | src/app/design-system/organisms/mp-entity-form | schema*: MpFieldSchema[]; initial: Record<string, string>; submitLabel = 'Save' | - |  |
 | organisms | `mp-modal` | Modal | src/app/design-system/organisms/modal | open = false; title = ''; eyebrow: string \| null = null; subtitle: string \| null = null; size: 'narrow' \| 'normal' \| 'wide' = 'normal'; dirty = false; discardText = 'Discard your changes? Nothing has been saved.' | closed | The popup every create / edit form in every portal uses, so they all look and behave the same: a blurred backdrop, a TPTS-styled card with an eyebrow, title and ✕, a scrolling body and an optional footer (`<div modal-footer>…</div>`). Esc, ✕ and a backdrop click all ask to close. When `dirty` is true the modal first… |
+| organisms | `mp-operations-grid` | OperationsGrid | src/app/design-system/organisms/operations-grid | menus*: GridMenu[]; selected*: Set<string>; inherited: Set<string> = new Set(; disabled = false; maxHeight = 'min(70vh, 640px; empty = 'No widgets on this portal yet.' | - | Organism: what a role may do, widget by widget (shared/rbac/role-operations-model.ts). A portal's menus › submenus › widgets, each widget with the four operations View / Create / Modify / Approve as tick boxes. The four column titles stay visible no matter what: the header row is sticky while the grid scrolls, and e… |
 | organisms | `mp-role-menu-builder` | RoleMenuBuilder | src/app/design-system/organisms/role-menu-builder | portal*: BusinessPortal; palette*: PaletteRow[]; selected*: Set<string>; inherited: Set<string> = new Set(; disabled = false; nav = false | - | Organism: the role builder (docs/plans/role-menu-builder.md). One portal's menus and submenus, drawn like its sidebar. Each menu and submenu has a visible switch; inside a visible submenu (a screen) the actions the role may take there. With menu cells (`nav`, 2026-11-14) every submenu has its own switch: on gives it… |
 | organisms | `mp-table` | MpTable | src/app/design-system/organisms/mp-table | cols*: MpColumn[]; rows*: readonly unknown[] \| unknown[] \| null \| undefined; loading = 'Loading…'; empty = 'Nothing here yet (no rows match this view; selectable = false; searchable = true | rowClick |  |
 | organisms | `nav-shell` | NavShell | src/app/design-system/organisms/nav-shell | - | - | Organism: application shell - sidebar nav (role-aware), topbar (user + logout) and the global SIMULATED banner. One shell serves all 5 portals; nav items differ only by role (no per-portal shells). |
@@ -1994,6 +2026,31 @@ describe('kyc.tasks', () => {
   // <widget kyc.orgs>
   'kyc.orgs.list': { '*': { method: 'GET', path: '/api/kyc/orgs', query: ['status', 'suspended'] } },
   // </widget kyc.orgs>
+
+  // ---------------- Organization users (OrgController / ActivationController) ----------------
+  // <widget users.organization-users>
+  'users.organization.list': { '*': { method: 'GET', path: '/api/orgs/me/users' } },
+  'users.organization.create': { '*': { method: 'POST', path: '/api/orgs/me/users' } },
+  'users.organization.setup-link': { '*': { method: 'POST', path: '/api/orgs/users/{id}/resend-activation' } },
+  'users.organization.deactivate': { '*': { method: 'POST', path: '/api/orgs/users/{id}/deactivate' } },
+  // </widget users.organization-users>
+
+  // ---------------- New role by widget (UiWidgetController / PlatformRbacController / OrgAccessController)
+  // PLATFORM builds standard roles; the org portals build org-defined roles for the org in context.
+  // <widget rbac.new-role>
+  'rbac.new-role.widgets': {
+    PLATFORM: { method: 'GET', path: '/api/ui/widgets', query: ['portal'] },
+    '*': { method: 'GET', path: '/api/orgs/{id}/ui/widgets', query: ['portal'] },
+  },
+  'rbac.new-role.roles': {
+    PLATFORM: { method: 'GET', path: '/api/admin/rbac/roles' },
+    '*': { method: 'GET', path: '/api/orgs/{id}/roles' },
+  },
+  'rbac.new-role.create': {
+    PLATFORM: { method: 'POST', path: '/api/admin/rbac/roles' },
+    '*': { method: 'POST', path: '/api/orgs/{id}/roles' },
+  },
+  // </widget rbac.new-role>
 === END DATA-SOURCES ===
 
 ---
