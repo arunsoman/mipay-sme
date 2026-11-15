@@ -1,6 +1,5 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { inject } from '@angular/core';
-import { BrowserSessionService } from '../../../../shared/web-core/session';
+import { fapiBffInterceptor } from '../../../../shared/web-core/bff-interceptor';
 
 // ---------------------------------------------------------------------------
 // API shapes (mirror com.mipay.sme.web.Dtos records used by /api/orgs/**)
@@ -182,13 +181,8 @@ export function refusal(e: unknown, hints: Record<string, string> = {}): string 
 }
 
 /** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway. */
-export const portalAuthInterceptor: HttpInterceptorFn = (req, next) => {
-  const session = inject(BrowserSessionService).current();
-  if (req.url.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    if (session?.csrf) req = req.clone({ setHeaders: { 'X-CSRF': session.csrf } });
-  }
-  return next(req);
-};
+/** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway (shared). */
+export const portalAuthInterceptor: HttpInterceptorFn = fapiBffInterceptor;
 
 // ---------------------------------------------------------------------------
 // Tree helpers

@@ -1,6 +1,5 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { inject } from '@angular/core';
-import { BrowserSessionService } from '../../../../shared/web-core/session';
+import { fapiBffInterceptor } from '../../../../shared/web-core/bff-interceptor';
 
 // ---------------------------------------------------------------------------
 // API shapes (mirrors com.mipay.sme.web.Dtos records)
@@ -191,13 +190,8 @@ export function readProblem(err: unknown): ApiProblem {
 }
 
 /** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway. */
-export const adminAuthInterceptor: HttpInterceptorFn = (req, next) => {
-  const session = inject(BrowserSessionService).current();
-  if (req.url.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    if (session?.csrf) req = req.clone({ setHeaders: { 'X-CSRF': session.csrf } });
-  }
-  return next(req);
-};
+/** Cookie-backed requests carry only a CSRF proof; OAuth tokens stay in the gateway (shared). */
+export const adminAuthInterceptor: HttpInterceptorFn = fapiBffInterceptor;
 
 // ---------------------------------------------------------------------------
 // KYC application (JSON document + tree details + isSuspended)
