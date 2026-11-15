@@ -537,6 +537,82 @@
           }
         }
       }
+    },
+    "widget-workbench": {
+      "projectType": "application",
+      "schematics": {
+        "@schematics/angular:component": {
+          "style": "scss"
+        }
+      },
+      "root": "projects",
+      "sourceRoot": "projects",
+      "prefix": "wb",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "projects/widget-workbench/src/main.ts",
+            "polyfills": [
+              "zone.js"
+            ],
+            "tsConfig": "projects/widget-workbench/tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "styles": [
+              "projects/widget-workbench/src/styles.scss"
+            ],
+            "index": "projects/widget-workbench/src/index.html",
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "projects/widget-workbench/public"
+              }
+            ]
+          },
+          "configurations": {
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            },
+            "production": {
+              "outputHashing": "all"
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "port": 4300,
+            "proxyConfig": "projects/widget-workbench/proxy.conf.mjs"
+          },
+          "configurations": {
+            "development": {
+              "buildTarget": "widget-workbench:build:development"
+            },
+            "live": {
+              "buildTarget": "widget-workbench:build:development",
+              "ssl": true,
+              "host": "0.0.0.0",
+              "allowedHosts": true
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "widget-workbench:build:development",
+            "tsConfig": "projects/widget-workbench/tsconfig.spec.json",
+            "runner": "vitest",
+            "include": [
+              "shared/widgets/**/*.spec.ts",
+              "widget-workbench/src/**/*.spec.ts"
+            ]
+          }
+        }
+      }
     }
   }
 }

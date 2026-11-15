@@ -1,0 +1,17 @@
+/* The widget workbench: every registered widget on fixtures, at every grid tier (docs/plans/portal-builder.md §10). */
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../out-tsc/workbench",
+    "types": [],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "../shared/widgets/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.spec.ts",
+    "../shared/**/*.spec.ts"
+  ]
+}

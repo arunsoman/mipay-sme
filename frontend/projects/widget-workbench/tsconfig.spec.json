@@ -1,0 +1,13 @@
+/* Widget unit + generated conformance tests (Vitest, Angular unit-test builder). */
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../out-tsc/workbench-spec",
+    "types": ["vitest/globals"],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "../shared/widgets/**/*.ts"
+  ]
+}

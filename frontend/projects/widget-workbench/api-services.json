@@ -1,0 +1,38 @@
+{
+  "$comment": "API services the widget workbench can connect to. Pick one with WB_SERVICE=<id> npm run workbench:live (default: 'default'). The harness is served on the service's portalHost so it shares that portal's gateway (BFF) session: the gateway runs FAPI 2.0 (PAR, PKCE, DPoP-bound tokens, refresh) and widgets only ever see same-origin /api. Add the portalHost to /etc/hosts (127.0.0.1 <portalHost>) for local stacks.",
+  "default": "local-admin",
+  "services": [
+    {
+      "id": "local-admin",
+      "label": "Local stack - admin portal",
+      "portal": "PLATFORM",
+      "portalHost": "admin.fapi.local",
+      "gateway": "https://127.0.0.1:8443",
+      "tlsVerify": false
+    },
+    {
+      "id": "local-supplier",
+      "label": "Local stack - supplier portal",
+      "portal": "SUPPLIER",
+      "portalHost": "supplier.fapi.local",
+      "gateway": "https://127.0.0.1:8443",
+      "tlsVerify": false
+    },
+    {
+      "id": "local-distributor",
+      "label": "Local stack - distributor portal",
+      "portal": "DISTRIBUTOR",
+      "portalHost": "distributor.fapi.local",
+      "gateway": "https://127.0.0.1:8443",
+      "tlsVerify": false
+    },
+    {
+      "id": "local-manufacturer",
+      "label": "Local stack - manufacturer portal",
+      "portal": "MANUFACTURER",
+      "portalHost": "manufacturer.fapi.local",
+      "gateway": "https://127.0.0.1:8443",
+      "tlsVerify": false
+    }
+  ]
+}
