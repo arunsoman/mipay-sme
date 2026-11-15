@@ -3,8 +3,8 @@ import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
-import { catchError, firstValueFrom, of } from 'rxjs';
+import { catchError, firstValueFrom, of, throwError } from 'rxjs';
+import { WidgetDataPort, isForbidden } from '../widgets/core/port';
 import { KYC_HINTS, KycApplicationView, KycDoc, kycStatusClass, readProblem, refusal } from './kyc-api';
 import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
 import { MpPerm } from '../web-core/perm-directive';
@@ -74,9 +74,9 @@ import { MpPerm } from '../web-core/perm-directive';
           <div class="wrow">
             <button type="button" class="ghost" (click)="back()" [disabled]="busy() || (editor()?.stepIdx() ?? 0) === 0">Back</button>
             <span class="grow"></span>
-            <button type="button" class="ghost" (click)="save()" [disabled]="busy()">Save draft</button>
+            <button type="button" class="ghost" data-action="save" (click)="save()" [disabled]="busy()">Save draft</button>
             @if (editor()?.isLastStep()) {
-              <button *mpPerm="'kyc.application:submit'" type="button" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
+              <button *mpPerm="'kyc.application:submit'" type="button" class="primary" data-action="submit" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
             } @else {
               <button type="button" class="primary" (click)="next()" [disabled]="busy()">Continue</button>
             }
@@ -89,12 +89,12 @@ import { MpPerm } from '../web-core/perm-directive';
           @if (!doc()) {
             <button class="primary" (click)="start()" [disabled]="!schema()">Start KYC application</button>
           } @else {
-            <button (click)="save()" [disabled]="busy()">Save draft</button>
-            <button *mpPerm="'kyc.application:submit'" class="primary" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
+            <button *mpPerm="'kyc.application:modify'" data-action="save" (click)="save()" [disabled]="busy()">Save draft</button>
+            <button *mpPerm="'kyc.application:submit'" class="primary" data-action="submit" (click)="saveAndSubmit()" [disabled]="busy()">Submit for review</button>
             <label class="chk small"><input type="checkbox" [(ngModel)]="sendToChecker" [ngModelOptions]="o" />
               ask another ADMIN of my organization to check it first</label>
             @if (v.status === 'DRAFT' || v.status === 'ENTRY_CHECK') {
-              @if (v.id) {<button *mpPerm="'kyc.application:delete'" class="ghost wd" (click)="withdraw()" [disabled]="busy()">Withdraw</button>}
+              @if (v.id) {<button *mpPerm="'kyc.application:delete'" class="ghost wd" data-action="withdraw" (click)="withdraw()" [disabled]="busy()">Withdraw</button>}
             }
           }
           @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
@@ -112,7 +112,9 @@ import { MpPerm } from '../web-core/perm-directive';
     .emptynote { padding: 18px; border: 1px dashed var(--a-border); border-radius: 12px; color: var(--a-dim); font-size: var(--fs-sm); }
     .card { display: grid; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--a-border); }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .actions.stuck { position: sticky; bottom: 0; z-index: 2; padding: 10px 12px; margin: 0 -12px -12px;
+    /* bleeds to the edges of the host card (12px padding); a widget cell sets --kyc-bleed: 0px */
+    .actions.stuck { position: sticky; bottom: 0; z-index: 2; padding: 10px 12px;
+                     margin: 0 calc(-1 * var(--kyc-bleed, 12px)) calc(-1 * var(--kyc-bleed, 12px));
                      background: color-mix(in srgb, var(--a-panel) 92%, transparent); backdrop-filter: blur(6px);
                      border-top: 1px solid var(--a-border); border-radius: 0 0 10px 10px; }
     .actions .wd { margin-left: auto; }
@@ -164,7 +166,8 @@ export class KycApplication {
     return !!d && !this.readOnly() && JSON.stringify(d) !== this.snapshot;
   }
 
-  private readonly http = inject(HttpClient);
+  /** The network path: the gateway BFF in a portal, fixtures in the workbench and tests. */
+  private readonly data = inject(WidgetDataPort);
   readonly cls = kycStatusClass;
   readonly o = { standalone: true };
 
@@ -198,9 +201,10 @@ export class KycApplication {
     this.view.set(null);
     try {
       const [v, schema] = await Promise.all([
-        // /api/orgs/{id}/kyc is served by every backend build (the /api/kyc/orgs/{id} GET is newer)
-        firstValueFrom(this.http.get<KycApplicationView>(`/api/orgs/${orgId}/kyc`)),
-        firstValueFrom(this.http.get<SchemaResponse>(`/api/kyc/schema/${orgId}`).pipe(catchError(() => of(null)))),
+        firstValueFrom(this.data.query<KycApplicationView>('kyc.application.get', { orgId })),
+        // no schema renders the application without its form; a 403 hides the widget instead
+        firstValueFrom(this.data.query<SchemaResponse>('kyc.schema.get', { orgId })
+          .pipe(catchError((e: unknown) => (isForbidden(e) ? throwError(() => e) : of(null))))),
       ]);
       if (orgId !== this.orgId()) return;
       this.schema.set(schema);
@@ -243,8 +247,8 @@ export class KycApplication {
 
   private put(): Promise<KycApplicationView> {
     const v = this.view()!;
-    const params: Record<string, string> = v.id ? { expectedVersion: String(v.version) } : {};
-    return firstValueFrom(this.http.put<KycApplicationView>(`/api/kyc/orgs/${v.orgId}`, this.doc() ?? {}, { params }));
+    return firstValueFrom(this.data.command<KycApplicationView>('kyc.application.save',
+      { orgId: v.orgId, expectedVersion: v.id ? v.version : undefined, body: this.doc() ?? {} }));
   }
 
   private listOf(detail: string) { return detail.split('; ').filter(Boolean); }
@@ -277,8 +281,8 @@ export class KycApplication {
       this.show(saved, this.editor()?.stepIdx() ?? 0);
       this.changed.emit(saved);
       try {
-        const v = await firstValueFrom(this.http.post<KycApplicationView>(
-          `/api/kyc/orgs/${saved.orgId}/submit`, { sendToChecker: this.sendToChecker }));
+        const v = await firstValueFrom(this.data.command<KycApplicationView>('kyc.application.submit',
+          { orgId: saved.orgId, body: { sendToChecker: this.sendToChecker } }));
         this.problems.set([]);
         this.show(v);
         this.flash.set({ kind: 'ok', text: v.status === 'ENTRY_CHECK'
@@ -300,7 +304,7 @@ export class KycApplication {
     if (!v) return;
     this.busy.set(true);
     try {
-      const w = await firstValueFrom(this.http.post<KycApplicationView>(`/api/kyc/orgs/${v.orgId}/withdraw`, {}));
+      const w = await firstValueFrom(this.data.command<KycApplicationView>('kyc.application.withdraw', { orgId: v.orgId, body: {} }));
       this.show(w);
       this.flash.set({ kind: 'ok', text: 'Application withdrawn.' });
       this.changed.emit(w);

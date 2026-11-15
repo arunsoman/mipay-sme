@@ -1,4 +1,300 @@
 {
  "format": 1,
- "widgets": []
+ "widgets": [
+  {
+   "id": "kyc.application",
+   "version": "1.0.0",
+   "label": "KYC application",
+   "description": "An organization's KYC application: status, the schema-driven form, save, submit and withdraw.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "kyc.application:read",
+    "kyc.form:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "kyc.application:read",
+    "kyc.form:read",
+    "kyc.application:modify",
+    "kyc.application:submit",
+    "kyc.application:delete"
+   ],
+   "actions": [
+    {
+     "id": "save",
+     "label": "Save draft",
+     "cell": "kyc.application:modify",
+     "command": "kyc.application.save"
+    },
+    {
+     "id": "submit",
+     "label": "Submit for review",
+     "cell": "kyc.application:submit",
+     "command": "kyc.application.submit"
+    },
+    {
+     "id": "withdraw",
+     "label": "Withdraw",
+     "cell": "kyc.application:delete",
+     "command": "kyc.application.withdraw"
+    }
+   ],
+   "sources": [
+    "kyc.application.get",
+    "kyc.schema.get",
+    "kyc.list.get"
+   ],
+   "commands": [
+    "kyc.application.save",
+    "kyc.application.submit",
+    "kyc.application.withdraw"
+   ],
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {
+    "mode": {
+     "type": "enum",
+     "options": [
+      "edit",
+      "review",
+      "wizard"
+     ],
+     "default": "edit",
+     "label": "Mode"
+    },
+    "startStep": {
+     "type": "number",
+     "default": 0,
+     "min": 0,
+     "max": 10,
+     "label": "Opening step"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "inReview": "ready",
+    "masked": "ready",
+    "invalid": "ready",
+    "conflict": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "kyc.application.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.schema.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/schema/{orgId}"
+    },
+    {
+     "name": "kyc.schema.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/schema/{orgId}"
+    },
+    {
+     "name": "kyc.schema.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/schema/{orgId}"
+    },
+    {
+     "name": "kyc.schema.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/schema/{orgId}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.application.save",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "PUT",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.save",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "PUT",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.save",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "PUT",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.save",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "PUT",
+     "path": "/api/kyc/orgs/{orgId}"
+    },
+    {
+     "name": "kyc.application.submit",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/submit"
+    },
+    {
+     "name": "kyc.application.submit",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/submit"
+    },
+    {
+     "name": "kyc.application.submit",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/submit"
+    },
+    {
+     "name": "kyc.application.submit",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/submit"
+    },
+    {
+     "name": "kyc.application.withdraw",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/withdraw"
+    },
+    {
+     "name": "kyc.application.withdraw",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/withdraw"
+    },
+    {
+     "name": "kyc.application.withdraw",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/withdraw"
+    },
+    {
+     "name": "kyc.application.withdraw",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{orgId}/withdraw"
+    }
+   ]
+  }
+ ]
 }

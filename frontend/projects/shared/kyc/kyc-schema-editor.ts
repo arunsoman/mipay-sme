@@ -1,10 +1,10 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, computed, effect, inject, input, OnInit, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { Doc, evaluateCondition } from './kyc-conditions';
 import { KycProgress, shortStepLabel } from './kyc-progress';
+import { WidgetDataPort } from '../widgets/core/port';
 
 /**
  * Schema-driven KYC form, shared by every portal. Every input comes from the
@@ -195,13 +195,14 @@ type Chip = { value: string; label: string; more: boolean };
     </ng-template>
   `,
   styles: [`
-    :host { display: grid; gap: 22px; min-width: 0; }
+    :host { display: grid; gap: 22px; min-width: 0; container-type: inline-size; }
     .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .sec { border: 0; padding: 0; margin: 0; display: grid; gap: 18px; min-width: 0; }
     .shead h3 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; color: var(--a-text); }
     .shead p { margin: 4px 0 0; color: var(--a-dim); font-size: 13.5px; }
-    .f { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
-    @media (max-width: 640px) { .f { grid-template-columns: 1fr; } }
+    /* mobile first, by the editor's own width (it may sit in a narrow grid cell) */
+    .f { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px 20px; }
+    @container (min-width: 560px) { .f { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .fl { display: grid; gap: 7px; min-width: 0; align-content: start; }
     .fl.wide { grid-column: 1 / -1; }
     .lb { font-size: 13px; font-weight: 550; color: #d9d9d9; display: flex; gap: 8px; align-items: baseline; }
@@ -274,7 +275,8 @@ export class KycSchemaEditor implements OnInit {
   readonly blurbs = input<Record<string, string>>({});
   readonly o = { standalone: true };
 
-  private readonly http = inject(HttpClient);
+  /** Master lists come through the widget port (gateway BFF live, fixtures standalone). */
+  private readonly data = inject(WidgetDataPort);
   /** Lists arrive asynchronously; hosts are OnPush, so re-render explicitly. */
   private readonly cdr = inject(ChangeDetectorRef);
   /** `${listCode}` for parent-less lists; `${listCode}=${parent}` for dependent ones. */
@@ -444,7 +446,7 @@ export class KycSchemaEditor implements OnInit {
       if (this.schema().lists[code]) continue;
       const parented = this.sections().some((s) => s.fields.some((f) => f.listCode === code && f.listParentField));
       try {
-        const r = await firstValueFrom(this.http.get<{ items: ListItem[] }>(`/api/kyc/lists/${code}`));
+        const r = await firstValueFrom(this.data.query<{ items: ListItem[] }>('kyc.list.get', { code }));
         this.loaded.set(code, r.items);
         this.cdr.markForCheck();
       } catch { /* offered once a parent is picked */ }
@@ -471,8 +473,7 @@ export class KycSchemaEditor implements OnInit {
     const key = `${code}=${parent}`;
     if (this.loaded.has(key)) return;
     try {
-      const r = await firstValueFrom(this.http.get<{ items: ListItem[] }>(
-        `/api/kyc/lists/${code}`, { params: { parent } }));
+      const r = await firstValueFrom(this.data.query<{ items: ListItem[] }>('kyc.list.get', { code, parent }));
       this.loaded.set(key, r.items);
       this.cdr.markForCheck();
     } catch { /* unknown code */ }

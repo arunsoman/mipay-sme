@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { WidgetProblem } from '../widgets/core/port';
 
 /**
  * Types and helpers shared by every portal's KYC screens (admin portal and
@@ -54,6 +55,8 @@ export interface OrgDecisionResult { requestId: string; orgId: string; status: s
 export interface ApiProblem { title: string; detail: string; code?: string; status: number; }
 
 export function readProblem(err: unknown): ApiProblem {
+  // the widget data port throws WidgetProblem (already normalised)
+  if (err instanceof WidgetProblem) return err.problem;
   if (err instanceof HttpErrorResponse) {
     const body = (err.error ?? {}) as Record<string, unknown>;
     const code = typeof body['code'] === 'string' ? body['code'] : undefined;
