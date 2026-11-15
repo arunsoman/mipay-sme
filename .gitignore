@@ -19,6 +19,8 @@ __pycache__/
 # locally built service executables
 /trustplane/gateway
 /trustplane/cmd/idp/idp
+.review/bugs_review.diff
+.review/uncommitted.txt
 
 # widget workbench: the API service chosen at start (regenerated)
 /frontend/projects/widget-workbench/public/wb-service.json
