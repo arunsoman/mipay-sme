@@ -16,4 +16,7 @@ export const SOURCES = defineSources({
   'kyc.application.save':     { '*': { method: 'PUT',  path: '/api/kyc/orgs/{orgId}', query: ['expectedVersion'] } },
   'kyc.application.submit':   { '*': { method: 'POST', path: '/api/kyc/orgs/{orgId}/submit' } },
   'kyc.application.withdraw': { '*': { method: 'POST', path: '/api/kyc/orgs/{orgId}/withdraw' } },
+  // review queue (KycController#inbox, #decide)
+  'kyc.tasks.list':           { '*': { method: 'GET',  path: '/api/kyc/tasks' } },
+  'kyc.tasks.decide':         { '*': { method: 'POST', path: '/api/kyc/tasks/{taskId}/decision' } },
 });
