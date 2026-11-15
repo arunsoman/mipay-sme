@@ -15,7 +15,7 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | [`comms-design.md`](comms-design.md) | B1 real email/SMS, B2 push and in-app, B3 policy, B4 scale |
 | [`kyc-design.md`](kyc-design.md) | phase 0 (own service), 4 (cross-service go-live gate), 6 (EMI profile) |
 | [`role-menu-builder.md`](role-menu-builder.md) | New role by portal: menu/submenu visibility + per-screen actions (admin first, then org User management) |
-| [`admin-console.md`](admin-console.md) | Admin console built and tested (three menus; server search on every list; org features = portal menus via `organization_access@<org>`, presets, warnings). Left: deploy to afriqpay, then pick a preset for every org showing "Access not set" |
+| [`admin-console.md`](admin-console.md) | Admin console (three menus; server search on every list; org features = portal menus via `organization_access@<org>`, presets, warnings). **Live on afriqpay 2026-11-16** (`636264d`, rollback tag `:pre-console-20261116`). Left: pick a preset for every org showing "Access not set"; give the admins who set features a platform role covering the Organizations/KYC rows |
 | [`inventory-plugin.md`](inventory-plugin.md), [`plugins/*`](plugins/README.md) | plugin framework, Inventory, then the plugins |
 | [`permission-atlas.md`](permission-atlas.md) | One generated permission dictionary (backend + frontend meaning), sync of definitions and live rights to every system, one conflict engine (SoD incl. cross-row, ceilings, visibility, concurrent edits), explain. Steps 1–8; decisions 1–6 proposed; Q1–Q3 for compliance |
 | [`portal-builder.md`](portal-builder.md) | Portal builder: menus + screens filled with registered, self-hiding, mobile-first widgets; FAPI by default through the BFF port. Steps 0–7 (step 0 = shared CSRF interceptor, fixes sme-ui sending no `X-CSRF`); decisions 1–11 proposed |
@@ -36,7 +36,7 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | **1. Now** | P3: backfills + not-null org are done (V15_1, identity/RBAC backfill tools, access screen); UAT in `dual` mode remains | cut-over 3.9–3.11 |
 | | OA3 per-type onboarding rights in the UI ( OA2 roles live in `grid.yaml` + role pack regenerated; OA1 bootstrap built — `V18` + `POST /api/admin/bootstrap/tpts`) | org-access |
 | | Role builder by portal menu (admin Roles and permissions, then org User management) | role-menu-builder |
-| | Admin console: deploy (backend `V4` + feature catalogue, admin portal), then set the existing orgs' presets | admin-console |
+| | Admin console: set the existing orgs' presets ("Needs attention" lists them) | admin-console |
 | | Portal builder step 0: one shared `fapiBffInterceptor`; sme-ui sends no `X-CSRF` today | portal-builder |
 | | Permission atlas steps 1 and 3: `perms:drift` + generated atlas (frontend list has drifted); browsers re-check rights on focus / 403 | permission-atlas |
 | | Comms B1: Brevo email adapter done and tested (live send waits on the Brevo **API** key — the held `brevo` credential is SMTP-relay); SMS provider choice still open | comms P1 |

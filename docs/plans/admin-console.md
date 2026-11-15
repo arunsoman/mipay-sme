@@ -1,6 +1,6 @@
 # Plan: the admin console (admin.afriqpay.com)
 
-Status: **built and tested** (2026-11-15) · deploy to afriqpay pending · tracked in [`master-plan.md`](master-plan.md)
+Status: **live on afriqpay** (2026-11-16, `636264d`; rollback: retag the `:pre-console-20261116` images of backend, rbac and the four portals, then `compose up`) · tracked in [`master-plan.md`](master-plan.md)
 
 ## 1. What it is
 
