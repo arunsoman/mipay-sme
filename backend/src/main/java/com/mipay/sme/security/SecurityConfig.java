@@ -43,6 +43,8 @@ public class SecurityConfig {
                                 "/internal/auth/events",
                                 // self-authenticating with the deploy token (WidgetRegistryInternalController)
                                 "/internal/ui/widgets/register",
+                                // self-authenticating with the builder key + nginx basic-auth user (PortalBuilderInternalController)
+                                "/internal/ui/builder/**",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health").permitAll()
                         .requestMatchers("/api/orgs/**").authenticated()
                         .requestMatchers("/api/merchant/**").hasRole("MERCHANT")

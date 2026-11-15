@@ -246,9 +246,9 @@ npm run widgets:check                     # coherence (decision 6), contracts, v
 | 2 | Workbench project + unit harness + generated conformance/layout/a11y suites; Vitest + Playwright set up | done except axe (a11y) and screenshot baselines |
 | 3 | Breakpoint tokens + container grid in `portal-theme.scss`; compact modes in `mp-data-table`, `kpi-row`; mobile check of the portal shells' sidebars | not started |
 | 4 | First widgets: **KYC application** (Appendix A), **KYC review queue** (`kyc.tasks`, built with the skill) | done; KPI row, orders table, org tree deferred (KYC first) |
-| 5 | Layout model, `PortalPage` + `/p/:menu/:screen`, `gen-nav-catalogue` reads layouts; `role-menu-model` takes the catalogue as input; RBAC builder third level + preview-as-role | not started |
+| 5 | Layout model, `PortalPage` + `/p/:menu/:screen`, `gen-nav-catalogue` reads layouts; `role-menu-model` takes the catalogue as input; RBAC builder third level + preview-as-role | portals draw a published layout (2026-11-16): `shared/web-core/portal-layout.ts` (`PortalLayoutService`, `layoutNavigation`, `LayoutPage` at `/p/:menu/:screen` with `layoutScreenGuard`) in the admin and org shells. Widget screens show when one widget's `requires` is met; empty seeded screens keep today's coded page and rule; no layout = coded menus. Not yet: menu cells for new screens (`gen-nav-catalogue` does not read layouts), RBAC third level |
 | 6 | Builder UI (menu tree, canvas, inspector); registry server endpoints + deploy-time registration | builder UI with i18n menus done (workbench `/builder`); registry server done (`/internal/ui/widgets/register`, `/api/ui/widgets`); deploy-time registration not wired |
-| 7 | (optional) Runtime layouts: backend store, maker/checker publish, live `nav.*` registration | not started |
+| 7 | (optional) Runtime layouts: backend store, maker/checker publish, live `nav.*` registration | built (2026-11-16): `V5 ui_layouts`, `PortalLayoutService` (DRAFT → PENDING → PUBLISHED → RETIRED, four-eyes by builder user, unpublish), `/internal/ui/builder/**` (builder key + nginx basic-auth user), `GET /api/ui/layouts/{portal}`; the builder's **Publish** view; hosted at portalbuilder.afriqpay.com (`Dockerfile.builder`, `deploy/afriqpay/nginx-portalbuilder.conf`). Live `nav.*` registration not done |
 
 ## Built so far (2026-11-15)
 

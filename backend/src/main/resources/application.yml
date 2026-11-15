@@ -29,6 +29,10 @@ app:
   # POST /internal/ui/widgets/register; empty switches registration off
   ui-registry:
     token: ${UI_REGISTRY_TOKEN:}
+  # portal builder API (/internal/ui/builder/**), reached only through portalbuilder's nginx;
+  # empty switches it off
+  ui-builder:
+    key: ${UI_BUILDER_KEY:}
   jwt-secret: "sandbox-jwt-secret-change-me-in-production-0123456789"
   environment: sandbox          # sandbox | uat | production - every bank/lender event is SIMULATED (UAT SB p.16)
   dev-otp: "123456"             # fixed OTP in sandbox, shown as a SIMULATED hint

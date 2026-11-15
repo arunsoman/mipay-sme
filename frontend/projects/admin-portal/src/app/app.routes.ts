@@ -1,3 +1,4 @@
+import { LayoutPage, layoutScreenGuard } from '../../../shared/web-core/portal-layout';
 import { Routes } from '@angular/router';
 import { adminGuard } from './core/guards';
 import { permGuard } from '../../../shared/web-core/perm';
@@ -68,6 +69,8 @@ export const routes: Routes = [
         main: { widget: 'users.organization-users' },
       } },
       { path: 'no-access', component: EmptyAccessShell },
+      // pages built in the portal builder and published (portal-builder.md steps 5 + 7)
+      { path: 'p/:menu/:screen', component: LayoutPage, canActivate: [layoutScreenGuard] },
       { path: 'install', component: Install },
       { path: 'overview', component: Overview, canActivate: [pg('/overview')] },
       { path: 'orgs', component: OrgDirectory, canActivate: [pg('/orgs')] },

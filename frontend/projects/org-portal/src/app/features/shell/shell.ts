@@ -8,6 +8,7 @@ import { PORTAL } from '../../portal.config';
 import { AccessService } from '../../../../../shared/web-core/access';
 import { linkFor, menuFor } from '../../../../../shared/web-core/menu';
 import { liveNavigation, navAllows, BusinessPortal } from '../../../../../shared/web-core/portal-permission-catalogue';
+import { PortalLayoutService, layoutNavigation } from '../../../../../shared/web-core/portal-layout';
 
 /**
  * Portal shell ([layout]/C11): a left navigation sidebar. On screens wider
@@ -136,6 +137,8 @@ export class Shell implements OnInit {
    *  re-gains a right while sitting on it leaves it for the first allowed page. */
   private toAllowedPage() {
     const url = this.router.url.split('?')[0];
+    // builder pages (/p/<menu>/<screen>) have their own guard (layoutScreenGuard)
+    if (url.startsWith('/p/')) return;
     const here = this.pages.find(([path]) => url.startsWith(path));
     if (this.access.empty()) { void this.router.navigateByUrl('/no-access'); return; }
     if (url === '/no-access') {
@@ -153,9 +156,14 @@ export class Shell implements OnInit {
   /** Sidebar from THE menu registry (shared/web-core/menu.ts): every point
    *  declares its own permission rows - no ungated items, one label per menu
    *  point across all portals. */
-  readonly nav = computed(() => liveNavigation(this.portal.orgType,
-    (resources) => this.access.can(...resources),
-    (link) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); }));
+  readonly nav = computed(() => {
+    const can = (resources: string[]) => this.access.can(...resources);
+    const canRoute = (link: string) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); };
+    // a layout published in the portal builder replaces the coded menus (portal-builder.md steps 5 + 7)
+    const published = this.layouts.layout();
+    return published ? layoutNavigation(published, can, canRoute) : liveNavigation(this.portal.orgType, can, canRoute);
+  });
+  private readonly layouts = inject(PortalLayoutService);
 
   /** A page may be opened: its rows are held and, once the user picks submenus by menu
    *  cells, one of its submenus is switched on (the route guards apply the same rule). */
@@ -169,7 +177,7 @@ export class Shell implements OnInit {
 
   async ngOnInit() {
     try { this.org.set(await firstValueFrom(this.http.get<OrgView>('/api/orgs/me'))); } catch { /* header only */ }
-    await this.access.load();
+    await Promise.all([this.access.load(), this.layouts.load(this.portal.orgType as BusinessPortal)]);
     this.toAllowedPage();
     window.matchMedia('(min-width: 901px)').addEventListener('change', () => this.navOpen.set(false));
   }

@@ -13,7 +13,16 @@ import { WIDGETS } from '../../../../shared/widgets/registry.generated';
 import { DesignCanvas, PaletteDrag } from './design-canvas';
 
 type Sel = { kind: 'menu'; m: number } | { kind: 'screen'; m: number; s: number } | { kind: 'widget'; m: number; s: number; id: string } | null;
-type View = 'canvas' | 'translations' | 'sidebar' | 'export';
+type View = 'canvas' | 'translations' | 'sidebar' | 'export' | 'publish';
+
+/** One layout's record on the server (PortalLayoutService.Summary). */
+interface LayoutSummary { id: string; status: string; version: number | null; savedBy: string; savedAt: string;
+  submittedBy: string | null; submittedAt: string | null; decidedBy: string | null; decidedAt: string | null; note: string | null }
+interface ServerSide { summary: LayoutSummary; layout: PortalLayout }
+interface ServerState { portal: string; draft: ServerSide | null; pending: ServerSide | null; published: ServerSide | null; history: LayoutSummary[] }
+
+/** The builder API on the hosted builder (portalbuilder.afriqpay.com): nginx adds the user and key. */
+const API = '/internal/ui/builder';
 
 const PORTALS: BusinessPortal[] = ['PLATFORM', 'MANUFACTURER', 'DISTRIBUTOR', 'SUPPLIER', 'MERCHANT', 'LENDER', 'CUSTOMER'];
 const DRAFT = (p: string) => `wb.builder.${p}`;
@@ -26,7 +35,9 @@ const DRAFT = (p: string) => `wb.builder.${p}`;
  *     widgets this build carries, and what the registry server holds for the portal);
  *  3. sizes them per tier, phone first, and checks the screen at every tier;
  *  4. exports layouts/<portal>.json (keys only) + i18n/<portal>.<locale>.json bundles.
- * Drafts stay in this browser only (localStorage); the export is the artifact.
+ * Drafts stay in this browser (localStorage). On the hosted builder (portalbuilder.afriqpay.com)
+ *  5. Publish saves the draft on the server, submits it, and another builder user approves it:
+ *     the portal then draws its menus from the published layout (maker/checker, steps 5 + 7).
  */
 @Component({
   selector: 'wb-builder-page',
@@ -61,6 +72,8 @@ const DRAFT = (p: string) => `wb.builder.${p}`;
       <span class="grow"></span>
       <span class="badge" [class.bad]="errors().length" [class.ok]="!errors().length">
         {{ errors().length }} error(s) · {{ warnings().length }} warning(s)</span>
+      @if (who()) {<span class="dim small">signed in as <b>{{ who() }}</b></span>}
+      <button type="button" (click)="view.set('publish')">Publish</button>
       <button type="button" (click)="view.set('export')">Export</button>
       <button type="button" class="ghost" (click)="reset()">Reset to today's menus</button>
     </section>
@@ -165,6 +178,54 @@ const DRAFT = (p: string) => `wb.builder.${p}`;
                 }
               }
             </div>
+          }
+          @case ('publish') {
+            @if (!who()) {
+              <p class="dim">Publishing works on the hosted builder (portalbuilder.afriqpay.com), where you sign in. Here, use Export.</p>
+            } @else {
+              @if (pubNote(); as n) {<p [class.bad]="n.bad" [class.ok]="!n.bad">{{ n.text }}</p>}
+              <div class="pane-h"><b>{{ portal() }}: your editor</b><span class="grow"></span>
+                <button type="button" [disabled]="errors().length || busy()" (click)="saveToServer()">Save draft to server</button></div>
+              @if (errors().length) {<p class="bad small">Fix the {{ errors().length }} error(s) first.</p>}
+
+              @for (row of serverRows(); track row.label) {
+                <div class="pane-h"><b>{{ row.label }}</b><span class="grow"></span>
+                  @if (row.side) {<button type="button" class="lnk" (click)="loadFromServer(row.side)">Open in editor</button>}
+                </div>
+                @if (row.side; as x) {
+                  <div class="small">
+                    @if (x.summary.version) {<span>Version {{ x.summary.version }} · </span>}
+                    saved by {{ x.summary.savedBy }} {{ when(x.summary.savedAt) }}
+                    @if (x.summary.submittedBy) {<span> · submitted by {{ x.summary.submittedBy }} {{ when(x.summary.submittedAt) }}</span>}
+                    @if (x.summary.decidedBy) {<span> · approved by {{ x.summary.decidedBy }} {{ when(x.summary.decidedAt) }}</span>}
+                    @if (x.summary.note) {<div class="dim">“{{ x.summary.note }}”</div>}
+                  </div>
+                } @else {<div class="dim small">none</div>}
+              }
+
+              <div class="pane-h"><b>Actions</b></div>
+              <label class="small">Note <input [value]="pubText()" (input)="pubText.set($any($event.target).value)" placeholder="what changed (optional)" /></label>
+              <div class="row-b">
+                <button type="button" [disabled]="!state()?.draft || busy()" (click)="submitForApproval()">Submit draft for approval</button>
+                @if (state()?.pending; as p) {
+                  @if (p.summary.submittedBy !== who()) {
+                    <button type="button" [disabled]="busy()" (click)="decide(true)">Approve and publish</button>
+                    <button type="button" class="ghost" [disabled]="busy()" (click)="decide(false)">Reject</button>
+                  } @else {<span class="dim small">You submitted it: another builder user approves it.</span>}
+                }
+                @if (state()?.published) {
+                  <button type="button" class="ghost bad" [disabled]="busy()" (click)="unpublish()">
+                    {{ armUnpublish() ? 'Click again: back to the coded menus' : 'Unpublish' }}</button>
+                }
+              </div>
+              @if (state()?.history?.length) {
+                <div class="pane-h"><b>History</b></div>
+                @for (h of state()!.history; track h.id) {
+                  <div class="small">{{ h.status === 'RETIRED' ? 'v' + h.version + ' retired' : 'rejected' }} · by {{ h.decidedBy }} {{ when(h.decidedAt) }}
+                    @if (h.note) {<span class="dim"> · {{ h.note }}</span>}</div>
+                }
+              }
+            }
           }
           @case ('export') {
             @if (errors().length) {<p class="bad">Fix the {{ errors().length }} error(s) first - the export would not pass CI.</p>}
@@ -286,6 +347,18 @@ export class BuilderPage {
   readonly previewLocale = signal(SOURCE_LOCALE);
   readonly serverBusy = signal(false);
   readonly serverNote = signal('');
+  /** the builder user (hosted builder only; null = publishing is off here) */
+  readonly who = signal<string | null>(null);
+  readonly state = signal<ServerState | null>(null);
+  readonly busy = signal(false);
+  readonly pubText = signal('');
+  readonly pubNote = signal<{ bad: boolean; text: string } | null>(null);
+  readonly armUnpublish = signal(false);
+  readonly serverRows = computed(() => [
+    { label: 'Draft on the server', side: this.state()?.draft ?? null },
+    { label: 'Waiting for approval', side: this.state()?.pending ?? null },
+    { label: 'Published (what the portal draws)', side: this.state()?.published ?? null },
+  ]);
 
   readonly palette = computed(() => WIDGETS.map((w) => w.def).filter((d) => d.contexts.includes(this.portal())));
   readonly suggested = computed(() => SUGGESTED_LOCALES.filter((l) => !this.layout().locales.includes(l)));
@@ -321,6 +394,11 @@ export class BuilderPage {
       const l = this.layout();
       untracked(() => { try { localStorage.setItem(DRAFT(l.portal), JSON.stringify(l)); } catch { /* private mode */ } });
     });
+    // the hosted builder answers whoami (nginx adds the user and key); elsewhere publishing stays off
+    this.http.get<{ user: string }>(`${API}/whoami`).subscribe({
+      next: (r) => { this.who.set(r.user); void this.refreshServer(); },
+      error: () => this.who.set(null),
+    });
     // open the first screen that has widgets (or the first screen)
     const first = this.layout().menus.findIndex((m) => m.screens.length);
     if (first >= 0) this.sel.set({ kind: 'screen', m: first, s: 0 });
@@ -354,6 +432,7 @@ export class BuilderPage {
     this.layout.set(this.loadDraft(p));
     this.sel.set(null);
     this.view.set('canvas');
+    if (this.who()) void this.refreshServer();
   }
 
   reset() {
@@ -521,6 +600,52 @@ export class BuilderPage {
     } finally {
       this.serverBusy.set(false);
     }
+  }
+
+  // ------------------------------------------------------------------ publish (hosted builder)
+
+  when(iso: string | null) { return iso ? new Date(iso).toLocaleString() : ''; }
+
+  async refreshServer() {
+    try {
+      this.state.set(await firstValueFrom(this.http.get<ServerState>(`${API}/layouts/${this.portal()}`)));
+    } catch (e) { this.fail(e); }
+  }
+
+  loadFromServer(x: ServerSide) {
+    this.layout.set(rekey(structuredClone(x.layout)));
+    this.sel.set(null);
+    this.pubNote.set({ bad: false, text: 'Opened in the editor.' });
+  }
+
+  async saveToServer() { await this.act(() => this.http.put(`${API}/layouts/${this.portal()}/draft`, this.layout()), 'Draft saved on the server.'); }
+  async submitForApproval() {
+    await this.act(() => this.http.post(`${API}/layouts/${this.portal()}/submit`, { note: this.pubText() || null }),
+      'Submitted. Another builder user approves it to publish.');
+  }
+  async decide(approve: boolean) {
+    await this.act(() => this.http.post(`${API}/layouts/${this.portal()}/decide`, { approve, note: this.pubText() || null }),
+      approve ? `Published: the ${this.portal()} portal draws these menus on its next load.` : 'Rejected.');
+  }
+  async unpublish() {
+    if (!this.armUnpublish()) { this.armUnpublish.set(true); setTimeout(() => this.armUnpublish.set(false), 4000); return; }
+    this.armUnpublish.set(false);
+    await this.act(() => this.http.post(`${API}/layouts/${this.portal()}/unpublish`, {}), `Unpublished: ${this.portal()} is back on its coded menus.`);
+  }
+
+  private async act(call: () => import('rxjs').Observable<unknown>, ok: string) {
+    this.busy.set(true);
+    try {
+      await firstValueFrom(call());
+      this.pubNote.set({ bad: false, text: ok });
+      this.pubText.set('');
+      await this.refreshServer();
+    } catch (e) { this.fail(e); } finally { this.busy.set(false); }
+  }
+
+  private fail(e: unknown) {
+    const err = (e as { error?: { detail?: string; message?: string; title?: string }; status?: number });
+    this.pubNote.set({ bad: true, text: err?.error?.detail ?? err?.error?.message ?? err?.error?.title ?? `The server said ${err?.status ?? 'no'}.` });
   }
 
   download(name: string, data: unknown) {

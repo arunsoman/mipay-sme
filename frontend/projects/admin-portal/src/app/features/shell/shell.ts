@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { AccessService } from '../../../../../shared/web-core/access';
 import { linkFor, menuFor } from '../../../../../shared/web-core/menu';
 import { liveNavigation, navAllows } from '../../../../../shared/web-core/portal-permission-catalogue';
+import { PortalLayoutService, layoutNavigation } from '../../../../../shared/web-core/portal-layout';
 import { AdminAuthService } from '../../core/auth';
 import { MeView } from '../../core/api';
 
@@ -120,9 +121,14 @@ export class Shell implements OnInit {
   readonly access = inject(AccessService);
   /** Sidebar from THE menu registry: every point declares its own permission rows
    *  (no ungated items), so nav and the route guards below read one truth. */
-  readonly nav = computed(() => liveNavigation('PLATFORM',
-    (resources) => this.access.can(...resources),
-    (link) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); }));
+  readonly nav = computed(() => {
+    const can = (resources: string[]) => this.access.can(...resources);
+    const canRoute = (link: string) => { const gate = this.pages.find(([path]) => path === link); return !!gate && this.access.can(...gate[1]); };
+    // a layout published in the portal builder replaces the coded menus (portal-builder.md steps 5 + 7)
+    const published = this.layouts.layout();
+    return published ? layoutNavigation(published, can, canRoute) : liveNavigation('PLATFORM', can, canRoute);
+  });
+  private readonly layouts = inject(PortalLayoutService);
   /** Pages and the permission rows that show them (registry order) - the redirect
    *  logic below pairs with the sidebar and the route guards by construction. */
   private readonly pages: [string, string[]][] = menuFor('admin').map(
@@ -134,6 +140,8 @@ export class Shell implements OnInit {
    *  re-gains a right while sitting on it leaves it for the first allowed page. */
   private toAllowedPage() {
     const url = this.router.url.split('?')[0];
+    // builder pages (/p/<menu>/<screen>) have their own guard (layoutScreenGuard)
+    if (url.startsWith('/p/')) return;
     if (this.auth.me()?.username === 'installer') {
       if (url !== '/install') void this.router.navigateByUrl('/install');
       return;
@@ -166,7 +174,7 @@ export class Shell implements OnInit {
       this.toAllowedPage();
       return;
     }
-    await this.access.load();
+    await Promise.all([this.access.load(), this.layouts.load('PLATFORM')]);
     this.toAllowedPage();
   }
 
