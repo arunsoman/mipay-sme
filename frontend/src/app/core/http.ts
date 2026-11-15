@@ -41,7 +41,8 @@ export function problemTap<T>(onProblem: (p: { title: string; detail: string; co
     source.pipe(
       catchError((e) => {
         onProblem(readProblem(e));
-        return of(null as T);
+        // Re-throw the error so the caller can decide how to handle it
+        throw e;
       })
     );
 }
