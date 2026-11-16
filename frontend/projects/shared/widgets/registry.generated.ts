@@ -2,23 +2,59 @@
 import type { WidgetDef } from './core/manifest';
 import type { FixtureSet } from './core/fixtures';
 import w0 from './admin/organizations/organizations.widget';
-import w1 from './kyc/application/kyc-application.widget';
-import w2 from './kyc/orgs/orgs.widget';
-import w3 from './kyc/tasks/tasks.widget';
-import w4 from './org/access/access.widget';
-import w5 from './org/people/people.widget';
-import w6 from './rbac/new-role/new-role.widget';
-import w7 from './users/organization-users/organization-users.widget';
+import w1 from './admin/platform-access/platform-access.widget';
+import w2 from './kyc/application/kyc-application.widget';
+import w3 from './kyc/orgs/orgs.widget';
+import w4 from './kyc/status/status.widget';
+import w5 from './kyc/tasks/tasks.widget';
+import w6 from './ops/audit/audit.widget';
+import w7 from './ops/kyc-checks/kyc-checks.widget';
+import w8 from './org/access/access.widget';
+import w9 from './org/admin-recovery/admin-recovery.widget';
+import w10 from './org/network/network.widget';
+import w11 from './org/onboard-child/onboard-child.widget';
+import w12 from './org/onboarding-queue/onboarding-queue.widget';
+import w13 from './org/people/people.widget';
+import w14 from './org/rights/rights.widget';
+import w15 from './org/role-ceiling/role-ceiling.widget';
+import w16 from './rbac/assignments/assignments.widget';
+import w17 from './rbac/my-access/my-access.widget';
+import w18 from './rbac/new-role/new-role.widget';
+import w19 from './rbac/platform-assignments/platform-assignments.widget';
+import w20 from './rbac/reconciliation/reconciliation.widget';
+import w21 from './rbac/resources/resources.widget';
+import w22 from './rbac/role-approvals/role-approvals.widget';
+import w23 from './rbac/roles/roles.widget';
+import w24 from './users/organization-users/organization-users.widget';
+import w25 from './users/sign-in/sign-in.widget';
 
 export interface RegisteredWidget { readonly def: WidgetDef<any>; readonly fixtures: () => Promise<FixtureSet> }
 
 export const WIDGETS: readonly RegisteredWidget[] = [
   { def: w0, fixtures: () => import('./admin/organizations/organizations.fixtures').then((m) => m.default) },
-  { def: w1, fixtures: () => import('./kyc/application/kyc-application.fixtures').then((m) => m.default) },
-  { def: w2, fixtures: () => import('./kyc/orgs/orgs.fixtures').then((m) => m.default) },
-  { def: w3, fixtures: () => import('./kyc/tasks/tasks.fixtures').then((m) => m.default) },
-  { def: w4, fixtures: () => import('./org/access/access.fixtures').then((m) => m.default) },
-  { def: w5, fixtures: () => import('./org/people/people.fixtures').then((m) => m.default) },
-  { def: w6, fixtures: () => import('./rbac/new-role/new-role.fixtures').then((m) => m.default) },
-  { def: w7, fixtures: () => import('./users/organization-users/organization-users.fixtures').then((m) => m.default) },
+  { def: w1, fixtures: () => import('./admin/platform-access/platform-access.fixtures').then((m) => m.default) },
+  { def: w2, fixtures: () => import('./kyc/application/kyc-application.fixtures').then((m) => m.default) },
+  { def: w3, fixtures: () => import('./kyc/orgs/orgs.fixtures').then((m) => m.default) },
+  { def: w4, fixtures: () => import('./kyc/status/status.fixtures').then((m) => m.default) },
+  { def: w5, fixtures: () => import('./kyc/tasks/tasks.fixtures').then((m) => m.default) },
+  { def: w6, fixtures: () => import('./ops/audit/audit.fixtures').then((m) => m.default) },
+  { def: w7, fixtures: () => import('./ops/kyc-checks/kyc-checks.fixtures').then((m) => m.default) },
+  { def: w8, fixtures: () => import('./org/access/access.fixtures').then((m) => m.default) },
+  { def: w9, fixtures: () => import('./org/admin-recovery/admin-recovery.fixtures').then((m) => m.default) },
+  { def: w10, fixtures: () => import('./org/network/network.fixtures').then((m) => m.default) },
+  { def: w11, fixtures: () => import('./org/onboard-child/onboard-child.fixtures').then((m) => m.default) },
+  { def: w12, fixtures: () => import('./org/onboarding-queue/onboarding-queue.fixtures').then((m) => m.default) },
+  { def: w13, fixtures: () => import('./org/people/people.fixtures').then((m) => m.default) },
+  { def: w14, fixtures: () => import('./org/rights/rights.fixtures').then((m) => m.default) },
+  { def: w15, fixtures: () => import('./org/role-ceiling/role-ceiling.fixtures').then((m) => m.default) },
+  { def: w16, fixtures: () => import('./rbac/assignments/assignments.fixtures').then((m) => m.default) },
+  { def: w17, fixtures: () => import('./rbac/my-access/my-access.fixtures').then((m) => m.default) },
+  { def: w18, fixtures: () => import('./rbac/new-role/new-role.fixtures').then((m) => m.default) },
+  { def: w19, fixtures: () => import('./rbac/platform-assignments/platform-assignments.fixtures').then((m) => m.default) },
+  { def: w20, fixtures: () => import('./rbac/reconciliation/reconciliation.fixtures').then((m) => m.default) },
+  { def: w21, fixtures: () => import('./rbac/resources/resources.fixtures').then((m) => m.default) },
+  { def: w22, fixtures: () => import('./rbac/role-approvals/role-approvals.fixtures').then((m) => m.default) },
+  { def: w23, fixtures: () => import('./rbac/roles/roles.fixtures').then((m) => m.default) },
+  { def: w24, fixtures: () => import('./users/organization-users/organization-users.fixtures').then((m) => m.default) },
+  { def: w25, fixtures: () => import('./users/sign-in/sign-in.fixtures').then((m) => m.default) },
 ];

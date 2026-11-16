@@ -16,7 +16,9 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | [`kyc-design.md`](kyc-design.md) | phase 0 (own service), 4 (cross-service go-live gate), 6 (EMI profile) |
 | [`role-menu-builder.md`](role-menu-builder.md) | New role by portal: menu/submenu visibility + per-screen actions (admin first, then org User management) |
 | [`admin-console.md`](admin-console.md) | Admin console (three menus; server search on every list; org features = portal menus via `organization_access@<org>`, presets, warnings). **Live on afriqpay 2026-11-16** (`636264d`, rollback tag `:pre-console-20261116`). Left: pick a preset for every org showing "Access not set"; give the admins who set features a platform role covering the Organizations/KYC rows |
-| [`inventory-plugin.md`](inventory-plugin.md), [`plugins/*`](plugins/README.md) | plugin framework, Inventory, then the plugins |
+| [`bookkeeping-and-charges-design.md`](bookkeeping-and-charges-design.md) | Core double-entry ledger for all money (books, head/leaf GL → ledger accounts per org wallet/loan/payable, two-phase transfers, posting rules, period close; replaces the single-sided ledgers) and one charges engine (fees, commissions, penalties, discounts, taxes; plans on the org tree; quote/explain/simulate). Phases B0–B6; decisions D-BK-1…7. Then the revenue-share plan (MiNdLABS ↔ TPTS) |
+| [`payments-and-banking-design.md`](payments-and-banking-design.md) | Real money movement: payment orchestrator on the double-entry ledger, isolated bank gateway (signed instructions, HSM keys, rail adapters, SIM adapter), ISO 20022 / instant / EFT / RTGS / card rails, security controls, automatic + manual reconciliation with day certification. Phases PB0–PB7; decisions D-PAY-1…7 |
+| [`inventory-manufacturing-plugin.md`](inventory-manufacturing-plugin.md), [`plugins/*`](plugins/README.md) | plugin framework with packs, then Inventory & Manufacturing phases I0–I11 (TPTS devices first at I3), then the other plugins. Decisions D-INV-1…9 open |
 | [`permission-atlas.md`](permission-atlas.md) | One generated permission dictionary (backend + frontend meaning), sync of definitions and live rights to every system, one conflict engine (SoD incl. cross-row, ceilings, visibility, concurrent edits), explain. Steps 1–8; decisions 1–6 proposed; Q1–Q3 for compliance |
 | [`portal-builder.md`](portal-builder.md) | Portal builder: menus + screens filled with registered, self-hiding, mobile-first widgets; FAPI by default through the BFF port. Steps 0–7 (step 0 = shared CSRF interceptor, fixes sme-ui sending no `X-CSRF`); decisions 1–11 proposed |
 
@@ -48,8 +50,9 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | | P7: identity `gateway` only; delete legacy JWT, passwords, `UserRole` | cut-over P7 |
 | | 2FA phases 1–4, then `mfa.mode` shadow → enforce · OA4 activation emails live with B1 | 2fa, comms |
 | | Portal builder steps 1–5: widget contract + port, workbench + tests, mobile-first grid, first widgets (KYC application), layouts + RBAC screen third level (after P5: widgets rely on the BFF lane) | portal-builder |
+| | Onboarding / Users / Access widget set (2026-11-16): 18 widgets (onboarding queue, onboard child, KYC status, KYC checks, network, roles, assignments, role approvals, role ceiling, rights, my access, permission catalogue, reconciliation, platform assignments, sign-in, new administrator, platform access, audit). Portals now draw a built-in layout (`widgets/core/default-layouts.ts`) with only these three menus; coded menus are off. Next: republish (or unpublish) any layout already published on afriqpay, which still wins over the built-in one; then add the other menus back as widgets | portal-builder |
 | **4. After** | Portal builder step 6 (builder UI, registry server); step 7 runtime layouts only if business admins need them | portal-builder |
-| | KYC service split · plugin framework + Inventory · compliance plugins · push (B2) · partner API lane | kyc, inventory, plugins, comms |
+| | Bookkeeping + charges B1–B4 · payments & banking PB1–PB2 (SIM rail + reconciliation), PB3 real rail once the sponsor bank is chosen · revenue share (B6, PB7) · KYC service split · plugin framework + Inventory & Manufacturing (I1–I3 first; I10 invoicing after B4) · compliance plugins · push (B2) · partner API lane | kyc, inventory, plugins, comms |
 | **5. Ongoing** | FAPI conformance · remaining plugins · comms B3/B4 | — |
 
 ## 4. Open decisions and dependencies
@@ -66,6 +69,9 @@ afriqpay runs `329b7c7` (KYC v3 with the 5-step onboarding wizard, OA1/OA2, **RB
 | Rotate `ops-admin-ops` on afriqpay (likely still the seed password) | you | now |
 | Disk on the dev host is about 93% full | you | before more image builds |
 | Permission atlas Q1–Q3: the cross-row maker/checker pairs, STATIC vs DYNAMIC, grantability of api-only cells | compliance, you | before permission-atlas step 2 |
+| Bookkeeping decisions D-BK-1…7 (customer funds on/off TPTS balance sheet, VAT per charge type, fiscal year, revenue-share treatment) | you, compliance, finance, tax adviser | before B1 |
+| Payments & banking decisions D-PAY-1…7 (sponsor bank and rails, virtual accounts, card acceptance, regulatory list) | business, compliance | before PB3 (PB0 now: bank specs and test access take time) |
+| Inventory & Manufacturing decisions D-INV-1…9 (grant model, network share, org-to-org invoicing, cost method) | you, compliance | before inventory I1 |
 | Portal builder decisions 1–11 (build-time layouts, one network path, widget visibility, screen ids, mobile grid, test runners) | you | before portal-builder step 1 |
 
 ## 5. Keeping this file current

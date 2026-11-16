@@ -4,7 +4,7 @@ Each plugin is a self-contained module. The platform turns it on per org with a 
 - `SELF` applies to that org only.
 - `SUBTREE` applies to that org and every org below it, including orgs onboarded later.
 
-The framework is defined in [../inventory-plugin.md](../inventory-plugin.md) §1. It depends on the org hierarchy work.
+The framework is defined in [../inventory-manufacturing-plugin.md](../inventory-manufacturing-plugin.md) §3. It depends on the org hierarchy work.
 
 ## Why plugins instead of building features into the core
 - **Turned on per org:** a feature only reaches the orgs that need it, or that pay for it.
@@ -17,7 +17,7 @@ The framework is defined in [../inventory-plugin.md](../inventory-plugin.md) §1
 ## Plugins
 | Plugin | Group |
 |---|---|
-| [Inventory](../inventory-plugin.md) | Operations |
+| [Inventory & Manufacturing](../inventory-manufacturing-plugin.md) | Operations |
 | [Notifications](notifications.md) | Platform |
 | [Khata (customer credit book)](khata.md) | Commercial |
 | [Tabs](tabs.md) | Commercial |
@@ -25,7 +25,7 @@ The framework is defined in [../inventory-plugin.md](../inventory-plugin.md) §1
 | [Field Service](field-service.md) | Operations |
 | [Asset Lifecycle](asset-lifecycle.md) | Operations |
 | [Delivery & Routes](delivery-routes.md) | Operations |
-| [Procurement](procurement.md) | Operations |
+| [Procurement](procurement.md) (now the `procurement` pack of Inventory & Manufacturing) | Operations |
 | [Pricing & Promotions](pricing-promotions.md) | Commercial |
 | [Loyalty](loyalty.md) | Commercial |
 | [Catalogue Syndication](catalogue-syndication.md) | Commercial |

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * The portal builder end to end (headless): open a submenu's empty screen, drag a registered
+ * The portal builder end to end (headless): empty a submenu's screen, drag a registered
  * widget onto it, check it renders at every tier, add a locale and see the i18n checks react.
  * Screenshots land in test-results/builder/ for review.
  */
@@ -17,8 +17,11 @@ test('build a supplier screen with the KYC widget, in two locales', async ({ pag
   const kyc = page.locator('.pal', { hasText: 'kyc.application@' });
   await expect(kyc).toBeVisible();
 
-  // today's menus are seeded: open Onboarding › KYC and documents
-  await page.locator('.ts', { hasText: 'KYC and documents' }).click();
+  // the built-in layout is seeded: open Onboarding › My KYC and take its widgets off
+  await page.locator('.ts', { hasText: 'My KYC' }).click();
+  for (let n = await page.locator('.cv-head button[title=Remove]').count(); n > 0; n--) {
+    await page.locator('.cv-head button[title=Remove]').first().click();
+  }
   await expect(page.locator('.cv-empty')).toBeVisible();
 
   // drag the widget from the palette onto the empty screen
@@ -44,9 +47,9 @@ test('build a supplier screen with the KYC widget, in two locales', async ({ pag
   for (let i = 0; i < 5; i++) await page.locator('.cv-head button[title=Narrower]').click();
   await expect(page.locator('.cv-head .mono')).toHaveText('8/12');          // never below the widget's minimum
   await expect(page.locator('.bd-right')).toContainText('kyc.application:submit');  // the widget inspector
-  await page.locator('.ts', { hasText: 'KYC and documents' }).click();             // the submenu inspector
+  await page.locator('.ts', { hasText: 'My KYC' }).click();                        // the submenu inspector
   await expect(page.locator('.facts')).toContainText('kyc.application:read, kyc.form:read');
-  await expect(page.locator('.facts')).toContainText('nav.supplier_onboarding_documents:read'); // legacy cell kept
+  await expect(page.locator('.facts')).toContainText('nav.supplier_onboarding_my_kyc:read');   // its menu cell, from its uid
   await shot('2-screen-laptop');
 
   // add Afrikaans: every label now misses a translation → errors, export blocked

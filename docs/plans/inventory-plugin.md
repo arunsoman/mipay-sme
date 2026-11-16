@@ -1,5 +1,7 @@
 # Plan: Inventory management as an org plugin (MiPay SME backend)
 
+> **Superseded (2026-11-15)** by [`inventory-manufacturing-plugin.md`](inventory-manufacturing-plugin.md). Kept for history; the framework, POS flow and isolation rules were carried over and revised there (plugin roles now come from RBAC, not `inv_user_roles`).
+
 ## Context
 Inventory today is a merchant-only feature:
 - **Tables:** `inventory_items`, `stock_movements`, `stock_alerts`, `reorder_rules`, all keyed by `merchant_id`. There are no locations, serial numbers or batches.

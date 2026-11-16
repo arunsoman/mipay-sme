@@ -148,6 +148,12 @@ export class Shell implements OnInit {
     }
     const here = this.pages.find(([path]) => url.startsWith(path));
     if (this.access.empty()) { void this.router.navigateByUrl('/no-access'); return; }
+    // with a layout (published, or the built-in one) the sidebar holds only its screens: land on the first
+    if (this.layouts.layout()) {
+      const first = this.nav().flatMap((m) => m.screens)[0]?.link;
+      if (url !== '/no-access' || first) void this.router.navigateByUrl(first ?? '/no-access');
+      return;
+    }
     if (url === '/no-access') {
       const first = this.pages.find(([path, rows]) => this.pageOk(path, rows));
       if (first) void this.router.navigateByUrl(first[0]);

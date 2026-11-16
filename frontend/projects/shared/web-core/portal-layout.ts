@@ -12,12 +12,14 @@ import {
   LIVE_SCREEN_ROUTES, PORTAL_PERMISSION_CATALOGUE, navAllows, type BusinessPortal, type LiveNavMenu,
 } from './portal-permission-catalogue';
 import { AccessService } from './access';
+import { defaultLayout } from '../widgets/core/default-layouts';
 import { PageHeader } from '../../../src/app/design-system/organisms/page-header';
 import { EmptyState } from '../../../src/app/design-system/molecules/empty-state';
 
 /**
  * Published portal layouts (docs/plans/portal-builder.md steps 5 + 7). A portal with a published
- * layout draws its sidebar from it; without one it keeps its coded menus (liveNavigation).
+ * layout draws its sidebar from it; without one it draws its built-in layout
+ * (widgets/core/default-layouts.ts: Onboarding, Users, Access), which replaced the coded menus.
  *
  *  - a screen with widgets opens at /p/<menu>/<screen> and shows only to users who meet one of
  *    its widgets' `requires` (each widget still hides itself without its own permission);
@@ -42,7 +44,7 @@ export function labelOf(t: Text): string {
 @Injectable({ providedIn: 'root' })
 export class PortalLayoutService {
   private readonly http = inject(HttpClient);
-  /** undefined: not asked yet · null: none published (coded menus) · else the published layout */
+  /** undefined: not asked yet · null: none (coded menus) · else the published or else the built-in layout */
   readonly layout = signal<PublishedLayout | null | undefined>(undefined);
   private pending: Promise<PublishedLayout | null> | null = null;
 
@@ -50,9 +52,14 @@ export class PortalLayoutService {
     if (this.layout() !== undefined) return Promise.resolve(this.layout() ?? null);
     this.pending ??= firstValueFrom(this.http.get<PublishedLayout>(`/api/ui/layouts/${portal}`, { observe: 'response' }))
       .then((r: HttpResponse<PublishedLayout>) => (r.status === 200 && r.body?.format === 1 ? r.body : null))
-      // no layout service (older backend) or no session yet: the coded menus stay
+      // no layout service (older backend) or no session yet: the built-in layout
       .catch(() => null)
-      .then((l) => { this.layout.set(l); this.pending = null; return l; });
+      .then((published) => {
+        const l = published ?? (defaultLayout(portal) as PublishedLayout | null);
+        this.layout.set(l);
+        this.pending = null;
+        return l;
+      });
     return this.pending;
   }
 }

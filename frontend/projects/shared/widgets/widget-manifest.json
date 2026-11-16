@@ -88,6 +88,135 @@
    ]
   },
   {
+   "id": "admin.platform-access",
+   "version": "1.0.0",
+   "label": "Sign-in access",
+   "description": "Every user’s sign-in links and live sessions; end all of a user’s sessions or disable a sign-in link.",
+   "category": "Users",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "admin.access:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "admin.access:read",
+    "admin.access:administer"
+   ],
+   "actions": [
+    {
+     "id": "revoke",
+     "label": "End every session",
+     "cell": "admin.access:administer",
+     "command": "admin.access.revoke"
+    },
+    {
+     "id": "disable-link",
+     "label": "Disable a sign-in link",
+     "cell": "admin.access:administer",
+     "command": "admin.access.disable-link"
+    }
+   ],
+   "sources": [
+    "admin.access.list",
+    "admin.access.detail"
+   ],
+   "commands": [
+    "admin.access.revoke",
+    "admin.access.disable-link"
+   ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "admin.access.revoke": "approve",
+    "admin.access.disable-link": "approve"
+   },
+   "inputs": {},
+   "publishes": [
+    "userId"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 15,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "admin.access.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/access"
+    },
+    {
+     "name": "admin.access.detail",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/access/{userId}"
+    },
+    {
+     "name": "admin.access.revoke",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/admin/access/{userId}/revoke"
+    },
+    {
+     "name": "admin.access.disable-link",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/admin/access/links/{linkId}/disable"
+    }
+   ]
+  },
+  {
    "id": "kyc.application",
    "version": "1.0.0",
    "label": "KYC application",
@@ -504,6 +633,136 @@
    ]
   },
   {
+   "id": "kyc.status",
+   "version": "1.0.0",
+   "label": "My KYC status",
+   "description": "Where your organization’s KYC application stands and what happens next.",
+   "category": "Onboarding",
+   "contexts": [
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "kyc.application:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "kyc.application:read",
+    "kyc.application:modify"
+   ],
+   "actions": [
+    {
+     "id": "upgrade",
+     "label": "Move to the current form",
+     "cell": "kyc.application:modify",
+     "command": "kyc.mine.upgrade"
+    }
+   ],
+   "sources": [
+    "kyc.mine.get"
+   ],
+   "commands": [
+    "kyc.mine.upgrade"
+   ],
+   "operations": [
+    "view",
+    "modify"
+   ],
+   "commandOperations": {
+    "kyc.mine.upgrade": "modify"
+   },
+   "inputs": {},
+   "publishes": [
+    "orgId",
+    "orgName"
+   ],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 4,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 3,
+     "default": 4,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "approved": "ready",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "kyc.mine.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/me/kyc"
+    },
+    {
+     "name": "kyc.mine.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/me/kyc"
+    },
+    {
+     "name": "kyc.mine.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/me/kyc"
+    },
+    {
+     "name": "kyc.mine.upgrade",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{id}/upgrade"
+    },
+    {
+     "name": "kyc.mine.upgrade",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{id}/upgrade"
+    },
+    {
+     "name": "kyc.mine.upgrade",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/kyc/orgs/{id}/upgrade"
+    }
+   ]
+  },
+  {
    "id": "kyc.tasks",
    "version": "2.0.0",
    "label": "KYC review queue",
@@ -651,6 +910,204 @@
      "portal": "SUPPLIER",
      "method": "POST",
      "path": "/api/kyc/tasks/{taskId}/decision"
+    }
+   ]
+  },
+  {
+   "id": "ops.audit",
+   "version": "1.0.0",
+   "label": "Audit trail",
+   "description": "Who did what, to which record, and when; newest first.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "ops.audit:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "ops.audit:read"
+   ],
+   "actions": [],
+   "sources": [
+    "ops.audit.page"
+   ],
+   "commands": [],
+   "operations": [
+    "view"
+   ],
+   "commandOperations": {},
+   "inputs": {},
+   "publishes": [],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 25,
+     "min": 10,
+     "max": 100,
+     "label": "Entries per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "ops.audit.page",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/ops/audit"
+    }
+   ]
+  },
+  {
+   "id": "ops.kyc-checks",
+   "version": "1.0.0",
+   "label": "KYC checks",
+   "description": "Identity, sanctions and adverse-media checks on the picked organization, and recording a new one.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "ops.kyc_check:read",
+    "org.tree:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "ops.kyc_check:read",
+    "org.tree:read",
+    "ops.kyc_check:create"
+   ],
+   "actions": [
+    {
+     "id": "record",
+     "label": "Record a check",
+     "cell": "ops.kyc_check:create",
+     "command": "ops.kyc-checks.record"
+    }
+   ],
+   "sources": [
+    "ops.kyc.org.get",
+    "ops.kyc-checks.list"
+   ],
+   "commands": [
+    "ops.kyc-checks.record"
+   ],
+   "operations": [
+    "view",
+    "create"
+   ],
+   "commandOperations": {
+    "ops.kyc-checks.record": "create"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "unsupported": "empty",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "ops.kyc.org.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}"
+    },
+    {
+     "name": "ops.kyc-checks.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/ops/kyc/{entityType}/{entityId}"
+    },
+    {
+     "name": "ops.kyc-checks.record",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/ops/kyc/{entityType}/{entityId}"
     }
    ]
   },
@@ -805,6 +1262,641 @@
    ]
   },
   {
+   "id": "org.admin-recovery",
+   "version": "1.0.0",
+   "label": "New administrator",
+   "description": "Ask for a new administrator for an organization whose administrator left or lost access.",
+   "category": "Users",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.onboarding:authorize",
+    "org.tree:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "org.onboarding:authorize",
+    "org.tree:read"
+   ],
+   "actions": [
+    {
+     "id": "request",
+     "label": "Ask for a new administrator",
+     "cell": "org.onboarding:authorize",
+     "command": "org.admin-recovery.request"
+    }
+   ],
+   "sources": [
+    "org.admin-recovery.org"
+   ],
+   "commands": [
+    "org.admin-recovery.request"
+   ],
+   "operations": [
+    "view",
+    "create"
+   ],
+   "commandOperations": {
+    "org.admin-recovery.request": "create"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "forbidden": "forbidden",
+    "longText": "ready",
+    "invalid": "ready",
+    "refused": "ready"
+   },
+   "routes": [
+    {
+     "name": "org.admin-recovery.org",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}"
+    },
+    {
+     "name": "org.admin-recovery.org",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}"
+    },
+    {
+     "name": "org.admin-recovery.org",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}"
+    },
+    {
+     "name": "org.admin-recovery.org",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}"
+    },
+    {
+     "name": "org.admin-recovery.request",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/admins"
+    },
+    {
+     "name": "org.admin-recovery.request",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/admins"
+    },
+    {
+     "name": "org.admin-recovery.request",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/admins"
+    },
+    {
+     "name": "org.admin-recovery.request",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/admins"
+    }
+   ]
+  },
+  {
+   "id": "org.network",
+   "version": "1.0.0",
+   "label": "Organization network",
+   "description": "Your organization and every organization below it, with status, people and holds; suspend or lift a hold.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.tree:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.tree:read",
+    "org.suspension:administer"
+   ],
+   "actions": [
+    {
+     "id": "suspend",
+     "label": "Suspend",
+     "cell": "org.suspension:administer",
+     "command": "org.suspend"
+    },
+    {
+     "id": "lift",
+     "label": "Lift a hold",
+     "cell": "org.suspension:administer",
+     "command": "org.suspension.lift"
+    }
+   ],
+   "sources": [
+    "org.tree.get"
+   ],
+   "commands": [
+    "org.suspend",
+    "org.suspension.lift"
+   ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "org.suspend": "approve",
+    "org.suspension.lift": "approve"
+   },
+   "inputs": {},
+   "publishes": [
+    "orgId",
+    "orgName"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 15,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "org.tree.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/me/tree"
+    },
+    {
+     "name": "org.tree.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/me/tree"
+    },
+    {
+     "name": "org.tree.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/me/tree"
+    },
+    {
+     "name": "org.tree.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/me/tree"
+    },
+    {
+     "name": "org.suspend",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/suspend"
+    },
+    {
+     "name": "org.suspend",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/suspend"
+    },
+    {
+     "name": "org.suspend",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/suspend"
+    },
+    {
+     "name": "org.suspend",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/suspend"
+    },
+    {
+     "name": "org.suspension.lift",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/suspensions/{sid}/lift"
+    },
+    {
+     "name": "org.suspension.lift",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/suspensions/{sid}/lift"
+    },
+    {
+     "name": "org.suspension.lift",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/suspensions/{sid}/lift"
+    },
+    {
+     "name": "org.suspension.lift",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/suspensions/{sid}/lift"
+    }
+   ]
+  },
+  {
+   "id": "org.onboard-child",
+   "version": "1.0.0",
+   "label": "Onboard an organization",
+   "description": "Submit a new organization below yours, with its first administrator, for approval.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.onboarding:create",
+    "org.rights:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "org.onboarding:create",
+    "org.rights:read"
+   ],
+   "actions": [
+    {
+     "id": "submit",
+     "label": "Submit for approval",
+     "cell": "org.onboarding:create",
+     "command": "org.children.submit"
+    }
+   ],
+   "sources": [
+    "org.grantable.get"
+   ],
+   "commands": [
+    "org.children.submit"
+   ],
+   "operations": [
+    "view",
+    "create"
+   ],
+   "commandOperations": {
+    "org.children.submit": "create"
+   },
+   "inputs": {},
+   "publishes": [
+    "orgId"
+   ],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 8,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "org.grantable.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/me/grantable"
+    },
+    {
+     "name": "org.grantable.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/me/grantable"
+    },
+    {
+     "name": "org.grantable.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/me/grantable"
+    },
+    {
+     "name": "org.grantable.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/me/grantable"
+    },
+    {
+     "name": "org.children.submit",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/me/children"
+    },
+    {
+     "name": "org.children.submit",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/me/children"
+    },
+    {
+     "name": "org.children.submit",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/me/children"
+    },
+    {
+     "name": "org.children.submit",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/me/children"
+    }
+   ]
+  },
+  {
+   "id": "org.onboarding-queue",
+   "version": "1.0.0",
+   "label": "Onboarding requests",
+   "description": "Organizations and administrator replacements waiting for approval, with an approve / reject decision.",
+   "category": "Onboarding",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.onboarding:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.onboarding:read",
+    "org.onboarding:authorize"
+   ],
+   "actions": [
+    {
+     "id": "decide",
+     "label": "Approve or reject",
+     "cell": "org.onboarding:authorize",
+     "command": "org.onboarding.decide"
+    }
+   ],
+   "sources": [
+    "org.onboarding.list"
+   ],
+   "commands": [
+    "org.onboarding.decide"
+   ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "org.onboarding.decide": "approve"
+   },
+   "inputs": {},
+   "publishes": [
+    "orgId",
+    "orgName"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "org.onboarding.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/onboarding"
+    },
+    {
+     "name": "org.onboarding.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/onboarding"
+    },
+    {
+     "name": "org.onboarding.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/onboarding"
+    },
+    {
+     "name": "org.onboarding.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/onboarding"
+    },
+    {
+     "name": "org.onboarding.decide",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/onboarding/{id}/decide"
+    },
+    {
+     "name": "org.onboarding.decide",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/onboarding/{id}/decide"
+    },
+    {
+     "name": "org.onboarding.decide",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/onboarding/{id}/decide"
+    },
+    {
+     "name": "org.onboarding.decide",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/onboarding/{id}/decide"
+    }
+   ]
+  },
+  {
    "id": "org.people",
    "version": "1.0.0",
    "label": "People and roles",
@@ -916,6 +2008,675 @@
      "portal": "SUPPLIER",
      "method": "GET",
      "path": "/api/orgs/{orgId}/people"
+    }
+   ]
+  },
+  {
+   "id": "org.rights",
+   "version": "1.0.0",
+   "label": "Onboarding rights",
+   "description": "Which organization types an organization may onboard, and what those may onboard; narrowed from above.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.rights:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.rights:read",
+    "org.rights:administer"
+   ],
+   "actions": [
+    {
+     "id": "narrow",
+     "label": "Narrow the rights",
+     "cell": "org.rights:administer",
+     "command": "org.rights.narrow"
+    }
+   ],
+   "sources": [
+    "org.rights.get"
+   ],
+   "commands": [
+    "org.rights.narrow"
+   ],
+   "operations": [
+    "view",
+    "modify"
+   ],
+   "commandOperations": {
+    "org.rights.narrow": "modify"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 4,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 3,
+     "default": 4,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "org.rights.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.narrow",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.narrow",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.narrow",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/rights"
+    },
+    {
+     "name": "org.rights.narrow",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/rights"
+    }
+   ]
+  },
+  {
+   "id": "org.role-ceiling",
+   "version": "1.0.0",
+   "label": "Role ceiling",
+   "description": "The roles an organization may use and hand down; set by an organization above it.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.rights:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.rights:read",
+    "org.rights:administer"
+   ],
+   "actions": [
+    {
+     "id": "save",
+     "label": "Save the ceiling",
+     "cell": "org.rights:administer",
+     "command": "org.ceiling.set"
+    }
+   ],
+   "sources": [
+    "org.ceiling.get"
+   ],
+   "commands": [
+    "org.ceiling.set"
+   ],
+   "operations": [
+    "view",
+    "modify"
+   ],
+   "commandOperations": {
+    "org.ceiling.set": "modify"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "inherited": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "org.ceiling.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.set",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.set",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.set",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/role-ceiling"
+    },
+    {
+     "name": "org.ceiling.set",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/role-ceiling"
+    }
+   ]
+  },
+  {
+   "id": "rbac.assignments",
+   "version": "1.0.0",
+   "label": "Role assignments",
+   "description": "Who in the organization holds which role; give a person a role or take one away.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "rbac.assignment:read",
+    "org.user:read",
+    "rbac.role:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "rbac.assignment:read",
+    "org.user:read",
+    "rbac.role:read",
+    "rbac.assignment:create",
+    "rbac.assignment:administer"
+   ],
+   "actions": [
+    {
+     "id": "assign",
+     "label": "Give a role",
+     "cell": "rbac.assignment:create",
+     "command": "rbac.assignments.assign"
+    },
+    {
+     "id": "revoke",
+     "label": "Take a role away",
+     "cell": "rbac.assignment:administer",
+     "command": "rbac.assignments.revoke"
+    }
+   ],
+   "sources": [
+    "rbac.assignments.list",
+    "rbac.assignments.members",
+    "rbac.assignments.roles"
+   ],
+   "commands": [
+    "rbac.assignments.assign",
+    "rbac.assignments.revoke"
+   ],
+   "operations": [
+    "view",
+    "create",
+    "approve"
+   ],
+   "commandOperations": {
+    "rbac.assignments.assign": "create",
+    "rbac.assignments.revoke": "approve"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [
+    "userId"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.assignments.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.members",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.assignments.members",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.assignments.members",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.assignments.members",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.assignments.roles",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.assignments.roles",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.assignments.roles",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.assignments.roles",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.assignments.assign",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.assign",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.assign",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.assign",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments"
+    },
+    {
+     "name": "rbac.assignments.revoke",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments/{assignmentId}/revoke"
+    },
+    {
+     "name": "rbac.assignments.revoke",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments/{assignmentId}/revoke"
+    },
+    {
+     "name": "rbac.assignments.revoke",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments/{assignmentId}/revoke"
+    },
+    {
+     "name": "rbac.assignments.revoke",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-assignments/{assignmentId}/revoke"
+    }
+   ]
+  },
+  {
+   "id": "rbac.my-access",
+   "version": "1.0.0",
+   "label": "My access",
+   "description": "Your roles and every permission you hold, with what each one is for.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.user:read",
+    "rbac.role:read",
+    "rbac.assignment:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.user:read",
+    "rbac.role:read",
+    "rbac.assignment:read"
+   ],
+   "actions": [],
+   "sources": [
+    "rbac.my-access.get"
+   ],
+   "commands": [],
+   "operations": [
+    "view"
+   ],
+   "commandOperations": {},
+   "inputs": {},
+   "publishes": [],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 15,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.my-access.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/me/access"
+    },
+    {
+     "name": "rbac.my-access.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/me/access"
+    },
+    {
+     "name": "rbac.my-access.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/me/access"
+    },
+    {
+     "name": "rbac.my-access.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/me/access"
     }
    ]
   },
@@ -1146,6 +2907,710 @@
      "portal": "LENDER",
      "method": "POST",
      "path": "/api/orgs/{id}/roles"
+    }
+   ]
+  },
+  {
+   "id": "rbac.platform-assignments",
+   "version": "1.0.0",
+   "label": "All role assignments",
+   "description": "Every role assignment on the platform; give any user a role in an organization, or revoke one.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "rbac.assignment:read",
+    "rbac.user:read",
+    "rbac.role:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "rbac.assignment:read",
+    "rbac.user:read",
+    "rbac.role:read",
+    "rbac.assignment:create",
+    "rbac.assignment:administer"
+   ],
+   "actions": [
+    {
+     "id": "assign",
+     "label": "Give a role",
+     "cell": "rbac.assignment:create",
+     "command": "rbac.platform-assignments.assign"
+    },
+    {
+     "id": "revoke",
+     "label": "Revoke",
+     "cell": "rbac.assignment:administer",
+     "command": "rbac.platform-assignments.revoke"
+    }
+   ],
+   "sources": [
+    "rbac.platform-assignments.list",
+    "rbac.platform-assignments.users",
+    "rbac.platform-assignments.roles"
+   ],
+   "commands": [
+    "rbac.platform-assignments.assign",
+    "rbac.platform-assignments.revoke"
+   ],
+   "operations": [
+    "view",
+    "create",
+    "approve"
+   ],
+   "commandOperations": {
+    "rbac.platform-assignments.assign": "create",
+    "rbac.platform-assignments.revoke": "approve"
+   },
+   "inputs": {},
+   "publishes": [
+    "userId"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 15,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.platform-assignments.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/assignments"
+    },
+    {
+     "name": "rbac.platform-assignments.users",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/users"
+    },
+    {
+     "name": "rbac.platform-assignments.roles",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/roles"
+    },
+    {
+     "name": "rbac.platform-assignments.assign",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/admin/rbac/assignments"
+    },
+    {
+     "name": "rbac.platform-assignments.revoke",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "DELETE",
+     "path": "/api/admin/rbac/assignments/{id}"
+    }
+   ]
+  },
+  {
+   "id": "rbac.reconciliation",
+   "version": "1.0.0",
+   "label": "Access reconciliation",
+   "description": "Where an organization’s roles in the core and in RBAC disagree, and whether RBAC enforces yet.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "rbac.assignment:read",
+    "rbac.role:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "rbac.assignment:read",
+    "rbac.role:read"
+   ],
+   "actions": [],
+   "sources": [
+    "rbac.recon.get",
+    "rbac.mode.get"
+   ],
+   "commands": [],
+   "operations": [
+    "view"
+   ],
+   "commandOperations": {},
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {},
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.recon.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/reconciliation/{orgId}"
+    },
+    {
+     "name": "rbac.mode.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/mode"
+    }
+   ]
+  },
+  {
+   "id": "rbac.resources",
+   "version": "1.0.0",
+   "label": "Permission catalogue",
+   "description": "Every permission row roles are built from, its verbs, the org types it applies to and the endpoints it guards.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM"
+   ],
+   "requires": [
+    "rbac.role:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "rbac.role:read"
+   ],
+   "actions": [],
+   "sources": [
+    "rbac.resources.list"
+   ],
+   "commands": [],
+   "operations": [
+    "view"
+   ],
+   "commandOperations": {},
+   "inputs": {},
+   "publishes": [],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 15,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.resources.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/resources"
+    }
+   ]
+  },
+  {
+   "id": "rbac.role-approvals",
+   "version": "1.0.0",
+   "label": "Role approvals",
+   "description": "Role requests waiting for a second person, with an approve / reject decision.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "rbac.assignment:read",
+    "org.user:read"
+   ],
+   "requiresMode": "all",
+   "cells": [
+    "rbac.assignment:read",
+    "org.user:read",
+    "rbac.assignment:authorize"
+   ],
+   "actions": [
+    {
+     "id": "decide",
+     "label": "Approve or reject",
+     "cell": "rbac.assignment:authorize",
+     "command": "rbac.approvals.decide"
+    }
+   ],
+   "sources": [
+    "rbac.approvals.list",
+    "rbac.approvals.members"
+   ],
+   "commands": [
+    "rbac.approvals.decide"
+   ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "rbac.approvals.decide": "approve"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 4,
+     "default": 6,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.approvals.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-approvals"
+    },
+    {
+     "name": "rbac.approvals.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-approvals"
+    },
+    {
+     "name": "rbac.approvals.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-approvals"
+    },
+    {
+     "name": "rbac.approvals.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/role-approvals"
+    },
+    {
+     "name": "rbac.approvals.members",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.approvals.members",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.approvals.members",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.approvals.members",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/members"
+    },
+    {
+     "name": "rbac.approvals.decide",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-approvals/{assignmentId}"
+    },
+    {
+     "name": "rbac.approvals.decide",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-approvals/{assignmentId}"
+    },
+    {
+     "name": "rbac.approvals.decide",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-approvals/{assignmentId}"
+    },
+    {
+     "name": "rbac.approvals.decide",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/role-approvals/{assignmentId}"
+    }
+   ]
+  },
+  {
+   "id": "rbac.roles",
+   "version": "1.0.0",
+   "label": "Roles",
+   "description": "Every role, what it allows, and changing or deleting the roles that may be changed.",
+   "category": "Access",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "rbac.role:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "rbac.role:read",
+    "rbac.role:modify",
+    "rbac.role:delete"
+   ],
+   "actions": [
+    {
+     "id": "edit",
+     "label": "Change role",
+     "cell": "rbac.role:modify",
+     "command": "rbac.roles.update"
+    },
+    {
+     "id": "delete",
+     "label": "Delete role",
+     "cell": "rbac.role:delete",
+     "command": "rbac.roles.delete"
+    }
+   ],
+   "sources": [
+    "rbac.roles.list"
+   ],
+   "commands": [
+    "rbac.roles.update",
+    "rbac.roles.delete"
+   ],
+   "operations": [
+    "view",
+    "modify",
+    "approve"
+   ],
+   "commandOperations": {
+    "rbac.roles.update": "modify",
+    "rbac.roles.delete": "approve"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [
+    "roleName"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "empty",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "rbac.roles.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/admin/rbac/roles"
+    },
+    {
+     "name": "rbac.roles.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.roles.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.roles.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/roles"
+    },
+    {
+     "name": "rbac.roles.update",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "PUT",
+     "path": "/api/admin/rbac/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.update",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.update",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.update",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "PUT",
+     "path": "/api/orgs/{id}/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.delete",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "DELETE",
+     "path": "/api/admin/rbac/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.delete",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "DELETE",
+     "path": "/api/orgs/{id}/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.delete",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "DELETE",
+     "path": "/api/orgs/{id}/roles/{name}"
+    },
+    {
+     "name": "rbac.roles.delete",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "DELETE",
+     "path": "/api/orgs/{id}/roles/{name}"
     }
    ]
   },
@@ -1432,6 +3897,237 @@
      "portal": "SUPPLIER",
      "method": "POST",
      "path": "/api/orgs/users/{id}/deactivate"
+    }
+   ]
+  },
+  {
+   "id": "users.sign-in",
+   "version": "1.0.0",
+   "label": "Sign-in and sessions",
+   "description": "Each person’s sign-in credential; send the set-up link again, reset the credential, or sign them out everywhere.",
+   "category": "Users",
+   "contexts": [
+    "PLATFORM",
+    "MANUFACTURER",
+    "DISTRIBUTOR",
+    "SUPPLIER"
+   ],
+   "requires": [
+    "org.user:read"
+   ],
+   "requiresMode": "any",
+   "cells": [
+    "org.user:read",
+    "org.user:administer"
+   ],
+   "actions": [
+    {
+     "id": "resend-link",
+     "label": "Send the set-up link again",
+     "cell": "org.user:administer",
+     "command": "users.sign-in.resend-link"
+    },
+    {
+     "id": "reset",
+     "label": "Reset the credential",
+     "cell": "org.user:administer",
+     "command": "users.sign-in.reset"
+    },
+    {
+     "id": "sign-out",
+     "label": "Sign out everywhere",
+     "cell": "org.user:administer",
+     "command": "users.sign-in.revoke-sessions"
+    }
+   ],
+   "sources": [
+    "users.sign-in.list"
+   ],
+   "commands": [
+    "users.sign-in.resend-link",
+    "users.sign-in.reset",
+    "users.sign-in.revoke-sessions"
+   ],
+   "operations": [
+    "view",
+    "approve"
+   ],
+   "commandOperations": {
+    "users.sign-in.resend-link": "approve",
+    "users.sign-in.reset": "approve",
+    "users.sign-in.revoke-sessions": "approve"
+   },
+   "inputs": {
+    "orgId": {
+     "from": [
+      "selection.orgId",
+      "context.orgId"
+     ],
+     "label": "Organization"
+    }
+   },
+   "publishes": [
+    "userId"
+   ],
+   "config": {
+    "pageSize": {
+     "type": "number",
+     "default": 10,
+     "min": 5,
+     "max": 100,
+     "label": "Rows per page"
+    }
+   },
+   "size": {
+    "xs": {
+     "kind": "span",
+     "min": 4,
+     "default": 4,
+     "max": 4
+    },
+    "sm": {
+     "kind": "span",
+     "min": 8,
+     "default": 8,
+     "max": 8
+    },
+    "md": {
+     "kind": "span",
+     "min": 8,
+     "default": 12,
+     "max": 12
+    },
+    "lg": {
+     "kind": "span",
+     "min": 6,
+     "default": 12,
+     "max": 12
+    }
+   },
+   "minHeight": null,
+   "hideOn": [
+    "forbidden"
+   ],
+   "scenarios": {
+    "default": "ready",
+    "empty": "ready",
+    "error": "error",
+    "longText": "ready",
+    "refused": "ready",
+    "forbidden": "forbidden"
+   },
+   "routes": [
+    {
+     "name": "users.sign-in.list",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/orgs/{id}/auth/users"
+    },
+    {
+     "name": "users.sign-in.list",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/auth/users"
+    },
+    {
+     "name": "users.sign-in.list",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/auth/users"
+    },
+    {
+     "name": "users.sign-in.list",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/auth/users"
+    },
+    {
+     "name": "users.sign-in.resend-link",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/resend-link"
+    },
+    {
+     "name": "users.sign-in.resend-link",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/resend-link"
+    },
+    {
+     "name": "users.sign-in.resend-link",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/resend-link"
+    },
+    {
+     "name": "users.sign-in.resend-link",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/resend-link"
+    },
+    {
+     "name": "users.sign-in.reset",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/reset-credential"
+    },
+    {
+     "name": "users.sign-in.reset",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/reset-credential"
+    },
+    {
+     "name": "users.sign-in.reset",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/reset-credential"
+    },
+    {
+     "name": "users.sign-in.reset",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/reset-credential"
+    },
+    {
+     "name": "users.sign-in.revoke-sessions",
+     "kind": "command",
+     "portal": "PLATFORM",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/revoke-sessions"
+    },
+    {
+     "name": "users.sign-in.revoke-sessions",
+     "kind": "command",
+     "portal": "MANUFACTURER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/revoke-sessions"
+    },
+    {
+     "name": "users.sign-in.revoke-sessions",
+     "kind": "command",
+     "portal": "DISTRIBUTOR",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/revoke-sessions"
+    },
+    {
+     "name": "users.sign-in.revoke-sessions",
+     "kind": "command",
+     "portal": "SUPPLIER",
+     "method": "POST",
+     "path": "/api/orgs/{id}/auth/users/{uid}/revoke-sessions"
     }
    ]
   }

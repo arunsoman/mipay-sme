@@ -22,6 +22,7 @@ import type { Tier } from './grid';
 import { TIERS, spanFor } from './grid';
 import type { WidgetDef } from './manifest';
 import { requiredList } from './manifest';
+import { defaultLayout } from './default-layouts';
 
 export const SOURCE_LOCALE = 'en';
 /** Locales offered in the builder (BCP 47). Namibia first; add more with "Add locale". */
@@ -113,8 +114,11 @@ export function rekey(layout: PortalLayout): PortalLayout {
 
 // ------------------------------------------------------------------ seed
 
-/** Start from today's menus (PORTAL_PERMISSION_CATALOGUE), English only, no widgets placed. */
+/** Start from the built-in layout (default-layouts.ts); for a portal without one, today's menus (PORTAL_PERMISSION_CATALOGUE), English only, no widgets placed. */
 export function seedLayout(portal: BusinessPortal): PortalLayout {
+  // the built-in layout when the portal has one (it replaced the coded menus); else today's catalogue
+  const built = defaultLayout(portal);
+  if (built) return built;
   return {
     format: 1, portal, version: 1, locales: [SOURCE_LOCALE],
     menus: PORTAL_PERMISSION_CATALOGUE[portal].map((m) => ({

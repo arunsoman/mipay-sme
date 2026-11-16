@@ -81,6 +81,22 @@ async function mount(entry: RegisteredWidget, portal: BusinessPortal, cells: str
   return { fixture, http, seen, reauth, host: () => (fixture.nativeElement as HTMLElement).querySelector('mp-widget-host')! };
 }
 
+/** Fills every empty text field and unpicked select inside `scope` (a form or a confirmation in front of a write). */
+function fillEmpty(scope: HTMLElement) {
+  for (const i of scope.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"]):not([type="radio"])')) {
+    if (i.value) continue;
+    i.value = 'conformance';
+    i.dispatchEvent(new Event('input'));
+  }
+  for (const sel of scope.querySelectorAll<HTMLSelectElement>('select')) {
+    if (sel.value) continue;
+    const first = [...sel.options].find((o) => o.value);
+    if (!first) continue;
+    sel.value = first.value;
+    sel.dispatchEvent(new Event('change'));
+  }
+}
+
 /** The widget's lazy chunk has loaded and its component is in the DOM (max 5 s). */
 async function mounted(m: Awaited<ReturnType<typeof mount>>) {
   const deadline = Date.now() + 3000;
@@ -166,6 +182,19 @@ describe.each(WIDGETS.map((w) => [w.def.id, w] as const))('conformance: %s', (_i
       const before = m.seen.length;
       press.click();
       await serve(m, entry, portal);
+      if (!m.seen.slice(before).some((r) => r.method !== 'GET')) {
+        // a form or a confirmation in front of the write: fill what it asks for, then press the action there
+        const modal = root.querySelector<HTMLElement>(`mp-modal [data-action="${action.id}"]`)?.closest<HTMLElement>('mp-modal');
+        const scope = modal ?? (el.matches('mp-entity-form') ? el : null);
+        if (scope) {
+          fillEmpty(scope);
+          await serve(m, entry, portal);
+          const target = modal ? modal.querySelector<HTMLElement>(`[data-action="${action.id}"]`)! : el;
+          const again = target.matches('button') ? target : ([...target.querySelectorAll<HTMLElement>('button')].pop() ?? target);
+          again.click();
+          await serve(m, entry, portal);
+        }
+      }
       if (m.seen.slice(before).some((r) => r.method !== 'GET')) reached++;
       const writes = m.seen.slice(before).filter((r) => !['GET', 'HEAD', 'OPTIONS'].includes(r.method));
       for (const w of writes) {
