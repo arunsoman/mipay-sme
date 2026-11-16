@@ -2632,9 +2632,9 @@
   },
   {
    "id": "rbac.my-access",
-   "version": "1.0.0",
+   "version": "2.0.0",
    "label": "My access",
-   "description": "Your roles and every permission you hold, with what each one is for.",
+   "description": "What your roles let you do, widget by widget: View, Create, Modify, Approve (read-only).",
    "category": "Access",
    "contexts": [
     "PLATFORM",
@@ -2643,19 +2643,18 @@
     "SUPPLIER"
    ],
    "requires": [
-    "org.user:read",
     "rbac.role:read",
-    "rbac.assignment:read"
+    "admin.access:read"
    ],
    "requiresMode": "any",
    "cells": [
-    "org.user:read",
     "rbac.role:read",
-    "rbac.assignment:read"
+    "admin.access:read"
    ],
    "actions": [],
    "sources": [
-    "rbac.my-access.get"
+    "rbac.my-access.get",
+    "rbac.my-access.widgets"
    ],
    "commands": [],
    "operations": [
@@ -2664,15 +2663,7 @@
    "commandOperations": {},
    "inputs": {},
    "publishes": [],
-   "config": {
-    "pageSize": {
-     "type": "number",
-     "default": 15,
-     "min": 5,
-     "max": 100,
-     "label": "Rows per page"
-    }
-   },
+   "config": {},
    "size": {
     "xs": {
      "kind": "span",
@@ -2688,14 +2679,14 @@
     },
     "md": {
      "kind": "span",
-     "min": 6,
+     "min": 8,
      "default": 12,
      "max": 12
     },
     "lg": {
      "kind": "span",
-     "min": 4,
-     "default": 6,
+     "min": 6,
+     "default": 12,
      "max": 12
     }
    },
@@ -2708,7 +2699,8 @@
     "empty": "empty",
     "error": "error",
     "longText": "ready",
-    "forbidden": "forbidden"
+    "forbidden": "forbidden",
+    "catalogueRefused": "ready"
    },
    "routes": [
     {
@@ -2738,6 +2730,34 @@
      "portal": "SUPPLIER",
      "method": "GET",
      "path": "/api/orgs/me/access"
+    },
+    {
+     "name": "rbac.my-access.widgets",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/ui/widgets"
+    },
+    {
+     "name": "rbac.my-access.widgets",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/ui/widgets"
+    },
+    {
+     "name": "rbac.my-access.widgets",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/orgs/{id}/ui/widgets"
+    },
+    {
+     "name": "rbac.my-access.widgets",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/orgs/{id}/ui/widgets"
     }
    ]
   },

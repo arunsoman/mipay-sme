@@ -84,6 +84,19 @@ export function buildOperationsTree(portal: BusinessPortal, widgets: readonly Re
   return out;
 }
 
+/** Only the widgets on which `held` ticks at least one operation (a person's or role's read-only view). */
+export function heldOnly(menus: readonly GridMenu[], held: ReadonlySet<string>): GridMenu[] {
+  const none = new Set<string>();
+  const out: GridMenu[] = [];
+  for (const m of menus) {
+    const submenus = m.submenus
+      .map((s) => ({ ...s, widgets: s.widgets.filter((w) => ROLE_OPERATIONS.some((o) => opState(w, o, held, none) === 'own')) }))
+      .filter((s) => s.widgets.length);
+    if (submenus.length) out.push({ ...m, submenus });
+  }
+  return out;
+}
+
 /** How an operation shows for a role holding `selected` (own) and `inherited` cells. */
 export function opState(w: GridWidget, op: RoleOperation, selected: ReadonlySet<string>, inherited: ReadonlySet<string>): OpState {
   if (!w.supported[op]) return 'unsupported';

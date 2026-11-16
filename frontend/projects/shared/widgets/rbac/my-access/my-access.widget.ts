@@ -1,36 +1,34 @@
 /**
- * My access (rbac.my-access): the signed-in person's roles and every permission they hold, with
- * what each one is for - "why can't I see X?". GET /api/orgs/me/access needs only a session, but a
- * widget is always gated, so it shows to anyone who reads users, roles or assignments (the people
- * who answer that question).
+ * My access (rbac.my-access): the signed-in person's roles, and what those roles let them do laid
+ * out like the role builder (rbac.new-role) but read-only - menu › submenu › widget against View,
+ * Create, Modify, Approve, ticked where they hold it. Only widgets with at least one tick show.
+ *
+ * GET /api/orgs/me/access needs only a session; the widget catalogue behind the grid does not
+ * (admin.access:read in PLATFORM, rbac.role:read in the org portals), so the widget is gated on those.
  */
 import { defineWidget, span } from '../../core/manifest';
-import { RBAC_MY_ACCESS_GET } from './my-access.contract';
+import { RBAC_MY_ACCESS_GET, RBAC_MY_ACCESS_WIDGETS } from './my-access.contract';
 
-export interface RbacMyAccessConfig {
-  /** Rows per page. */
-  pageSize: number;
-}
+export type RbacMyAccessConfig = Record<string, never>;
 
 export default defineWidget<RbacMyAccessConfig>({
   id: 'rbac.my-access',
-  version: '1.0.0',
+  version: '2.0.0',
   label: 'My access',
-  description: 'Your roles and every permission you hold, with what each one is for.',
+  description: 'What your roles let you do, widget by widget: View, Create, Modify, Approve (read-only).',
   category: 'Access',
   contexts: ['PLATFORM', 'MANUFACTURER', 'DISTRIBUTOR', 'SUPPLIER'],
-  requires: ['org.user:read', 'rbac.role:read', 'rbac.assignment:read'],
+  // the widget catalogue: rbac.role:read in an org portal, admin.access:read in PLATFORM
+  requires: ['rbac.role:read', 'admin.access:read'],
   actions: [],
-  sources: ['rbac.my-access.get'],
+  sources: ['rbac.my-access.get', 'rbac.my-access.widgets'],
   commands: [],
   operations: ['view'],
   commandOperations: {},
-  contracts: { 'rbac.my-access.get': RBAC_MY_ACCESS_GET },
+  contracts: { 'rbac.my-access.get': RBAC_MY_ACCESS_GET, 'rbac.my-access.widgets': RBAC_MY_ACCESS_WIDGETS },
   requests: {},
-  config: {
-    pageSize: { type: 'number', default: 15, min: 5, max: 100, label: 'Rows per page' },
-  },
-  size: { xs: span.xs(4), sm: span.sm(8), md: span.md(6, 12), lg: span.lg(4, 6, 12) },
+  config: {},
+  size: { xs: span.xs(4), sm: span.sm(8), md: span.md(8, 12), lg: span.lg(6, 12) },
   hideOn: ['forbidden'],
   load: () => import('./my-access.component').then((m) => m.RbacMyAccessWidget),
 });

@@ -130,6 +130,11 @@ export const SOURCES = defineSources({
   // </widget org.rights>
   // <widget rbac.my-access>
   'rbac.my-access.get': { '*': { method: 'GET', path: '/api/orgs/me/access' } },
+  // the portal's widgets, to lay the person's cells out as menu › submenu › widget (same catalogue as rbac.new-role)
+  'rbac.my-access.widgets': {
+    PLATFORM: { method: 'GET', path: '/api/ui/widgets', query: ['portal'] },
+    '*': { method: 'GET', path: '/api/orgs/{id}/ui/widgets', query: ['portal'] },
+  },
   // </widget rbac.my-access>
   // <widget rbac.resources>
   'rbac.resources.list': { PLATFORM: { method: 'GET', path: '/api/admin/rbac/resources' } },

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { booleanAttribute, ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { MpCheckbox } from '../atoms/mp-checkbox';
 import {
   GridMenu, GridWidget, OPERATION_LABEL, opState, ROLE_OPERATIONS, RoleOperation, toggleOperation,
@@ -10,10 +10,12 @@ import {
  * Approve as tick boxes. The four column titles stay visible no matter what: the header row is
  * sticky while the grid scrolls, and every widget shows all four - only the operations it
  * supports can be ticked; the others are greyed and not clickable. Cells inherited from the
- * roles it builds on show ticked and locked.
+ * roles it builds on show ticked and locked. With `readonly` nothing can be ticked: the grid only
+ * shows what a role (or a person) may do.
  *
  * It only edits `selected` (the role's own cells):
  * <mp-operations-grid [menus]="tree()" [selected]="cells()" [inherited]="fromBases()" (selectedChange)="cells.set($event)" />
+ * <mp-operations-grid [menus]="tree()" [selected]="held()" readonly />
  */
 @Component({
   selector: 'mp-operations-grid',
@@ -41,7 +43,7 @@ import {
                     @let st = state(w, op);
                     <td class="op" [attr.data-op]="op" [attr.data-state]="st">
                       <mp-checkbox [checked]="st === 'own' || st === 'inherited'" [disabled]="disabled() || st === 'unsupported'"
-                                   [locked]="st === 'inherited'" [ariaLabel]="label[op] + ' on ' + w.label"
+                                   [locked]="!readonly() && st === 'inherited'" [readonly]="readonly() && st !== 'unsupported'" [ariaLabel]="label[op] + ' on ' + w.label"
                                    [title]="hint(w, op, st)" (checkedChange)="set(w, op, $event)" />
                     </td>
                   }
@@ -86,6 +88,8 @@ export class OperationsGrid {
   readonly selected = input.required<Set<string>>();
   readonly inherited = input<Set<string>>(new Set());
   readonly disabled = input(false);
+  /** Show only: no box can be changed. */
+  readonly readonly = input(false, { transform: booleanAttribute });
   /** The grid scrolls inside this height; its header stays on top. */
   readonly maxHeight = input('min(70vh, 640px)');
   readonly empty = input('No widgets on this portal yet.');
@@ -98,11 +102,13 @@ export class OperationsGrid {
 
   hint(w: GridWidget, op: RoleOperation, st: string): string {
     if (st === 'unsupported') return `${w.label} has no ${OPERATION_LABEL[op]} operation`;
+    if (this.readonly()) return st === 'off' ? `No ${OPERATION_LABEL[op]} on ${w.label}` : `${OPERATION_LABEL[op]} on ${w.label}`;
     if (st === 'inherited') return 'From a role it builds on';
     return w.cells[op].join(', ');
   }
 
   set(w: GridWidget, op: RoleOperation, on: boolean) {
+    if (this.readonly()) return;
     this.selectedChange.emit(toggleOperation(w, op, on, this.selected(), this.inherited()));
   }
 }

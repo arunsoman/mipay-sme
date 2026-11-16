@@ -15,6 +15,9 @@ type Item = [widgetId: string, config?: Record<string, unknown>];
 type Screen = [id: string, label: string, items: Item[]];
 type Menu = [id: string, icon: string, label: string, screens: Screen[]];
 
+/** Widgets whose current major is 2 (the rest are at 1). */
+const MAJOR_2 = new Set(['kyc.tasks', 'kyc.orgs', 'rbac.my-access']);
+
 function build(portal: BusinessPortal, menus: Menu[]): PortalLayout {
   const p = portal.toLowerCase();
   return {
@@ -26,7 +29,7 @@ function build(portal: BusinessPortal, menus: Menu[]): PortalLayout {
         uid: `${mid}-${sid}`, id: sid,
         label: { key: `portal.${p}.${mid}.${sid}`, messages: { en: slabel } },
         items: items.map(([widgetId, config], i): PlacedWidget => ({
-          instanceId: `${mid}-${sid}-${i + 1}`, widgetId, major: widgetId === 'kyc.tasks' || widgetId === 'kyc.orgs' ? 2 : 1,
+          instanceId: `${mid}-${sid}-${i + 1}`, widgetId, major: MAJOR_2.has(widgetId) ? 2 : 1,
           config: config ?? {},
         })),
       })),
