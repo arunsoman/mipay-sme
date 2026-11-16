@@ -1602,9 +1602,9 @@
   },
   {
    "id": "org.onboard-child",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "label": "Onboard an organization",
-   "description": "Submit a new organization below yours, with its first administrator, for approval.",
+   "description": "One step: fill the new organization’s KYC on five tabs and submit; the org and its administrator are created with it.",
    "category": "Onboarding",
    "contexts": [
     "PLATFORM",
@@ -1614,33 +1614,37 @@
    ],
    "requires": [
     "org.onboarding:create",
-    "org.rights:read"
+    "org.rights:read",
+    "kyc.form:read"
    ],
    "requiresMode": "all",
    "cells": [
     "org.onboarding:create",
-    "org.rights:read"
+    "org.rights:read",
+    "kyc.form:read"
    ],
    "actions": [
     {
      "id": "submit",
-     "label": "Submit for approval",
+     "label": "Submit for review",
      "cell": "org.onboarding:create",
-     "command": "org.children.submit"
+     "command": "org.children.onboard"
     }
    ],
    "sources": [
-    "org.grantable.get"
+    "org.grantable.get",
+    "kyc.schema.type.get",
+    "kyc.list.get"
    ],
    "commands": [
-    "org.children.submit"
+    "org.children.onboard"
    ],
    "operations": [
     "view",
     "create"
    ],
    "commandOperations": {
-    "org.children.submit": "create"
+    "org.children.onboard": "create"
    },
    "inputs": {},
    "publishes": [
@@ -1668,8 +1672,8 @@
     },
     "lg": {
      "kind": "span",
-     "min": 6,
-     "default": 8,
+     "min": 8,
+     "default": 12,
      "max": 12
     }
    },
@@ -1682,6 +1686,7 @@
     "empty": "empty",
     "error": "error",
     "longText": "ready",
+    "invalid": "ready",
     "refused": "ready",
     "forbidden": "forbidden"
    },
@@ -1715,32 +1720,88 @@
      "path": "/api/orgs/me/grantable"
     },
     {
-     "name": "org.children.submit",
+     "name": "kyc.schema.type.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/schema/types/{orgType}"
+    },
+    {
+     "name": "kyc.schema.type.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/schema/types/{orgType}"
+    },
+    {
+     "name": "kyc.schema.type.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/schema/types/{orgType}"
+    },
+    {
+     "name": "kyc.schema.type.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/schema/types/{orgType}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "PLATFORM",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "MANUFACTURER",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "DISTRIBUTOR",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "kyc.list.get",
+     "kind": "source",
+     "portal": "SUPPLIER",
+     "method": "GET",
+     "path": "/api/kyc/lists/{code}"
+    },
+    {
+     "name": "org.children.onboard",
      "kind": "command",
      "portal": "PLATFORM",
      "method": "POST",
-     "path": "/api/orgs/me/children"
+     "path": "/api/orgs/me/children/with-kyc"
     },
     {
-     "name": "org.children.submit",
+     "name": "org.children.onboard",
      "kind": "command",
      "portal": "MANUFACTURER",
      "method": "POST",
-     "path": "/api/orgs/me/children"
+     "path": "/api/orgs/me/children/with-kyc"
     },
     {
-     "name": "org.children.submit",
+     "name": "org.children.onboard",
      "kind": "command",
      "portal": "DISTRIBUTOR",
      "method": "POST",
-     "path": "/api/orgs/me/children"
+     "path": "/api/orgs/me/children/with-kyc"
     },
     {
-     "name": "org.children.submit",
+     "name": "org.children.onboard",
      "kind": "command",
      "portal": "SUPPLIER",
      "method": "POST",
-     "path": "/api/orgs/me/children"
+     "path": "/api/orgs/me/children/with-kyc"
     }
    ]
   },

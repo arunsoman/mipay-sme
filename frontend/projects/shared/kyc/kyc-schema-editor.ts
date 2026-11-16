@@ -87,7 +87,7 @@ type Chip = { value: string; label: string; more: boolean };
         } @else {
           @for (item of docList(sec); track $index; let i = $index) {
             <div class="item" [class.solo]="sec.minItems === 1 && sec.maxItems === 1">
-              <div class="ihead"><span class="iname">{{ singular(sec) }} {{ i + 1 }}
+              <div class="ihead"><span class="iname">{{ itemTitle(sec, item, i) }}
                 @if (isOwnershipSection(sec) && isBeneficialOwner(item)) {
                   <span class="bo" title="Owns or controls at least {{ threshold() }}% — identified as a beneficial owner">✓ Beneficial owner</span>
                 }</span>
@@ -311,11 +311,10 @@ export class KycSchemaEditor implements OnInit {
   /** Bumped on every edit so the progress ticks follow the (mutable) document. */
   readonly tick = signal(0);
 
-  /** "Tax Identification Number (TIN / EIN / GSTIN / VAT ID)" → label without the trailing aside. */
+  /** The field name exactly as the master (kyc-filed.md) words it, asides included. */
   label(fl: SchemaField) {
     if (fl.key === 'addressType' && fl.label === 'Address') return 'Address type';
-    const m = fl.label.match(/^(.*\S)\s*\(([^()]+)\)$/);
-    return m ? m[1] : fl.label;
+    return fl.label;
   }
 
   /** The trailing aside of a label becomes the placeholder. */
@@ -542,6 +541,14 @@ export class KycSchemaEditor implements OnInit {
 
   canAdd(sec: SchemaSection, n: number) { return sec.maxItems == null || n < sec.maxItems; }
   canRemove(sec: SchemaSection, n: number) { return n > (sec.minItems ?? 0); }
+
+  /** "Person 1"; an address card is named by its kind, the spec's field ("Registered Office Address"). */
+  itemTitle(sec: SchemaSection, item: Doc, i: number) {
+    const kind = sec.fields.find((f) => f.key === 'addressType');
+    const v = kind ? item['addressType'] : null;
+    const name = v != null ? this.listOf(kind!, item).find((o) => o.value === v)?.label : null;
+    return name || `${this.singular(sec)} ${i + 1}`;
+  }
 
   singular(sec: SchemaSection) {
     if (this.isOwnershipSection(sec)) return 'Person';

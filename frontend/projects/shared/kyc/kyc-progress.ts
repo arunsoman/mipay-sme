@@ -1,20 +1,21 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
-/** "Business Profile & General Information" → "Business"; known KYC sections get a fixed short name. */
+/** The KYC tab title: the section title exactly as the master (and kyc-filed.md) words it. */
 export function shortStepLabel(sec: { key: string; title: string } | undefined): string {
-  if (!sec) return '';
-  const known: Record<string, string> = {
-    businessProfile: 'Business', operationalDetails: 'Operations', addresses: 'Addresses',
-    ubos: 'Ultimate Beneficial Owners (UBO) & Key Management', bankAccounts: 'Bank account',
-  };
-  return known[sec.key] ?? sec.title.split(/ & | \(|:/)[0];
+  return sec?.title ?? '';
 }
 
-/** The short names of the five KYC steps, for screens drawn before the schema is loaded. */
-export const KYC_STEP_LABELS = ['Business', 'Operations', 'Addresses', 'Ultimate Beneficial Owners (UBO) & Key Management', 'Bank account'];
+/** The five KYC tabs, for screens drawn before the schema is loaded (kyc-filed.md). */
+export const KYC_STEP_LABELS = [
+  'Business Profile & General Information',
+  'Operational & Store Details',
+  'Registered & Operational Address',
+  'Ultimate Beneficial Owners (UBO) & Key Management',
+  'Settlement & Payout Bank Account Details',
+];
 
 /**
- * A quiet step indicator: one thin bar per step with its short name underneath.
+ * The KYC tabs: one thin bar per section with its title underneath; any tab can be picked.
  * Current = accent, done = ✓, problems = red. On a phone only the current name shows.
  */
 @Component({

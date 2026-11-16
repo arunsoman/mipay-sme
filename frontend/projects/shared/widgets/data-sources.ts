@@ -71,8 +71,10 @@ export const SOURCES = defineSources({
   'org.onboarding.decide': { '*': { method: 'POST', path: '/api/orgs/onboarding/{id}/decide' } },
   // </widget org.onboarding-queue>
   // <widget org.onboard-child>
+  // one step: the five-tab KYC document creates the org, its system-made admin and the submitted KYC
   'org.grantable.get': { '*': { method: 'GET', path: '/api/orgs/me/grantable' } },
-  'org.children.submit': { '*': { method: 'POST', path: '/api/orgs/me/children' } },
+  'kyc.schema.type.get': { '*': { method: 'GET', path: '/api/kyc/schema/types/{orgType}' } },
+  'org.children.onboard': { '*': { method: 'POST', path: '/api/orgs/me/children/with-kyc' } },
   // </widget org.onboard-child>
   // <widget org.network>
   'org.tree.get': { '*': { method: 'GET', path: '/api/orgs/me/tree' } },

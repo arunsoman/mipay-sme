@@ -85,12 +85,14 @@ async function mount(entry: RegisteredWidget, portal: BusinessPortal, cells: str
 function fillEmpty(scope: HTMLElement) {
   for (const i of scope.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"]):not([type="radio"])')) {
     if (i.value) continue;
-    i.value = 'conformance';
+    i.value = i.type === 'date' ? '2020-01-01' : i.type === 'number' ? '1' : 'conformance';
     i.dispatchEvent(new Event('input'));
   }
+  // an [ngValue] select shows its empty choice as "0: null"
+  const empty = (v: string) => !v || /^\d+: null$/.test(v);
   for (const sel of scope.querySelectorAll<HTMLSelectElement>('select')) {
-    if (sel.value) continue;
-    const first = [...sel.options].find((o) => o.value);
+    if (!empty(sel.value)) continue;
+    const first = [...sel.options].find((o) => !empty(o.value));
     if (!first) continue;
     sel.value = first.value;
     sel.dispatchEvent(new Event('change'));
@@ -175,6 +177,17 @@ describe.each(WIDGETS.map((w) => [w.def.id, w] as const))('conformance: %s', (_i
         root.querySelector<HTMLElement>('mp-data-table tbody tr')?.click();
         await serve(m, entry, portal);
         el = root.querySelector<HTMLElement>(`[data-action="${action.id}"]`);
+      }
+      // a tabbed form (the KYC tabs): fill each tab and continue until the action shows
+      for (let tab = 0; !el && tab < 10; tab++) {
+        const next = root.querySelector<HTMLElement>('[data-action="next"]');
+        if (!next) break;
+        fillEmpty(root);
+        await serve(m, entry, portal);
+        next.click();
+        await serve(m, entry, portal);
+        el = root.querySelector<HTMLElement>(`[data-action="${action.id}"]`);
+        if (el) { fillEmpty(root); await serve(m, entry, portal); }   // the last tab, where the action is
       }
       if (!el) continue; // offered only in some states (e.g. withdraw); covered by the widget's own spec
       // an organism carrying the action (approval-actions): press its last button (the primary one)

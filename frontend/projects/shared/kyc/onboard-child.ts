@@ -2,31 +2,44 @@ import { MpSpinner } from '../../../src/app/design-system/atoms/mp-spinner';
 import { MpAlert } from '../../../src/app/design-system/molecules/alert';
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, output, signal, viewChildren } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
+import { NgTemplateOutlet } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
 import { GrantableChild, GrantableView, KYC_HINTS, OrgDecisionResult, readProblem, refusal, titleCase } from './kyc-api';
 import { KycSchemaEditor, SchemaResponse } from './kyc-schema-editor';
 import { KycProgress } from './kyc-progress';
 import { Doc } from './kyc-conditions';
 import { Modal } from '../../../src/app/design-system/organisms/modal';
+import { WidgetDataPort } from '../widgets/core/port';
 
-interface Onboarded { orgId: string; requestId: string; status: string; adminUsername: string; }
+/** What the one onboarding call answers (OrgController#submitChildWithKyc). */
+export interface Onboarded { orgId: string; requestId: string; status: string; adminUsername: string; }
 
 /**
- * "Onboard an organization", the same in every portal: one five-step KYC wizard.
- * The org type is picked on step 1, then the KYC sections are filled in the browser;
- * nothing exists on the server until "Submit for review", which creates the org, its
- * administrator (UBO Person 1; login name = legal business name + MCC) and the
- * submitted KYC in one all-or-nothing call (POST /api/orgs/me/children/with-kyc).
- * The child types on offer are the caller's org's effective DIRECT rights; the new org
- * gets the default onboarding rights and role ceiling for its type.
+ * "Onboard an organization", the same in every portal and in the org.onboard-child widget:
+ * creating the KYC IS the onboarding (kyc-filed.md). One form with the five KYC tabs
+ * (Business Profile & General Information … Settlement & Payout Bank Account Details); the org
+ * type is picked on the first tab. Nothing exists on the server until "Submit for review",
+ * which creates the org, its administrator and the submitted KYC in one all-or-nothing call
+ * (org.children.onboard → POST /api/orgs/me/children/with-kyc). The administrator is made by
+ * the system: login name = the Legal Business Name (+ the Business Registration / Corporate ID
+ * Number when another business has that name); contact = UBO Person 1's phone and email.
+ * The child types on offer are the caller's org's effective DIRECT rights; the new org gets
+ * the default onboarding rights and role ceiling for its type. Every call goes through the
+ * WidgetDataPort (the portal's gateway port, or a widget's scoped port).
  */
 @Component({
   selector: 'mp-onboard-child',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MpSpinner, MpAlert, FormsModule, KycSchemaEditor, KycProgress, Modal],
+  imports: [MpSpinner, MpAlert, FormsModule, NgTemplateOutlet, KycSchemaEditor, KycProgress, Modal],
   template: `
-    @if (compact()) {
+    @if (inline()) {
+      @if (grantError(); as e) {<mp-alert kind="bad">{{ e }}</mp-alert>}
+      @if (grantable(); as g) {
+        @if (g.children.length) {<ng-container [ngTemplateOutlet]="formT" />}
+      } @else if (!grantError()) {
+        <mp-spinner label="Loading what you may onboard…" />
+      }
+    } @else if (compact()) {
       <button class="primary" type="button" (click)="openForm()" [disabled]="!grantable()?.children?.length"
               [title]="grantError() || (grantable()?.children?.length ? 'You may onboard: ' + allowedSummary(grantable()!) : 'Your organization has no onboarding rights')">＋ Onboard organization</button>
     } @else {
@@ -48,17 +61,28 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
     </section>
     }
 
-    <mp-modal [open]="open()" size="wide" eyebrow="New organization"
-              [title]="done() ? legalName() : 'Onboard an organization'"
-              [dirty]="!done() && dirty()" discardText="Discard this organization? Nothing has been created yet."
-              (closed)="closeForm()">
+    @if (!inline()) {
+      <mp-modal [open]="open()" size="wide" eyebrow="New organization"
+                [title]="done() ? legalName() : 'Onboard an organization'"
+                [dirty]="!done() && dirty()" discardText="Discard this organization? Nothing has been created yet."
+                (closed)="closeForm()">
+        <ng-container [ngTemplateOutlet]="formT" />
+      </mp-modal>
+    }
+
+    <ng-template #formT>
       @if (done(); as r) {
-        <div class="done">
+        <div class="done" data-done>
           <div class="mark">✓</div>
           <h3>Sent for review</h3>
-          <p>{{ legalName() }}’s KYC is with MiPay. Once it is approved, the administrator gets the login
-            <b class="mono">{{ r.adminUsername }}</b> and an activation link by email.</p>
-          <button type="button" class="primary" (click)="closeForm()">Close</button>
+          <p>{{ legalName() }} is onboarded and its KYC is with MiPay. The system created its administrator with the
+            login <b class="mono" data-admin-login>{{ r.adminUsername }}</b>; once the KYC is approved the activation
+            link goes to Person 1’s email.</p>
+          @if (inline()) {
+            <button type="button" class="primary" data-action="again" (click)="openForm()">Onboard another organization</button>
+          } @else {
+            <button type="button" class="primary" (click)="closeForm()">Close</button>
+          }
         </div>
       } @else if (grantable(); as g) {
         @if (wiz(); as w) {
@@ -68,7 +92,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
         @if ((wiz()?.stepIdx() ?? 0) === 0) {
           <div class="typerow">
             <label class="fl"><span class="lb">Organization type</span>
-              <select class="inp" [ngModel]="childType()" (ngModelChange)="pickTypeByName($event)">
+              <select class="inp" data-field="type" [ngModel]="childType()" (ngModelChange)="pickTypeByName($event)">
                 @for (c of g.children; track c.type) {<option [value]="c.type">{{ title(c.type) }}</option>}
               </select></label>
             @if (childType() === 'LENDER') {
@@ -87,32 +111,33 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
           <mp-spinner label="Loading the KYC form…" />
         }
 
-        @if (flash(); as f) {<mp-alert [kind]="f.kind">{{ f.text }}</mp-alert>}
-        <div class="wfoot">
+        @if (flash(); as f) {<mp-alert [kind]="f.kind" data-flash>{{ f.text }}</mp-alert>}
+        <div class="wfoot" [class.flat]="inline()">
           @if ((wiz()?.stepIdx() ?? 0) === 0) {
-            <button type="button" class="ghost" (click)="closeForm()">Cancel</button>
+            @if (!inline()) {<button type="button" class="ghost" (click)="closeForm()">Cancel</button>}
           } @else {
-            <button type="button" class="ghost" (click)="back()" [disabled]="busy()">Back</button>
+            <button type="button" class="ghost" data-action="back" (click)="back()" [disabled]="busy()">Back</button>
           }
           <span class="grow"></span>
           @if (wiz()?.isLastStep()) {
-            <button type="button" class="primary" (click)="submit()" [disabled]="busy() || !schema()">
+            <button type="button" class="primary" data-action="submit" (click)="submit()" [disabled]="busy() || !schema()">
               {{ busy() ? 'Submitting…' : 'Submit for review' }}</button>
           } @else {
-            <button type="button" class="primary" (click)="next()" [disabled]="!schema()">Continue</button>
+            <button type="button" class="primary" data-action="next" (click)="next()" [disabled]="!schema()">Continue</button>
           }
         </div>
       }
-    </mp-modal>
+    </ng-template>
   `,
   styles: [`
+    :host { display: block; container-type: inline-size; min-width: 0; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .small { font-size: var(--fs-xs); }
     .muted { color: var(--a-dim); }
     .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--a-text); }
 
     .typerow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
-    @media (max-width: 640px) { .typerow { grid-template-columns: 1fr; } }
+    @container (max-width: 640px) { .typerow { grid-template-columns: 1fr; } }
     .fl { display: grid; gap: 7px; min-width: 0; }
     .lb { font-size: 13px; font-weight: 550; color: #d9d9d9; }
     .inp { box-sizing: border-box; height: 44px; width: 100%; font-size: 14.5px; border-radius: 10px;
@@ -121,6 +146,7 @@ interface Onboarded { orgId: string; requestId: string; status: string; adminUse
     .wfoot { position: sticky; bottom: -18px; z-index: 2; margin: 8px -22px -18px; padding: 14px 22px;
              background: color-mix(in srgb, #111 94%, transparent); backdrop-filter: blur(6px);
              border-top: 1px solid var(--a-border); display: flex; gap: 10px; align-items: center; }
+    .wfoot.flat { position: static; margin: 0; padding: 14px 0 0; background: none; backdrop-filter: none; }
     .wfoot .grow { flex: 1; }
     .wfoot button { min-height: 42px; padding: 0 22px; }
     .done { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 48px 16px 40px; }
@@ -137,8 +163,12 @@ export class OnboardChild implements OnInit {
   readonly kycChanged = output<string>();
   /** Just the "Onboard organization" button (a page header), no panel around it. */
   readonly compact = input(false);
+  /** The form itself, in place (the org.onboard-child widget), instead of a button and a modal. */
+  readonly inline = input(false);
+  /** What the org may onboard, once read (a widget turns "nothing" into its empty state). */
+  readonly rights = output<GrantableView>();
 
-  private readonly http = inject(HttpClient);
+  private readonly data = inject(WidgetDataPort);
   private readonly destroyRef = inject(DestroyRef);
   private loadingGrantable = false;
 
@@ -168,8 +198,8 @@ export class OnboardChild implements OnInit {
   readonly flash = signal<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   readonly done = signal<Onboarded | null>(null);
   readonly blurbs = {
-    ubos: 'Everyone who owns or controls the business, and its key managers. Person 1 becomes the MiPay administrator: '
-      + 'their phone and email are the login contact.',
+    ubos: 'Everyone who owns or controls the business, and its key managers. Person 1 is the contact of the administrator '
+      + 'the system creates: the login name comes from the Legal Business Name, the activation link goes to Person 1’s email.',
   };
 
   readonly title = titleCase;
@@ -182,9 +212,12 @@ export class OnboardChild implements OnInit {
   }
 
   async ngOnInit() {
-    const timer = window.setInterval(() => { if (!document.hidden && !this.open()) void this.loadGrantable(); }, 10000);
-    this.destroyRef.onDestroy(() => window.clearInterval(timer));
+    if (!this.inline()) {
+      const timer = window.setInterval(() => { if (!document.hidden && !this.open()) void this.loadGrantable(); }, 10000);
+      this.destroyRef.onDestroy(() => window.clearInterval(timer));
+    }
     await this.loadGrantable();
+    if (this.inline() && this.grantable()?.children.length) this.openForm();
   }
 
   /** Anything typed that closing would lose (the prefilled countries and No answers do not count). */
@@ -200,7 +233,9 @@ export class OnboardChild implements OnInit {
     this.loadingGrantable = true;
     this.grantError.set('');
     try {
-      this.grantable.set(await firstValueFrom(this.http.get<GrantableView>('/api/orgs/me/grantable')));
+      const g = await firstValueFrom(this.data.query<GrantableView>('org.grantable.get'));
+      this.grantable.set(g);
+      this.rights.emit(g);
     } catch (e) {
       this.grantError.set(refusal(e, KYC_HINTS));
     } finally {
@@ -246,7 +281,7 @@ export class OnboardChild implements OnInit {
   private async loadSchema(type: string) {
     this.schemaError.set('');
     try {
-      const s = await firstValueFrom(this.http.get<SchemaResponse>(`/api/kyc/schema/types/${type}`));
+      const s = await firstValueFrom(this.data.query<SchemaResponse>('kyc.schema.type.get', { orgType: type }));
       if (type !== this.childType()) return;
       const before = this.schema();
       this.schema.set(s);
@@ -306,17 +341,17 @@ export class OnboardChild implements OnInit {
     return { roleCeiling: [...use], roleDelegable: [...this.roleHand()].filter((r) => use.has(r)) };
   }
 
-  /** One all-or-nothing call: the org, its administrator (UBO Person 1) and the submitted KYC. */
+  /** One all-or-nothing call: the org, its system-made administrator and the submitted KYC. */
   async submit() {
     const c = this.child();
     if (!c || !this.checkStep()) return;
     this.busy.set(true);
     this.flash.set(null);
     try {
-      const r = await firstValueFrom(this.http.post<Onboarded>('/api/orgs/me/children/with-kyc', {
+      const r = await firstValueFrom(this.data.command<Onboarded>('org.children.onboard', { body: {
         type: c.type, kyc: this.doc, licenceRef: this.licenceRef.trim() || null,
         rightsDirect: [...this.direct()], rightsCeiling: [...this.ceiling()], ...this.roleCeilingBody(),
-      }));
+      } }));
       this.problems.set([]);
       this.done.set(r);
       this.onboarded.emit({ requestId: r.requestId, orgId: r.orgId, status: r.status, message: '' });

@@ -506,7 +506,7 @@ public class KycMasterSeed implements ApplicationRunner {
                 "SOLE_PROPRIETOR|Sole Proprietorship", "PARTNERSHIP|Partnership", "PRIVATE_LIMITED|Private Limited / LLC",
                 "PUBLIC_CORPORATION|Public Corporation", "TRUST_NGO|Trust / NGO");
         list("KYC_ADDRESS_TYPE", null, "Registered office or operational / store address",
-                "REGISTERED|Registered office address", "OPERATING|Operational / store address");
+                "REGISTERED|Registered Office Address", "OPERATING|Operational / Store Address");
         list("KYC_ID_DOC_TYPE", null, "Government-issued identification document type",
                 "PASSPORT|Passport", "NATIONAL_ID|National ID", "DRIVING_LICENCE|Driver's License");
         list("KYC_ACCOUNT_TYPE", null, "Settlement account type",
@@ -558,31 +558,31 @@ public class KycMasterSeed implements ApplicationRunner {
         fld(ad, "addressType", "Address", 10)
                 .help("Registered office address (matching official registration documents); add an operational / store address only if it is different.")
                 .type(KycField.DataType.ENUM, "KYC_ADDRESS_TYPE");
-        fld(ad, "streetLine", "Street Line", 20).len(2, 200).sens(KycField.Sensitivity.PII, null);
+        fld(ad, "streetLine", "Street line", 20).len(2, 200).sens(KycField.Sensitivity.PII, null);
         fld(ad, "town", "City", 30).len(2, 100);
-        fld(ad, "region", "State / Province", 40).len(2, 100);
+        fld(ad, "region", "State/Province", 40).len(2, 100);
         fld(ad, "postalCode", "Postal Code", 50).len(2, 10);
         fld(ad, "country", "Country", 60).type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2);
         // 4. Ultimate Beneficial Owners (UBO) & Key Management
         fld(ub, "fullLegalName", "Full Legal Name", 10).help("Complete legal name of Directors, Partners, or UBOs.")
                 .len(2, 200).tag("UBO_NAME").sens(KycField.Sensitivity.PII, null);
-        fld(ub, "dateOfBirth", "Date of Birth (DOB)", 20).type(KycField.DataType.DATE, null)
+        fld(ub, "dateOfBirth", "Date of Birth (DOB)", 20).help("Demographic identification.").type(KycField.DataType.DATE, null)
                 .dateRule(KycField.DateRule.PAST).tag("UBO_DOB").sens(KycField.Sensitivity.PII, KycField.Mask.HIDE);
-        fld(ub, "nationality", "Nationality", 30).type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2).tag("UBO_NATIONALITY");
+        fld(ub, "nationality", "Nationality", 30).help("Demographic identification.").type(KycField.DataType.COUNTRY, "COUNTRY").len(null, 2).tag("UBO_NATIONALITY");
         fld(ub, "residentialAddress", "Residential Address", 40).help("Current home address of key personnel.")
                 .len(5, 300).tag("UBO_ADDRESS").sens(KycField.Sensitivity.PII, KycField.Mask.HIDE);
         // V20: Person 1's phone and email are the org administrator's login contact
         fld(ub, "phoneNumber", "Phone Number", 45)
-                .help("Mobile number. For Person 1 it is also the MiPay administrator's login contact.")
+                .help("Mobile number. Person 1 is the contact of the administrator the system creates for the org.")
                 .type(KycField.DataType.PHONE, null).len(6, 20).tag("UBO_PHONE").sens(KycField.Sensitivity.PII, null);
         fld(ub, "emailAddress", "Email Address", 46)
-                .help("For Person 1, the MiPay username and activation link are sent here.")
+                .help("For Person 1, the administrator's login name and activation link are sent here.")
                 .type(KycField.DataType.EMAIL, null).len(5, 200).tag("UBO_EMAIL").sens(KycField.Sensitivity.PII, null);
-        fld(ub, "identificationType", "Government-Issued ID: Document Type", 50)
+        fld(ub, "identificationType", "Government-Issued Identification Details: Document Type", 50)
                 .help("Passport, National ID, or Driver's License.").type(KycField.DataType.ENUM, "KYC_ID_DOC_TYPE").tag("UBO_ID_TYPE");
-        fld(ub, "identificationNumber", "Government-Issued ID: ID Number", 60).len(5, 32).tag("UBO_ID_NUMBER")
+        fld(ub, "identificationNumber", "Government-Issued Identification Details: ID Number", 60).len(5, 32).tag("UBO_ID_NUMBER")
                 .sens(KycField.Sensitivity.SECRET, KycField.Mask.LAST4);
-        fld(ub, "identificationExpiryDate", "Government-Issued ID: Expiry Date", 70)
+        fld(ub, "identificationExpiryDate", "Government-Issued Identification Details: Expiry Date", 70)
                 .help("Leave empty only for a national ID without an expiry date.")
                 .type(KycField.DataType.DATE, null).dateRule(KycField.DateRule.FUTURE)
                 .reqWhen("WHEN", not("item.identificationType", "NATIONAL_ID")).tag("UBO_ID_EXPIRY");

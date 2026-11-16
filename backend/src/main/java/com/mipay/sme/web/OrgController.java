@@ -89,27 +89,9 @@ public class OrgController {
         return tree.path(Current.get(), orgId);
     }
 
-    // ---------------- generic submitOrg [M10] ----------------
-
-    @Perm(resource = "org.onboarding", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
-          description = "Onboard a child organization")
-    @PostMapping("/me/children")
-    public Dtos.OrgDecisionResult submitChild(@RequestBody Dtos.SubmitOrgRequest req) {
-        Enums.OrgType childType;
-        try {
-            childType = Enums.OrgType.valueOf(req.type().toUpperCase());
-        } catch (IllegalArgumentException | NullPointerException e) {
-            throw new BadRequestException("ORG_TYPE_REQUIRED",
-                    "type must be one of MANUFACTURER, DISTRIBUTOR, SUPPLIER, MERCHANT, LENDER");
-        }
-        return onboarding.submitOrg(Current.get(), childType,
-                new OrgOnboardingService.OrgSpec(req.name(), req.registrationNumber(), req.businessType(),
-                        req.ownerName(), req.phone(), req.username(), req.email(),
-                        req.bankName(), req.accountNumber(), req.accountHolder(), req.licenceRef(),
-                        req.supplierType(), req.ownerIdNumber(),
-                        toTypes(req.rightsDirect()), toTypes(req.rightsCeiling()),
-                        req.roleCeiling(), req.roleDelegable()));
-    }
+    // ---------------- onboarding: one step [M10] ----------------
+    // There is no "create the org, then fill its KYC" endpoint any more: creating the KYC IS
+    // the onboarding (kyc-filed.md). POST /me/children (org + admin without KYC) was retired.
 
     /** {type, kyc: the whole KYC document, licenceRef?, rightsDirect?, rightsCeiling?, roleCeiling?, roleDelegable?} */
     public record OnboardWithKycRequest(String type, Map<String, Object> kyc, String licenceRef,
@@ -117,8 +99,9 @@ public class OrgController {
                                         List<String> roleCeiling, List<String> roleDelegable) { }
 
     /**
-     * The onboarding wizard's one call: creates the org with UBO Person 1 as its administrator,
-     * saves and submits its KYC, all or nothing.
+     * Onboarding, in one call: the five-section KYC document creates the org, the system-made
+     * administrator (login from the Legal Business Name; contact = UBO Person 1) and the
+     * submitted KYC, all or nothing.
      */
     @Perm(resource = "org.onboarding", verb = Verb.CREATE, tenantSource = TenantSource.SELF, tenant = "null",
           description = "Onboard a child organization with its complete KYC (all or nothing)")

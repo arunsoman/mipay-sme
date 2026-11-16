@@ -546,7 +546,6 @@ _None resolved for this prompt._ Ask the user for each endpoint (METHOD /api/pat
 | endpoint | cell | what it does | acts on | params | body → returns |
 |---|---|---|---|---|---|
 | `POST /api/orgs/{id}/admins` | `authorize` | Request admin recovery for an org (PATH tenant) | org in path | {id} | AdminRecoveryRequest → OrgDecisionResult |
-| `POST /api/orgs/me/children` | `create` | Onboard a child organization | own org | - | SubmitOrgRequest → OrgDecisionResult |
 | `POST /api/orgs/me/children/with-kyc` | `create` | Onboard a child organization with its complete KYC (all or nothing) | own org | - | OnboardWithKycRequest → map<string, any> |
 | `GET /api/orgs/onboarding` | `read` | View onboarding request queue for caller's org | own org | status? | - → OnboardingRequestRow[] |
 | `POST /api/orgs/onboarding/{id}/decide` | `authorize` | Decide an onboarding request (PATH tenant) | org in path | {id} | OrgDecideRequest → OrgDecisionResult |
@@ -859,7 +858,6 @@ StepResult = { step: string|null; ok: boolean; detail: string|null }
 StockAdjustRequest = { itemId: string; movementType: StockMovementType; quantity: number; reference: string|null }
 StockAlertRow = { id: string|null; itemName: string|null; alertType: string|null; resolved: boolean|null; createdAt: date-time|null }
 StockMovementType = 'SALE' | 'DELIVERY' | 'ADJUSTMENT' | 'WASTE'
-SubmitOrgRequest = { type: string; name: string|null; businessName: string|null; businessType: string|null; registrationNumber: string|null; ownerName: string|null; phone: string; username: string|null; email: string|null; bankName: string|null; accountNumber: string|null; accountHolder: string|null; licenceRef: string|null; supplierType: string|null; ownerIdNumber: string|null; rightsDirect: string[]|null; rightsCeiling: string[]|null; roleCeiling: string[]|null; roleDelegable: string[]|null }
 SupplierApprovalRow = { id: string|null; businessName: string|null; ownerName: string|null; ownerPhone: string|null; registrationNumber: string|null; approvalStatus: ApprovalStatus|null; createdAt: date-time|null; kycRiskRating: KycRiskRating|null; kycNextReviewDate: date|null }
 SupplierProfile = { id: string|null; businessName: string|null; ownerPhone: string|null; approvalStatus: ApprovalStatus|null }
 SuspendRequest = { entityType: string; entityId: string; reason: string }

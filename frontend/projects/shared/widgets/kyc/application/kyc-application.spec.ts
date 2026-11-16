@@ -2,21 +2,26 @@ import { renderWidget } from '../../core/testing';
 import { fail } from '../../core/fixtures';
 import def from './kyc-application.widget';
 import fixtures, { DRAFT } from './kyc-application.fixtures';
+import { KYC_V3_TABS } from '../../../kyc/kyc-v3-fixture';
 
 const READ = ['kyc.application:read', 'kyc.form:read'];
 const ALL = [...READ, 'kyc.application:modify', 'kyc.application:submit', 'kyc.application:delete'];
 
 describe('kyc.application', () => {
-  it('loads the application, its schema and the bank lists for the own org in an org portal', async () => {
+  it('loads the application, its schema and the lists not sent inline, for the own org in an org portal', async () => {
     const w = await renderWidget(def, fixtures, { portal: 'SUPPLIER', orgId: 'org-sup-1', cells: ALL });
     const names = w.callList().map(([n, p]) => `${n} ${JSON.stringify(p)}`);
     expect(names).toContain('kyc.application.get {"orgId":"org-sup-1"}');
     expect(names).toContain('kyc.schema.get {"orgId":"org-sup-1"}');
-    expect(names).toContain('kyc.list.get {"code":"BANK"}');
-    // the saved bank has a branch: its dependent list is preloaded
-    expect(names).toContain('kyc.list.get {"code":"BANK_BRANCH","parent":"FNB"}');
+    expect(names).toContain('kyc.list.get {"code":"NA_BANK"}');
     expect(w.state()).toBe('ready');
     expect(w.text()).toContain('Kalahari Supplies');
+  });
+
+  it('shows the five KYC tabs with their exact titles (kyc-filed.md)', async () => {
+    const w = await renderWidget(def, fixtures, { portal: 'SUPPLIER', orgId: 'org-sup-1', cells: ALL });
+    const tabs = w.queryAll('mp-kyc-progress li .name').map((n) => n.textContent!.replace('✓', '').trim());
+    expect(tabs).toEqual(KYC_V3_TABS);
   });
 
   it('prefers the page selection over the own org (admin directory pick)', async () => {
@@ -41,7 +46,7 @@ describe('kyc.application', () => {
     expect(c.name).toBe('kyc.application.save');
     expect(c.params['orgId']).toBe('org-sup-1');
     expect(c.params['expectedVersion']).toBe(3);
-    expect((c.params['body'] as Record<string, any>)['businessProfile']['legalName']).toBe('Kalahari Supplies (Pty) Ltd');
+    expect((c.params['body'] as Record<string, any>)['businessProfile']['legalBusinessName']).toBe('Kalahari Supplies (Pty) Ltd');
     expect(w.text()).toContain('Draft saved.');
   });
 

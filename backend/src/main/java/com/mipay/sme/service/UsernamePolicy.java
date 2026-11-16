@@ -51,24 +51,43 @@ public class UsernamePolicy {
     }
 
     /**
-     * An onboarded org's administrator: the legal business name folded to [a-z0-9] followed by
-     * the MCC, e.g. "Namib Fresh (Pty) Ltd" + 5411 → "namibfreshptyltd5411"; "-2", "-3"… when
-     * taken. Falls back to {@link #generate} without a usable name.
+     * An onboarded org's administrator login (kyc-filed.md, "Administrator login name"):
+     * <ol>
+     *   <li>the Legal Business Name folded to [a-z0-9], e.g. "Namib Fresh (Pty) Ltd" → "namibfreshptyltd";</li>
+     *   <li>when another business already has that name, the name followed by its Business
+     *       Registration / Corporate ID Number, e.g. "CC/2019/04512" → "namibfreshptyltd-cc201904512";</li>
+     *   <li>should even that be taken (or no registration number given), "-2", "-3"… on step 2's name.</li>
+     * </ol>
+     * Everything stays within the 32-char limit. Falls back to {@link #generate} without a usable name.
      */
-    public String forBusiness(String legalName, String mcc, String fallbackName, String fallbackEmail) {
-        String name = legalName == null ? "" : Normalizer.normalize(legalName.trim(), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-        String code = mcc == null ? "" : mcc.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+    public String forBusiness(String legalName, String registrationNumber, String fallbackName, String fallbackEmail) {
+        String name = fold(legalName);
         if (name.isEmpty()) return generate(fallbackName, fallbackEmail);
         if (!Character.isLetter(name.charAt(0))) name = "o" + name;
-        int room = 28 - code.length();                     // keeps "-NN" within the 32-char limit
-        if (name.length() > room) name = name.substring(0, Math.max(3, room));
-        String base = name + code;
-        if (free(base)) return base;
+        while (name.length() < 3) name = name + "x";
+        if (name.length() > 32) name = name.substring(0, 32);
+        if (free(name)) return name;
+
+        String reg = fold(registrationNumber);
+        if (reg.length() > 24) reg = reg.substring(reg.length() - 24);          // the distinctive tail
+        String base = name;
+        if (!reg.isEmpty()) {
+            int room = 32 - reg.length() - 1;                                    // name + "-" + reg
+            base = name.substring(0, Math.min(name.length(), Math.max(3, room))) + "-" + reg;
+            if (base.length() > 32) base = base.substring(0, 32);
+            if (free(base)) return base;
+        }
+        String stem = base.length() > 28 ? base.substring(0, 28) : base;      // keeps "-NN" within 32
         for (int i = 2; i < 100; i++) {
-            if (free(base + "-" + i)) return base + "-" + i;
+            if (free(stem + "-" + i)) return stem + "-" + i;
         }
         return generate(fallbackName, fallbackEmail);
+    }
+
+    /** Accents dropped, lower case, only [a-z0-9] kept. */
+    private static String fold(String raw) {
+        return raw == null ? "" : Normalizer.normalize(raw.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     private boolean free(String candidate) {

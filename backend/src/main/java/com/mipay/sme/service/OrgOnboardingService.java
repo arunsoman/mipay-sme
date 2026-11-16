@@ -255,8 +255,11 @@ public class OrgOnboardingService {
      * One-call onboarding from the KYC wizard: the whole KYC document arrives at once, and the
      * org, its administrator, the KYC draft and the submission are written in ONE transaction:
      * any refusal (a KYC problem, a rank rule, a right) rolls everything back, so nothing is
-     * left half-created. The administrator is UBO Person 1 (name, phone, email); the login
-     * name is the legal business name + the MCC ({@link UsernamePolicy#forBusiness}).
+     * left half-created. Creating the KYC IS the onboarding: there is no separate "create the
+     * org, then fill its KYC" step. The system creates the administrator itself: its contact is
+     * UBO Person 1 (name, phone, email) and its login name is the Legal Business Name, or, when
+     * another business has that name, the name + the Business Registration / Corporate ID
+     * Number ({@link UsernamePolicy#forBusiness}; kyc-filed.md).
      */
     @Transactional
     public Map<String, Object> onboardWithKyc(Current.Principal caller, OrgType childType, Map<String, Object> kyc,
@@ -264,7 +267,6 @@ public class OrgOnboardingService {
                                               List<String> roleCeiling, List<String> roleDelegable) {
         if (kyc == null) throw new BadRequestException("KYC_INCOMPLETE", "the KYC document is required");
         Map<String, Object> business = section(kyc, "businessProfile");
-        Map<String, Object> operations = section(kyc, "operationalDetails");
         Object ubos = kyc.get("ubos");
         Map<String, Object> admin = ubos instanceof List<?> l && !l.isEmpty() && l.get(0) instanceof Map<?, ?> m
                 ? castMap(m) : Map.of();
@@ -274,7 +276,7 @@ public class OrgOnboardingService {
         if (phone == null) throw new BadRequestException("KYC_INCOMPLETE", "ubos[0].phoneNumber: is required (Person 1 is the administrator)");
         String adminName = str(admin.get("fullLegalName"));
         String email = str(admin.get("emailAddress"));
-        String username = usernamePolicy.forBusiness(legalName, str(operations.get("mcc")), adminName, email);
+        String username = usernamePolicy.forBusiness(legalName, str(business.get("registrationNumber")), adminName, email);
 
         Dtos.OrgDecisionResult created = submitOrg(caller, childType, new OrgSpec(legalName,
                 str(business.get("registrationNumber")), null, adminName, phone, username, email,

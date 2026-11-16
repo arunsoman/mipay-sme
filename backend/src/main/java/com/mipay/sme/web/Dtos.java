@@ -624,16 +624,6 @@ public final class Dtos {
                           String registrationNumber, java.time.Instant createdAt,
                           String kycStatus, String kycRiskRating, java.time.Instant kycNextReviewDate) { }
 
-    /** Generic submitOrg body (POST /api/orgs/me/children): type selects the profile.
-     *  rights.direct/ceiling are optional; defaults are the standard chain step / below(type). */
-    public record SubmitOrgRequest(@NotBlank String type, String name, String businessName,
-                                   String businessType, String registrationNumber, String ownerName,
-                                   @NotBlank String phone, String username, String email,
-                                   String bankName, String accountNumber, String accountHolder,
-                                   String licenceRef, String supplierType, String ownerIdNumber,
-                                   List<String> rightsDirect, List<String> rightsCeiling,
-                                   List<String> roleCeiling, List<String> roleDelegable) { }
-
     // ---- per-type onboarding request bodies (one controller per org type) ----
     public record OnboardManufacturerRequest(@NotBlank String name, @NotBlank String registrationNumber,
                                              @NotBlank String adminName, @NotBlank String phone,

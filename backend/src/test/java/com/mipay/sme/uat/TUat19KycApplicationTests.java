@@ -417,7 +417,7 @@ class TUat19KycApplicationTests extends UatSupport {
 
     @Test
     @Order(10)
-    @DisplayName("TC-KYCAPP-10 · the wizard's one call: org + UBO-1 admin (business name + MCC login, shared phone) + submitted KYC")
+    @DisplayName("TC-KYCAPP-10 · the one-step onboarding: org + system-made admin (login = business name, UBO-1 contact, shared phone) + submitted KYC")
     @SuppressWarnings("unchecked")
     void tc10_onboardWithKyc() throws Exception {
         Map<String, Object> doc = validDoc();
@@ -433,8 +433,7 @@ class TUat19KycApplicationTests extends UatSupport {
         assertThat(orgs.findById(orgId).orElseThrow().getName()).isEqualTo(legal);
         assertThat(open(orgId).getStatus()).isNotEqualTo(KycApplication.Status.DRAFT);
         String login = (String) r.get("adminUsername");
-        String folded = legal.toLowerCase().replaceAll("[^a-z0-9]", "");
-        assertThat(login).isEqualTo(folded.substring(0, Math.min(folded.length(), 24)) + "5199");
+        assertThat(login).isEqualTo(legal.toLowerCase().replaceAll("[^a-z0-9]", ""));
         User admin = users.findByUsername(login).orElseThrow();
         assertThat(admin.getOrgId()).isEqualTo(orgId);
         assertThat(admin.getPhone()).isEqualTo(supAdmin.getPhone());
@@ -457,6 +456,35 @@ class TUat19KycApplicationTests extends UatSupport {
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("at most 100");
         assertThat(orgs.count()).isEqualTo(before);
         assertThat(orgs.findAll()).noneMatch(o -> legal.equals(o.getName()));
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("TC-KYCAPP-12 · a second business with the same name gets name + registration number as its admin login")
+    @SuppressWarnings("unchecked")
+    void tc12_sameNameLoginTakesRegistrationNumber() throws Exception {
+        Map<String, Object> first = validDoc();
+        Map<String, Object> firstBusiness = (Map<String, Object>) first.get("businessProfile");
+        String legal = (String) firstBusiness.get("legalBusinessName");
+        ((List<Map<String, Object>>) first.get("bankAccounts")).get(0).put("beneficiaryName", legal);
+        Map<String, Object> r1 = orgOnboard.onboardWithKyc(principalOf(distAdmin), Enums.OrgType.SUPPLIER, first,
+                null, null, null, null, null);
+        String name = legal.toLowerCase().replaceAll("[^a-z0-9]", "");
+        assertThat(r1.get("adminUsername")).isEqualTo(name);
+
+        // another business, same legal name, its own registration number
+        Map<String, Object> second = validDoc();
+        Map<String, Object> secondBusiness = (Map<String, Object>) second.get("businessProfile");
+        secondBusiness.put("legalBusinessName", legal);
+        ((List<Map<String, Object>>) second.get("bankAccounts")).get(0).put("beneficiaryName", legal);
+        String reg = (String) secondBusiness.get("registrationNumber");
+        Map<String, Object> r2 = orgOnboard.onboardWithKyc(principalOf(distAdmin), Enums.OrgType.SUPPLIER, second,
+                null, null, null, null, null);
+
+        String login = (String) r2.get("adminUsername");
+        String folded = reg.toLowerCase().replaceAll("[^a-z0-9]", "");
+        assertThat(login).isEqualTo(name.substring(0, Math.min(name.length(), 31 - folded.length())) + "-" + folded);
+        assertThat(users.findByUsername(login).orElseThrow().getOrgId()).isEqualTo(r2.get("orgId"));
     }
 
     // ---------------------------------------------------------------- helpers
